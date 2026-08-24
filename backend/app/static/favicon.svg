@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="RDC Accounts Suite">
+  <defs>
+    <linearGradient id="surface" x1="8" y1="5" x2="57" y2="60" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#405CFF" />
+      <stop offset="0.52" stop-color="#6548F4" />
+      <stop offset="1" stop-color="#8D35DC" />
+    </linearGradient>
+    <linearGradient id="edge" x1="17" y1="13" x2="49" y2="53" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFFFFF" />
+      <stop offset="1" stop-color="#DDE7FF" />
+    </linearGradient>
+    <filter id="shadow" x="-30%" y="-30%" width="160%" height="170%">
+      <feDropShadow dx="0" dy="3" stdDeviation="3" flood-color="#18206A" flood-opacity="0.42" />
+    </filter>
+  </defs>
+
+  <rect width="64" height="64" rx="16" fill="url(#surface)" />
+  <path d="M9 14C18 5 34 3 48 9" fill="none" stroke="#FFFFFF" stroke-opacity="0.2" stroke-width="2" stroke-linecap="round" />
+
+  <g fill="none" stroke="url(#edge)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" filter="url(#shadow)">
+    <path d="M16 23 32 14l16 9-16 9-16-9Z" />
+    <path d="m16 31 16 9 16-9" />
+    <path d="m16 39 16 9 16-9" />
+  </g>
+
+  <circle cx="50" cy="14" r="3" fill="#72E6FF" />
+</svg>

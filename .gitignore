@@ -1,0 +1,33 @@
+# Python
+backend/venv/
+__pycache__/
+*.pyc
+backend/.pytest_cache/
+
+# Runtime data — DB working files, scratch uploads/outputs, backups, the
+# Fernet secret.key used to encrypt the stored email app-password. Contains
+# real production data and secrets; never committed.
+backend/data/
+backend/logs/
+
+# Oracle Instant Client — vendored locally for the Unapplied Receipts tool's
+# Oracle connection, but its DLLs are hundreds of MB (one alone is ~300MB,
+# over GitHub's 100MB per-file limit), so it's excluded from git entirely.
+# Download it separately on each machine that needs it — see README.
+instantclient/
+backend/instantclient/
+
+# Node / frontend
+frontend/node_modules/
+frontend/dist/
+
+# Secrets
+.env
+backend/.env
+
+# Authoritative reference mapping data used only during the desktop -> web
+# migration — real business data, kept local, never committed.
+sneha-existing-applications-mappings/
+
+# This tool's own analysis output, unrelated to the application.
+graphify-out/
