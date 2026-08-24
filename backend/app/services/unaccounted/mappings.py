@@ -47,16 +47,31 @@ from .models import (
 @contextmanager
 def _session_scope(db: "Session | None"):
     """Yield *db* unchanged if given; otherwise open + close a fresh
-    SessionLocal() for the duration of the `with` block."""
+    SessionLocal() for the duration of the `with` block.
+
+    Always commits on success, regardless of who opened the session: a
+    request-scoped session from a router's Depends(get_db) is never
+    committed by get_db() itself (see app/database.py's get_db - it only
+    closes, on the assumption each caller commits its own writes), and none
+    of this router's call sites called db.commit() after these functions
+    either. The result was a real, reproduced-in-production bug: every
+    /mappings/fix (and every Add/Edit/Delete/Restore/Purge on this tool's
+    3 mapping tables) returned 200 OK and looked saved, but the write was
+    silently rolled back the moment the request ended - so a report
+    regenerated right after "fixing" a mapping still showed it as missing,
+    forever, no matter how many times it was "fixed". Committing here,
+    unconditionally, is what every other app's mapping_store.py already
+    does (each of their upsert/delete functions calls db.commit() directly)
+    - only session *ownership* (who calls close()) should depend on who
+    opened it, not whether the write actually persists.
+    """
     owns = db is None
     session = db or SessionLocal()
     try:
         yield session
-        if owns:
-            session.commit()
+        session.commit()
     except Exception:
-        if owns:
-            session.rollback()
+        session.rollback()
         raise
     finally:
         if owns:

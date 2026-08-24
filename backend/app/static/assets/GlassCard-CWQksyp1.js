@@ -1,0 +1,1 @@
+import{j as o}from"./index-CTYzt-tf.js";import{c as a}from"./cn-CIbwvxhD.js";const n={none:"",sm:"p-4",md:"p-4 sm:p-5 lg:p-6",lg:"p-5 sm:p-6 lg:p-8"};function t({children:s,className:m,padding:r="md",...p}){return o.jsx("div",{className:a("glass premium-card motion-surface rounded-[1.25rem]",n[r],m),...p,children:s})}export{t as G};

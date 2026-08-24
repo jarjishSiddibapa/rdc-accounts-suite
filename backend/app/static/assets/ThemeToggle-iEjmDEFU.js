@@ -1,0 +1,21 @@
+import{d as r,u as h,b as m,r as n,g as u,j as a}from"./index-CTYzt-tf.js";import{A as p,m as f,c as y}from"./cn-CIbwvxhD.js";/**
+ * @license lucide-react v0.469.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */const v=r("Layers",[["path",{d:"M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z",key:"zw3jo"}],["path",{d:"M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12",key:"1wduqc"}],["path",{d:"M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17",key:"kqbvx6"}]]);/**
+ * @license lucide-react v0.469.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */const k=r("Moon",[["path",{d:"M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z",key:"a7tn18"}]]);/**
+ * @license lucide-react v0.469.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */const M=r("ShieldCheck",[["path",{d:"M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z",key:"oel41y"}],["path",{d:"m9 12 2 2 4-4",key:"dzmm74"}]]);/**
+ * @license lucide-react v0.469.0 - ISC
+ *
+ * This source code is licensed under the ISC license.
+ * See the LICENSE file in the root directory of this source tree.
+ */const b=r("Sun",[["circle",{cx:"12",cy:"12",r:"4",key:"4exip2"}],["path",{d:"M12 2v2",key:"tus03m"}],["path",{d:"M12 20v2",key:"1lh1kg"}],["path",{d:"m4.93 4.93 1.41 1.41",key:"149t6j"}],["path",{d:"m17.66 17.66 1.41 1.41",key:"ptbguv"}],["path",{d:"M2 12h2",key:"1t8f8n"}],["path",{d:"M20 12h2",key:"1q8mjw"}],["path",{d:"m6.34 17.66-1.41 1.41",key:"1m8zz5"}],["path",{d:"m19.07 4.93-1.41 1.41",key:"1shlcs"}]]),g={"/tools/erp-converter":"erp-to-excel","/tools/rdc-payables":"rdc-payables","/tools/unaccounted-transactions":"unaccounted","/tools/trial-balance":"trial-balance","/tools/gstr2b-combinator":"gstr2b-combinator","/tools/unapplied-receipts":"unapplied-receipts","/tools/ultrafine-balance-confirmation":"ultrafine-balance-confirmation","/tools/ultrafine-payment-reminder":"ultrafine-payment-reminder"};function T(){const{user:e}=h(),{pathname:t}=m(),[o,s]=n.useState({});n.useEffect(()=>{if(!e)return;let l=!1;return u("/admin/apps/credits").then(d=>{l||s(d)}).catch(()=>{}),()=>{l=!0}},[e]);const c=g[t],i=c?o[c]:null;return a.jsxs("footer",{className:"px-4 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))] text-center text-[11px] font-medium tracking-wide text-ink-faint",children:["RDC Accounts Suite · ",i?`Made by Jarjish & ${i}`:"Made with ❤️ by Jarjish"]})}function x(){if(typeof window>"u")return"light";const e=window.localStorage.getItem("theme");return e==="dark"||e==="light"?e:"light"}function w(){const[e,t]=n.useState(x);n.useEffect(()=>{document.documentElement.setAttribute("data-theme",e),window.localStorage.setItem("theme",e)},[e]);const o=n.useCallback(()=>{t(s=>s==="dark"?"light":"dark")},[]);return{theme:e,setTheme:t,toggleTheme:o}}function A({className:e}){const{theme:t,toggleTheme:o}=w();return a.jsx("button",{onClick:o,"aria-label":t==="dark"?"Switch to light mode":"Switch to dark mode",className:y("relative grid h-11 w-11 place-items-center overflow-hidden rounded-xl border border-border bg-surface/55 text-ink-dim shadow-[inset_0_1px_0_var(--surface-highlight)] transition duration-200 hover:-translate-y-0.5 hover:border-accent/40 hover:bg-surface hover:text-accent",e),children:a.jsx(p,{mode:"wait",initial:!1,children:a.jsx(f.span,{initial:{rotate:-90,opacity:0,scale:.5},animate:{rotate:0,opacity:1,scale:1},exit:{rotate:90,opacity:0,scale:.5},transition:{duration:.25,ease:"easeInOut"},className:"grid place-items-center",children:t==="dark"?a.jsx(k,{className:"h-4 w-4"}):a.jsx(b,{className:"h-4 w-4"})},t)})})}export{T as F,v as L,M as S,A as T};

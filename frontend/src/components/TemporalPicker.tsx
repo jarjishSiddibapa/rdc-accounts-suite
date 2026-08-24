@@ -1,5 +1,6 @@
 import type { InputHTMLAttributes, SelectHTMLAttributes } from 'react'
 import { cn } from '@/utils/cn'
+import { INDIAN_LOCALE } from '@/lib/regional'
 
 type NativeTemporalPickerProps = Omit<
   InputHTMLAttributes<HTMLInputElement>,
@@ -18,6 +19,13 @@ function NativeTemporalPicker({
   return (
     <input
       {...props}
+      // Chromium picks the native date/month picker's displayed format
+      // (day/month/year order) from this element's own lang attribute -
+      // without it, it falls back to the OS locale, which on a US-locale
+      // Windows install renders MM/DD/YYYY instead of India's DD/MM/YYYY.
+      // The underlying value stored/submitted is always ISO (YYYY-MM-DD)
+      // either way; only the on-screen display order changes.
+      lang={INDIAN_LOCALE}
       type={props.type}
       value={value}
       onChange={(event) => onValueChange(event.target.value)}
