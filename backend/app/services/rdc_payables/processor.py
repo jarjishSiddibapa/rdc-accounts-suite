@@ -209,6 +209,27 @@ def _reduce_classified_rows(classified):
 
 _RE_TR_START = re.compile(r"<tr[^>]*>")
 
+# Worker count is capped by RAM, not just CPU cores: each worker process
+# pays ~250MB to import pandas/numpy/openpyxl/xlsxwriter and hold its slice
+# of the report, and the deployment machine (4-core i3-10100, 8GB RAM) only
+# guarantees ~1.5GB free at the low end once Windows, the main process
+# (which already holds pandas itself), and the job pool's other concurrent
+# work (see JOB_POOL_WORKERS in jobs.py) are accounted for. Blindly using
+# os.cpu_count() risked spawning more workers than the box can actually
+# hold in memory at once. Override via RDC_PAYABLES_POOL_WORKERS in .env.
+_MIN_AVAILABLE_RAM_MB = 1536
+_RESERVED_FOR_MAIN_PROCESS_MB = 400
+_PER_WORKER_RAM_MB = 250
+
+
+def _default_pool_workers():
+    cpu_cap = os.cpu_count() or 1
+    ram_cap = max(1, (_MIN_AVAILABLE_RAM_MB - _RESERVED_FOR_MAIN_PROCESS_MB) // _PER_WORKER_RAM_MB)
+    return max(1, min(cpu_cap, ram_cap))
+
+
+_POOL_WORKERS = int(os.environ.get("RDC_PAYABLES_POOL_WORKERS", str(_default_pool_workers())))
+
 # Lazily-created worker pool, reused for the lifetime of the process. Worker
 # processes each pay the cost of importing pandas/numpy/openpyxl/xlsxwriter
 # on startup (well over a second combined) — paying that once per app
@@ -220,7 +241,7 @@ _POOL = None
 def _get_pool():
     global _POOL
     if _POOL is None:
-        _POOL = ProcessPoolExecutor(max_workers=os.cpu_count() or 1)
+        _POOL = ProcessPoolExecutor(max_workers=_POOL_WORKERS)
         atexit.register(_POOL.shutdown, wait=False, cancel_futures=True)
     return _POOL
 
