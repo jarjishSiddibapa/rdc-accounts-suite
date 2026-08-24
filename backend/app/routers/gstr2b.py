@@ -78,12 +78,15 @@ class _LogQueue:
 
 # ── /combine job pipeline ──────────────────────────────────────────────────
 
-def _run_combine_job(file_paths: list[str], output_path: str, progress_cb=None) -> dict:
+def _run_combine_job(file_pairs: list[tuple[str, str]], output_path: str, progress_cb=None) -> dict:
     """Runs in the background job pool (a plain thread, not tied to any
     request). Opens its own short-lived DB session via SessionLocal() rather
     than reusing a FastAPI-injected one: by the time this function actually
     runs, the request that queued the job has already returned and its
-    Depends(get_db) session has been closed."""
+    Depends(get_db) session has been closed.
+
+    file_pairs is (original_filename, saved_path) - see combiner.run_combine's
+    docstring for why the original name has to survive to here."""
     log_q = _LogQueue(progress_cb)
 
     db = SessionLocal()
@@ -92,9 +95,9 @@ def _run_combine_job(file_paths: list[str], output_path: str, progress_cb=None) 
     finally:
         db.close()
 
-    result = combiner.run_combine(file_paths, output_path, state_codes, log_q)
+    result = combiner.run_combine(file_pairs, output_path, state_codes, log_q)
 
-    for path in file_paths:
+    for _, path in file_pairs:
         try:
             Path(path).unlink(missing_ok=True)
         except OSError:
@@ -116,18 +119,19 @@ async def submit_combine(
     if not files:
         raise HTTPException(status_code=400, detail="No files were uploaded")
 
-    input_paths = []
+    file_pairs: list[tuple[str, str]] = []
     for upload in files:
         input_path = await save_upload(upload, SCRATCH_DIR)
-        input_paths.append(str(input_path))
+        file_pairs.append((upload.filename or "", str(input_path)))
 
     # Collision-safe output name: derive from the first saved upload's own
     # uuid4 prefix (already unique per save_upload).
-    output_path = Path(input_paths[0]).with_name(f"{Path(input_paths[0]).stem}_combined.xlsx")
+    first_saved = file_pairs[0][1]
+    output_path = Path(first_saved).with_name(f"{Path(first_saved).stem}_combined.xlsx")
 
     job_id = submit_job(
         _run_combine_job,
-        input_paths,
+        file_pairs,
         str(output_path),
         owner_id=user.id,
     )

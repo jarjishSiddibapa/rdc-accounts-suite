@@ -87,6 +87,31 @@ class OracleConfig:
         return f"{self.host}:{self.port}/{self.service_name}"
 
 
+_ORACLE_CONNECT_ERROR = (
+    "Could not connect to the Oracle ERP database - this isn't an application "
+    "bug. Check that the ERP server is reachable from this network and that "
+    "ORACLE_HOST/ORACLE_SERVICE_NAME/ORACLE_USER/ORACLE_PASSWORD in backend/.env "
+    "are correct, then try again."
+)
+
+
+def _connect_oracle(oracle_cfg: "OracleConfig"):
+    """oracledb.connect(), but a connection-level failure (host unreachable,
+    bad credentials, listener down) raises a message that says plainly
+    "Oracle is unreachable" instead of a cryptic driver string - otherwise
+    this shows up in the job's error field looking like the application
+    itself is broken. Catches bare Exception, not just oracledb.Error: a
+    DNS/host-resolution failure surfaces as a plain socket.gaierror in
+    thin mode, not an oracledb exception - verified by triggering a real
+    failed connection against a nonexistent host."""
+    try:
+        return oracledb.connect(
+            user=oracle_cfg.user, password=oracle_cfg.password, dsn=oracle_cfg.dsn
+        )
+    except Exception as exc:
+        raise RuntimeError(_ORACLE_CONNECT_ERROR) from exc
+
+
 def _init_oracle_client(instant_client_dir: str) -> None:
     """Same best-effort init as the original: init_oracle_client() may only
     be called once per process and raises on subsequent calls (or if thick
@@ -277,7 +302,7 @@ def _fetch_locations(receipts: list, log_q, oracle_cfg: OracleConfig,
 
     log_q.put(("info", f"Sample receipts sent to ERP: {receipts[:3]}"))
 
-    conn    = oracledb.connect(user=oracle_cfg.user, password=oracle_cfg.password, dsn=oracle_cfg.dsn)
+    conn    = _connect_oracle(oracle_cfg)
     loc_map = {}   # receipt_number → mapped location string
     try:
         cur       = conn.cursor()
@@ -316,7 +341,7 @@ def _fetch_comments(receipts: list, log_q, oracle_cfg: OracleConfig) -> dict:
     Returns {receipt_number: comments_string}."""
     _init_oracle_client(oracle_cfg.instant_client_dir)
 
-    conn         = oracledb.connect(user=oracle_cfg.user, password=oracle_cfg.password, dsn=oracle_cfg.dsn)
+    conn         = _connect_oracle(oracle_cfg)
     comments_map = {}
     try:
         cur     = conn.cursor()
@@ -350,11 +375,20 @@ def _fetch_comments(receipts: list, log_q, oracle_cfg: OracleConfig) -> dict:
 def process_report(input_path: str, log_q, as_on_date: _dt.date = None, *,
                     oracle_cfg: OracleConfig, supplier_site_map: dict) -> tuple:
     """
-    Returns (df, total_input_rows, unidentified_removed_count, df_unidentified).
+    Returns (df, total_input_rows, unidentified_removed_count, df_unidentified, erp_ok).
 
     ``supplier_site_map`` replaces the original's hardcoded ``LOCATION_MAP``
     (raw Oracle ``global_attribute10`` value → display Location) — load it
     via ``mapping_store.load_all()``.
+
+    ``erp_ok`` is False when the Oracle ERP lookup itself failed (as
+    opposed to succeeding but returning no match for a given receipt) - in
+    that case every row's Location comes back blank, which also collapses
+    the Summary sheet's Location x Ageing Bucket pivot to a single blank
+    row (see write_formatted_excel). The caller must surface erp_ok to the
+    user as a clear "Oracle was unreachable" signal, not just leave it in
+    the log - a report with every Location blank looks like the
+    application is broken, not like an ERP connectivity issue.
     """
     if as_on_date is None:
         as_on_date = _dt.date.today()
@@ -485,7 +519,7 @@ def process_report(input_path: str, log_q, as_on_date: _dt.date = None, *,
         log_q.put(("ok", f"Ageing buckets computed (as on {as_on_date.strftime('%d-%b-%Y')})"))
 
     log_q.put(("ok" if erp_ok else "warn", "Report processing complete"))
-    return df, before, removed, df_unidentified
+    return df, before, removed, df_unidentified, erp_ok
 
 
 def classify_advance_customers(df: pd.DataFrame, ageing_path: str, log_q) -> tuple:

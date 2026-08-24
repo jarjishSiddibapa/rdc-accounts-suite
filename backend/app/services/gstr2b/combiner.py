@@ -161,7 +161,7 @@ def _parse_filename(fp: Path) -> tuple[str, int]:
 
 
 def run_combine(
-    file_paths: list[Path | str],
+    files: list[tuple[str, str]],
     output_path: Path | str,
     state_codes: dict[int, str],
     log_q,          # object with .put((tag: str, message: str)) -> None
@@ -169,14 +169,24 @@ def run_combine(
     """
     Combine the given GSTR-2B .xlsx files into a single workbook.
 
+    `files` is a list of (original_filename, saved_path) pairs - the
+    caller (router) must pass the filename the user actually uploaded, not
+    the uuid-prefixed name save_upload() writes to disk (mirrors
+    ultrafine_balance_confirmation/processor.py's build_pdf_lookup).
+    _parse_filename() reads MMYYYY_SSGSTIN_... out of the *original* name;
+    passing the on-disk name here made every file fail to parse (the uuid
+    prefix isn't a valid "01".."12" month) and silently produced an empty
+    workbook with no error, since a zero-files-parsed run was never treated
+    as a failure.
+
     `state_codes` resolves the 2-digit state code embedded in each
     filename's GSTIN segment to a state name; any code missing from it
     falls back to the original desktop app's exact
     f"Unknown state ({sc})" string (including for a code the user has since
     removed via the state-code CRUD UI).
     """
-    files = sorted(Path(p) for p in file_paths)
-    if not files:
+    pairs = sorted(files, key=lambda pair: pair[0])
+    if not pairs:
         raise FileNotFoundError("No .xlsx files were uploaded")
 
     frames: dict[str, list[pd.DataFrame]] = {t: [] for t in TARGET_TABS}
@@ -184,18 +194,19 @@ def run_combine(
     n_files = 0
     unresolved_codes: set[int] = set()
 
-    for fp in files:
+    for original_name, saved_path in pairs:
+        fp = Path(saved_path)
         try:
-            month_year, sc = _parse_filename(fp)
+            month_year, sc = _parse_filename(Path(original_name))
         except Exception as exc:
-            log_q.put(("warn", f"Skipped {fp.name}  (cannot parse: {exc})"))
+            log_q.put(("warn", f"Skipped {original_name}  (cannot parse: {exc})"))
             continue
 
         state = state_codes.get(sc, f"Unknown state ({sc})")
         if sc not in state_codes:
             unresolved_codes.add(sc)
             log_q.put(("warn", f"  State code {sc} has no mapping - using \"{state}\" as a placeholder"))
-        log_q.put(("info", f"Processing  {fp.name}"))
+        log_q.put(("info", f"Processing  {original_name}"))
         log_q.put(("dim", f"  State: {sc} - {state}   Period: {month_year}"))
         n_files += 1
 
@@ -213,6 +224,13 @@ def run_combine(
                     log_q.put(("dim", f"  [{tab}]  (empty)"))
             except Exception as exc:
                 log_q.put(("error", f"  [{tab}]  ERROR - {exc}"))
+
+    if n_files == 0:
+        raise ValueError(
+            "None of the uploaded files could be parsed as GSTR-2B exports "
+            "(expected filename pattern MMYYYY_SSGSTIN_GSTR2B_DDMMYYYY.xlsx) "
+            "- see the log above for why each file was skipped."
+        )
 
     log_q.put(("info", "Writing output workbook..."))
     wb = Workbook()

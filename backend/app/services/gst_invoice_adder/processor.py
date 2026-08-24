@@ -422,13 +422,29 @@ def insert_gst_column(wb_path: str, output_path: str, gst_map: dict,
 
 # ── Oracle fetch: pooled + parallel (verbatim logic) ──────────────────────────
 
+_ORACLE_CONNECT_ERROR = (
+    "Could not connect to the Oracle ERP database - this isn't an application "
+    "bug. Check that the ERP server is reachable from this network and that "
+    "ORACLE_HOST/ORACLE_SERVICE_NAME/ORACLE_USER/ORACLE_PASSWORD in backend/.env "
+    "are correct, then try again."
+)
+
+
 def _make_pool(oracle_cfg: OracleConfig, log_q):
     log_q.put(("info", f"Creating connection pool (min={POOL_MIN}, max={POOL_MAX})..."))
-    pool = oracledb.create_pool(
-        user=oracle_cfg.user, password=oracle_cfg.password, dsn=oracle_cfg.dsn,
-        min=POOL_MIN, max=POOL_MAX, increment=1,
-        timeout=30,
-    )
+    try:
+        pool = oracledb.create_pool(
+            user=oracle_cfg.user, password=oracle_cfg.password, dsn=oracle_cfg.dsn,
+            min=POOL_MIN, max=POOL_MAX, increment=1,
+            timeout=30,
+        )
+    except Exception as exc:
+        # Catches bare Exception, not just oracledb.Error: a DNS/host
+        # resolution failure surfaces as a plain socket.gaierror in thin
+        # mode, not an oracledb exception (verified against a real failed
+        # connection). A cryptic driver string here reads as "the
+        # application is broken" - say plainly that Oracle is unreachable.
+        raise RuntimeError(_ORACLE_CONNECT_ERROR) from exc
     log_q.put(("ok", "Pool ready - connections established"))
     return pool
 
@@ -454,9 +470,14 @@ def _fetch_batch_pooled(pairs: list, pool, log_q) -> dict:
                     log_q.put(("err", f"inv={inv_no!r} date={trx_date!r} -> {e}"))
             cursor.close()
     except Exception as conn_err:
+        # pool.acquire() itself failed (ERP dropped mid-run, network blip,
+        # DNS failure) - distinct from a single bad row above. Let this
+        # propagate instead of blank-filling the batch: silently returning
+        # "" for every pair here looks identical to "no GST number found",
+        # which hides a real connectivity failure behind what looks like a
+        # normal empty result.
         log_q.put(("err", f"Pool error: {conn_err}"))
-        for p in pairs:
-            results.setdefault(p, "")
+        raise
     return results
 
 
@@ -471,6 +492,7 @@ def _fetch_all_parallel(pairs_unique: list, pool, log_q, progress_cb) -> dict:
     merged: dict = {}
     done = 0
     lock = Lock()
+    conn_failures = 0
 
     with ThreadPoolExecutor(max_workers=THREAD_WORKERS) as executor:
         futures = {executor.submit(_fetch_batch_pooled, b, pool, log_q): b for b in batches}
@@ -484,7 +506,19 @@ def _fetch_all_parallel(pairs_unique: list, pool, log_q, progress_cb) -> dict:
                     pct = 0.10 + 0.78 * (done / max(n, 1))
                     progress_cb(min(pct, 0.88), f"Fetched {done:,} / {n:,} GST numbers")
             except Exception as e:
+                # _fetch_batch_pooled only ever propagates here on a
+                # pool.acquire()-level failure - every per-row query error is
+                # already caught and blank-filled inside it.
+                conn_failures += 1
                 log_q.put(("err", f"Future error: {e}"))
+
+    # Every batch failed to even acquire a connection - Oracle went
+    # unreachable mid-run. Raise instead of returning a "successful" job
+    # whose report has a GST Number column that's blank on every row, which
+    # reads as the application failing to do its job rather than as Oracle
+    # being down.
+    if batches and conn_failures == len(batches):
+        raise RuntimeError(_ORACLE_CONNECT_ERROR)
 
     return merged
 

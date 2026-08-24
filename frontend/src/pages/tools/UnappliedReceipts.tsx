@@ -38,6 +38,7 @@ interface ProcessResult {
   main_row_count: number
   advance_row_count: number
   validation_warnings: ValidationWarning[]
+  oracle_ok: boolean
   log: [string, string][]
 }
 
@@ -569,6 +570,21 @@ export default function UnappliedReceipts() {
                 setSubmitting(false)
               }}
             />
+          )}
+
+          {result && !result.oracle_ok && (
+            <div className="flex items-start gap-3 rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-600 dark:text-red-300">
+              <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
+              <div>
+                <p className="font-medium">Oracle ERP connection did not complete</p>
+                <p className="mt-1 text-red-600/90 dark:text-red-300/90">
+                  The report below was generated, but Location, Sales Person context and the
+                  Summary breakdown are blank for every row because Oracle ERP could not be
+                  reached during this run — this is not an application problem. Check the ERP
+                  server / connection settings and reprocess once it's reachable.
+                </p>
+              </div>
+            </div>
           )}
 
           {result && (

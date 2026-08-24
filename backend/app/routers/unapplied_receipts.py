@@ -123,7 +123,7 @@ def _run_process_job(input_path: str, ageing_path: str, output_path: str,
 
     if progress_cb:
         progress_cb(0.08, "Reading register and fetching Oracle ERP data...")
-    df, total_input_rows, unidentified_removed_count, df_unidentified = processor.process_report(
+    df, total_input_rows, unidentified_removed_count, df_unidentified, erp_ok = processor.process_report(
         input_path, log_q, as_on_date,
         oracle_cfg=_ORACLE_CFG, supplier_site_map=supplier_site_map,
     )
@@ -170,6 +170,7 @@ def _run_process_job(input_path: str, ageing_path: str, output_path: str,
         "main_row_count": len(df_main),
         "advance_row_count": len(df_advance),
         "validation_warnings": validation_warnings,
+        "oracle_ok": erp_ok,
         "log": log_q.messages,
     }
 
