@@ -182,6 +182,7 @@ def run_combine(
     frames: dict[str, list[pd.DataFrame]] = {t: [] for t in TARGET_TABS}
     counts: dict[str, int]                = {t: 0  for t in TARGET_TABS}
     n_files = 0
+    unresolved_codes: set[int] = set()
 
     for fp in files:
         try:
@@ -191,6 +192,9 @@ def run_combine(
             continue
 
         state = state_codes.get(sc, f"Unknown state ({sc})")
+        if sc not in state_codes:
+            unresolved_codes.add(sc)
+            log_q.put(("warn", f"  State code {sc} has no mapping - using \"{state}\" as a placeholder"))
         log_q.put(("info", f"Processing  {fp.name}"))
         log_q.put(("dim", f"  State: {sc} - {state}   Period: {month_year}"))
         n_files += 1
@@ -224,4 +228,9 @@ def run_combine(
     wb.save(output_path)
     log_q.put(("success", f"Saved  ->  {output_path}"))
 
-    return {"files": n_files, "counts": counts, "output_path": str(output_path)}
+    return {
+        "files": n_files,
+        "counts": counts,
+        "output_path": str(output_path),
+        "unresolved_state_codes": sorted(unresolved_codes),
+    }

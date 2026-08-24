@@ -188,11 +188,14 @@ def process_report(columns, data_rows, loc_name_map, region_incharge_map,
 
     Returns
     -------
-    (pd.DataFrame, missing_codes) where missing_codes is the set of distinct
-    Location Codes that end up with no Region — either the code itself has
-    no Location Name mapping, or its Location Name has no Region mapping.
-    Either way it's the same fix from the user's point of view: resolve it
-    via POST /mappings/fix or the Manage Mappings tables.
+    (pd.DataFrame, missing_codes, missing_account_ho) where missing_codes is
+    the set of distinct Location Codes that end up with no Region — either
+    the code itself has no Location Name mapping, or its Location Name has
+    no Region mapping. Either way it's the same fix from the user's point of
+    view: resolve it via POST /mappings/fix or the Manage Mappings tables.
+    missing_account_ho is the set of distinct Account Codes with no entry in
+    account_ho_map — previously left as a silent blank in the output column
+    with no way for the user to notice or fix it.
     """
     df = pd.DataFrame(data_rows, columns=columns)
 
@@ -217,9 +220,12 @@ def process_report(columns, data_rows, loc_name_map, region_incharge_map,
     df["Region"]             = regions
     df["Accounts Incharge"] = incharges
     df["Head Office Assigned Person"] = df["Account Code"].map(account_ho_map).fillna("")
+    missing_account_ho = {
+        code for code in df["Account Code"].unique() if code and code not in account_ho_map
+    }
 
     df.reset_index(drop=True, inplace=True)
-    return df, missing_codes
+    return df, missing_codes, missing_account_ho
 
 
 # ---------------------------------------------------------------------------

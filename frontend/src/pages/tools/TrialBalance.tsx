@@ -39,6 +39,7 @@ interface ProcessResult {
   output_path: string
   download_filename: string
   missing_codes: string[]
+  missing_account_ho: string[]
   row_count: number
   raw_row_count: number
   matched_count: number
@@ -183,6 +184,118 @@ function MissingCodesFix({
         pageSize={pagination.pageSize}
         totalItems={pagination.totalItems}
         itemLabel="unmapped location codes"
+        onPageChange={pagination.setPage}
+        onPageSizeChange={pagination.setPageSize}
+      />
+      <div className="flex justify-stretch sm:justify-end">
+        <Button
+          variant="primary"
+          icon={<RefreshCw className="h-4 w-4" />}
+          disabled={!allFixed}
+          loading={regenerating}
+          onClick={onRegenerate}
+        >
+          Regenerate report
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+// ── missing-mapping fix flow (Account Code -> Head Office Assigned Person) ──
+
+function MissingAccountHoFix({
+  codes,
+  knownHoPersons,
+  onRegenerate,
+  regenerating,
+}: {
+  codes: string[]
+  knownHoPersons: string[]
+  onRegenerate: () => void
+  regenerating: boolean
+}) {
+  const [forms, setForms] = useState<Record<string, string>>({})
+  const [fixed, setFixed] = useState<Record<string, boolean>>({})
+  const [fixing, setFixing] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const pagination = usePagination(codes, 10)
+
+  async function handleFix(code: string) {
+    const person = forms[code]?.trim()
+    if (!person) return
+    setFixing(code)
+    setError(null)
+    try {
+      await post(`${BASE}/mappings/account-ho`, { account_code: code, ho_person: person })
+      setFixed((prev) => ({ ...prev, [code]: true }))
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Failed to save mapping fix.')
+    } finally {
+      setFixing(null)
+    }
+  }
+
+  const allFixed = codes.length > 0 && codes.every((c) => fixed[c])
+
+  return (
+    <div className="flex flex-col gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
+      <div className="flex items-center gap-2 text-amber-600">
+        <AlertTriangle className="h-4 w-4" />
+        <h4 className="font-display text-sm font-semibold">
+          Missing mappings ({formatIndianNumber(codes.length)} account code{codes.length === 1 ? '' : 's'})
+        </h4>
+      </div>
+      <p className="text-sm text-ink-dim">
+        These Account Codes had no Head Office Assigned Person mapped — the column was left
+        blank in the output. Enter a name for each, then regenerate the report.
+      </p>
+      {error && <p className="text-sm text-red-500">{error}</p>}
+      <datalist id="trial-balance-known-ho-persons">
+        {knownHoPersons.map((p) => (
+          <option key={p} value={p} />
+        ))}
+      </datalist>
+      <div className="flex flex-col gap-2">
+        {pagination.pagedItems.map((code) => (
+          <div
+            key={code}
+            className="subpanel flex flex-col items-stretch gap-2 px-3 py-3 sm:flex-row sm:flex-wrap sm:items-center sm:py-2"
+          >
+            <span className="min-w-0 flex-1 truncate text-sm font-medium text-ink sm:min-w-[8rem]">
+              {code}
+            </span>
+            <input
+              list="trial-balance-known-ho-persons"
+              placeholder="Head Office Assigned Person"
+              value={forms[code] ?? ''}
+              disabled={fixed[code]}
+              onChange={(e) => setForms((prev) => ({ ...prev, [code]: e.target.value }))}
+              className="field-control w-full py-1.5 text-sm disabled:opacity-50 sm:min-h-9 sm:w-56"
+            />
+            {fixed[code] ? (
+              <span className="inline-flex items-center gap-1 text-sm text-emerald-500">
+                <CheckCircle2 className="h-4 w-4" /> Saved
+              </span>
+            ) : (
+              <Button
+                variant="secondary"
+                loading={fixing === code}
+                disabled={!forms[code]?.trim()}
+                onClick={() => void handleFix(code)}
+              >
+                Fix
+              </Button>
+            )}
+          </div>
+        ))}
+      </div>
+      <Pagination
+        page={pagination.page}
+        pageCount={pagination.pageCount}
+        pageSize={pagination.pageSize}
+        totalItems={pagination.totalItems}
+        itemLabel="unmapped account codes"
         onPageChange={pagination.setPage}
         onPageSizeChange={pagination.setPageSize}
       />
@@ -353,6 +466,7 @@ export default function TrialBalance() {
   const [activityLog, setActivityLog] = useState<string[]>([])
 
   const [knownRegions, setKnownRegions] = useState<string[]>([])
+  const [knownHoPersons, setKnownHoPersons] = useState<string[]>([])
 
   const [activeMappingTab, setActiveMappingTab] = useState(0)
 
@@ -364,6 +478,11 @@ export default function TrialBalance() {
       .then((rows) => setKnownRegions(rows.map((r) => r.region).filter(Boolean)))
       .catch(() => {
         // Non-critical: the region input just falls back to free text.
+      })
+    void get<MappingRow[]>(`${BASE}/mappings/account-ho`)
+      .then((rows) => setKnownHoPersons([...new Set(rows.map((r) => r.ho_person).filter(Boolean))]))
+      .catch(() => {
+        // Non-critical: the HO person input just falls back to free text.
       })
   }, [])
 
@@ -441,6 +560,7 @@ export default function TrialBalance() {
   }
 
   const missingCodes = result?.missing_codes ?? []
+  const missingAccountHo = result?.missing_account_ho ?? []
 
   return (
     <AppShell title="Trial Balance — Location-wise Report">
@@ -613,6 +733,15 @@ export default function TrialBalance() {
                 <MissingCodesFix
                   codes={missingCodes}
                   knownRegions={knownRegions}
+                  regenerating={submitting}
+                  onRegenerate={() => void handleProcess()}
+                />
+              )}
+
+              {missingAccountHo.length > 0 && (
+                <MissingAccountHoFix
+                  codes={missingAccountHo}
+                  knownHoPersons={knownHoPersons}
                   regenerating={submitting}
                   onRegenerate={() => void handleProcess()}
                 />

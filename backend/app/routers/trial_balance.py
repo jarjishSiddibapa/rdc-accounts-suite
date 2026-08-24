@@ -186,13 +186,15 @@ def _run_process_job(input_path: str, columns: list, rows: list,
 
     if progress_cb:
         progress_cb(0.35, "Deriving Location Code and cascading mappings...")
-    df, missing_codes = processor.process_report(
+    df, missing_codes, missing_account_ho = processor.process_report(
         columns, rows, loc_name_map, region_incharge_map, name_region_map, account_ho_map
     )
     add_log("OK", f"Output rows: {format_indian_number(len(df))}")
 
     if missing_codes:
         add_log("WARN", f"Unmapped location codes: {format_indian_number(len(missing_codes))}")
+    if missing_account_ho:
+        add_log("WARN", f"Unmapped account HO codes: {format_indian_number(len(missing_account_ho))}")
 
     matched_count = int((df["Region"] != "").sum())
     unmatched_count = len(df) - matched_count
@@ -217,6 +219,7 @@ def _run_process_job(input_path: str, columns: list, rows: list,
         "output_path": str(output_path),
         "download_filename": filename,
         "missing_codes": sorted(missing_codes, key=lambda c: (len(c), c)),
+        "missing_account_ho": sorted(missing_account_ho, key=lambda c: (len(c), c)),
         "row_count": len(df),
         "raw_row_count": raw_row_count,
         "matched_count": matched_count,
