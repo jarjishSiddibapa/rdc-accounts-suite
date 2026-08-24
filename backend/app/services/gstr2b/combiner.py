@@ -106,6 +106,49 @@ def _build_col_names(raw: pd.DataFrame, header_rows: list[int]) -> list[str]:
     return names
 
 
+_CURRENCY_MARKER = "₹"  # the GST portal marks every monetary column with a "(₹)" suffix
+
+
+def _coerce_currency_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """The raw sheet is read with dtype=str so the multi-row header parsing
+    in _build_col_names() stays uniform - but that also turns every DATA
+    cell into a string, including the real amount columns (Invoice Value,
+    Taxable Value, Integrated/Central/State/Cess Tax). Those then land in
+    the output as text - can't be summed, shows left-aligned in Excel - a
+    bug confirmed present in the original desktop app's output too (not a
+    web-porting regression), reported by a user and fixed here for both
+    paths since this port now diverges from the original on purpose.
+
+    The GST portal itself marks every monetary column with a "(₹)" suffix
+    in its own header text (preserved verbatim through _build_col_names) -
+    a precise, low-risk signal for which columns are genuinely numeric,
+    unlike guessing from position or a fuzzy name match that could
+    misfire on an identifier column (e.g. Invoice Number can be purely
+    numeric text and must NOT be converted - it has no ₹ in its header,
+    so this leaves it untouched).
+
+    Column-wide, not per-cell: if even one non-blank value in a ₹ column
+    fails to parse as numeric, the whole column is left as text rather
+    than risk silently blanking a malformed cell.
+    """
+    for col in df.columns:
+        if _CURRENCY_MARKER not in str(col):
+            continue
+        series = df[col]
+        non_blank = series.notna() & (series.astype(str).str.strip() != "")
+        if not non_blank.any():
+            continue
+        numeric = pd.to_numeric(series[non_blank], errors="coerce")
+        if numeric.isna().any():
+            continue  # something in this "money" column didn't parse - leave the whole column as text
+        # dtype=str above produces pandas' strict StringDtype column, which
+        # raises on assigning a non-string value via .loc - cast to plain
+        # object dtype first so the numeric values can actually be written.
+        df[col] = df[col].astype(object)
+        df.loc[non_blank, col] = numeric
+    return df
+
+
 def _read_tab(fp: Path, tab: str) -> pd.DataFrame:
     """Read one tab from a GSTR-2B file, returning clean data rows only."""
     cfg  = TAB_CFG[tab]
@@ -116,7 +159,8 @@ def _read_tab(fp: Path, tab: str) -> pd.DataFrame:
         return pd.DataFrame(columns=cols)
     df = raw.iloc[ds:].copy()
     df.columns = cols
-    return df.dropna(how="all").reset_index(drop=True)
+    df = df.dropna(how="all").reset_index(drop=True)
+    return _coerce_currency_columns(df)
 
 
 def _write_sheet(ws, df: pd.DataFrame) -> None:

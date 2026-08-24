@@ -31,13 +31,22 @@ conventions, not desktop-app choices):
     object exposing .put((level, message)); see e.g.
     app.routers.unaccounted_txn's _LogQueue adapter, which the router wires
     up to translate these messages into the background job's progress_cb).
-  - The .xlsb → .xlsx conversion step still uses win32com Excel COM
-    automation (unavoidable — openpyxl cannot write into an .xlsb), but
-    uses DispatchEx (a fresh, isolated Excel instance) instead of the
-    original's Dispatch (which can attach to/interfere with an already-open
-    Excel instance) — matching the exact pattern already used server-side
-    in services/unaccounted/excel_writers.py's real-pivot-table builder,
-    the only other place this suite drives Excel COM.
+  - .xlsb uploads no longer go through Excel COM automation at all. The
+    original app (and an earlier version of this port) converted .xlsb to
+    .xlsx via win32com so openpyxl could write into it - but Excel COM
+    automation turned out to be too fragile running unattended on a server
+    (needs an interactive desktop session; breaks under Task Scheduler
+    with nobody logged in, or when a leftover EXCEL.EXE process is stuck).
+    .xlsb genuinely doesn't expose cell styling to any Python library
+    (verified against both pyxlsb and python-calamine - neither returns
+    anything beyond raw cell values), so build_gst_report_pure_python()
+    builds a brand-new .xlsx directly from the data pyxlsb already reads,
+    styled with this suite's own report look instead of trying to
+    preserve the source .xlsb's specific formatting - a deliberate,
+    explicitly-agreed tradeoff in exchange for zero external dependency.
+    .xlsx uploads are unaffected: insert_gst_column() still edits the
+    real uploaded file in place via openpyxl, preserving its exact
+    original styling, exactly as before.
 """
 
 from __future__ import annotations
@@ -51,8 +60,8 @@ from threading import Lock
 
 import oracledb
 import pandas as pd
-from openpyxl import load_workbook
-from openpyxl.styles import Font
+from openpyxl import Workbook, load_workbook
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import column_index_from_string, get_column_letter
 
 try:
@@ -230,84 +239,127 @@ def read_data_df(input_path: str):
     return df, inv_no_col, inv_date_col
 
 
-# ── .xlsb -> .xlsx conversion via Excel COM ───────────────────────────────────
-# openpyxl cannot write into .xlsb, so a .xlsb input must be converted to a
-# real .xlsx first, exactly like the original app did. DispatchEx (a fresh,
-# isolated Excel instance, closed immediately after) matches the pattern
-# already used server-side in services/unaccounted/excel_writers.py, rather
-# than the original desktop app's Dispatch (which can attach to any
-# already-running Excel instance - fine for one interactive desktop user,
-# not safe for a shared server process).
+# ── Pure-Python .xlsb output builder (no Excel/COM, no external app) ─────────
+# .xlsb genuinely doesn't expose cell formatting (font/fill/border/number
+# format) to any Python library - verified directly against both pyxlsb
+# (Cell = namedtuple('Cell', ['r', 'c', 'v']) - value only) and
+# python-calamine (same: values + merged-cell ranges, no style info) against
+# a real sample file. Only a full spreadsheet engine (Excel, LibreOffice)
+# actually parses .xlsb's style records, and Excel COM automation turned out
+# to be too fragile server-side (requires an interactive desktop session,
+# breaks under Task Scheduler / no logged-in console, leftover EXCEL.EXE
+# processes get stuck). So for .xlsb uploads this builds a brand-new .xlsx
+# from the data pyxlsb already gives us, styled with this suite's own
+# established report look, instead of trying to preserve the source file's
+# specific original formatting - a deliberate accepted tradeoff (data is
+# 100% unchanged; only the visual styling differs from the source .xlsb).
+# .xlsx uploads still go through insert_gst_column() below, which preserves
+# the original file's exact styling - openpyxl can read/write .xlsx natively,
+# no conversion needed there at all.
 
-def excel_convert_to_xlsx(src_path: str, out_path: str, log_q) -> None:
-    try:
-        import pythoncom
-        import win32com.client as win32
-    except ImportError as exc:
-        raise RuntimeError(
-            "Converting a .xlsb file requires Excel + pywin32 on the server. "
-            "Please upload a .xlsx file instead."
-        ) from exc
+_HDR_FILL = PatternFill("solid", fgColor="1F3864")
+_HDR_FONT = Font(name="Calibri", size=10, bold=True, color="FFFFFF")
+_HDR_ALIGN = Alignment(horizontal="center", vertical="center", wrap_text=True)
+_DAT_FONT = Font(name="Calibri", size=10)
+_GST_FONT = Font(name="Calibri", size=10, bold=True, color="1F3864")
+_THIN_BORDER = Border(*(Side(style="thin", color="D8DEE8") for _ in range(4)))
 
-    import os
-    from app.excel_com_lock import EXCEL_COM_LOCK
 
-    src_abs = os.path.abspath(src_path)
-    out_abs = os.path.abspath(out_path)
+def _cell_value_for_output(raw_val, is_date_col: bool):
+    """Returns (value, needs_date_format). pyxlsb doesn't expose cell number
+    formats, so a date column often comes back as a raw Excel serial float
+    (e.g. 46032.0) rather than a real date - convert it to an actual date so
+    the output shows "24-Aug-2026", not a bare number."""
+    if pd.isna(raw_val):
+        return None, False
+    if is_date_col:
+        if isinstance(raw_val, (int, float)) and not isinstance(raw_val, bool):
+            dt = _xlsb_serial_to_datetime(raw_val)
+            if dt is not None:
+                return dt, True
+        if hasattr(raw_val, "strftime"):
+            return raw_val, True
+    return raw_val, False
 
-    log_q.put(("info", f"Opening via Excel COM: {os.path.basename(src_abs)}"))
-    EXCEL_COM_LOCK.acquire()
-    pythoncom.CoInitialize()
-    xl = None
-    wb = None
-    try:
-        xl = win32.DispatchEx("Excel.Application")
-        xl.Visible = False
-        xl.DisplayAlerts = False
-        xl.ScreenUpdating = False
-        try:
-            wb = xl.Workbooks.Open(src_abs, ReadOnly=True, UpdateLinks=False)
-        except Exception as exc:
-            # win32com's raw error here is a cryptic (-2147352567, 'Exception
-            # occurred.', (0, 'Microsoft Excel', "...cannot access the
-            # file...")) tuple that reads like the file is missing, even
-            # though it was just read successfully a moment ago earlier in
-            # this same pipeline. The file being inaccessible to *Excel
-            # automation specifically* (while perfectly readable to Python)
-            # is Excel COM's generic failure for "there is no interactive
-            # desktop session for me to run in" - Excel automation is not
-            # supported unattended (e.g. started via Task Scheduler with "run
-            # whether user is logged on or not", or with nobody logged into
-            # the server's console) - or a leftover EXCEL.EXE process from a
-            # previous run still holding the application locked.
-            raise RuntimeError(
-                "Excel could not open the uploaded .xlsb file for conversion. "
-                "This is not a missing-file or application bug - Excel's "
-                "automation (COM) generally only works when the server has an "
-                "actual logged-in desktop session (not a Task Scheduler task "
-                "running \"whether user is logged on or not\", and not a "
-                "Windows service). Check that, and also check Task Manager on "
-                "the server for a leftover EXCEL.EXE process from a previous "
-                "run and end it, then try again."
-            ) from exc
-        wb.SaveAs(out_abs, FileFormat=51)  # 51 = xlOpenXMLWorkbook (.xlsx)
-        log_q.put(("ok", f"Converted to .xlsx ({os.path.getsize(out_abs):,} bytes)"))
-    finally:
-        if wb is not None:
-            try:
-                wb.Close(SaveChanges=False)
-            except Exception:
-                pass
-        if xl is not None:
-            try:
-                xl.Quit()
-            except Exception:
-                pass
-        try:
-            pythoncom.CoUninitialize()
-        except Exception:
-            pass
-        EXCEL_COM_LOCK.release()
+
+def build_gst_report_pure_python(df, inv_no_col: str, inv_date_col: str,
+                                  gst_map: dict, output_path: str, log_q) -> tuple[int, int, int]:
+    """Build the enriched output workbook directly from the already-read
+    .xlsb data, with no Excel/COM/LibreOffice involved at all. Returns
+    (total, found, blank), same contract as insert_gst_column()."""
+    log_q.put(("info", "Building output workbook (pure Python, no Excel required)..."))
+
+    orig_cols = list(df.columns)
+    inv_idx = orig_cols.index(inv_no_col)
+    # GST column goes immediately before Invoice No, matching where
+    # insert_gst_column() places it for .xlsx uploads.
+    new_cols = orig_cols[:inv_idx] + [COL_GST_NEW] + orig_cols[inv_idx:]
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "GST Enriched"
+
+    for ci, name in enumerate(new_cols, 1):
+        c = ws.cell(row=1, column=ci, value=name)
+        c.font = _HDR_FONT
+        c.fill = _HDR_FILL
+        c.alignment = _HDR_ALIGN
+        c.border = _THIN_BORDER
+    ws.row_dimensions[1].height = 26
+
+    total = found = blank = 0
+    row_idx = 2
+    for row in df.itertuples(index=False):
+        row_dict = dict(zip(orig_cols, row))
+        raw_inv = row_dict.get(inv_no_col)
+        raw_date = row_dict.get(inv_date_col)
+        if pd.isna(raw_inv) and pd.isna(raw_date):
+            continue
+
+        inv_no = _clean_inv_no(raw_inv) if not pd.isna(raw_inv) else ""
+        trx_date = _to_oracle_date(raw_date) if not pd.isna(raw_date) else ""
+        if not inv_no or inv_no in ("nan", "None", ""):
+            continue
+
+        total += 1
+        gst = gst_map.get((inv_no, trx_date), "")
+        if gst:
+            found += 1
+        else:
+            blank += 1
+
+        for ci, name in enumerate(new_cols, 1):
+            cell = ws.cell(row=row_idx, column=ci)
+            cell.border = _THIN_BORDER
+            if name == COL_GST_NEW:
+                cell.value = gst or None
+                cell.font = _GST_FONT
+                continue
+            val, is_date = _cell_value_for_output(row_dict.get(name), name == inv_date_col)
+            cell.value = val
+            cell.font = _DAT_FONT
+            if is_date:
+                cell.number_format = "DD-MMM-YYYY"
+        row_idx += 1
+
+    n_data_rows = row_idx - 1
+    for ci, name in enumerate(new_cols, 1):
+        col_letter = get_column_letter(ci)
+        max_len = len(str(name))
+        for r in range(2, min(n_data_rows, 200) + 1):
+            v = ws.cell(row=r, column=ci).value
+            if v is not None:
+                max_len = max(max_len, len(str(v)))
+        ws.column_dimensions[col_letter].width = min(max_len + 3, 45)
+
+    ws.freeze_panes = "A2"
+    if n_data_rows >= 1:
+        ws.auto_filter.ref = f"A1:{get_column_letter(len(new_cols))}{n_data_rows}"
+
+    log_q.put(("info", "Saving enriched output..."))
+    wb.save(output_path)
+    log_q.put(("ok", f"Saved - total={total} found={found} blank={blank}"))
+    return total, found, blank
 
 
 # ── Style copy helper (verbatim) ──────────────────────────────────────────────
@@ -585,28 +637,20 @@ def process_report(input_path: str, output_path: str, oracle_cfg: OracleConfig,
     log_q.put(("info", f"{ok_cnt}/{len(gst_map)} keys returned a GST number"))
 
     ext = input_path.rsplit(".", 1)[-1].lower()
-    wb_path = input_path
     if ext == "xlsb":
         if progress_cb:
-            progress_cb(0.92, "Converting .xlsb to .xlsx via Excel...")
-        converted_path = output_path + ".converted.xlsx"
-        excel_convert_to_xlsx(input_path, converted_path, log_q)
-        wb_path = converted_path
-
-    if progress_cb:
-        progress_cb(0.94, "Inserting GST Invoice Number column...")
-    header_row_1based = SKIP_ROWS + 1
-    total, found, blank = insert_gst_column(
-        wb_path=wb_path, output_path=output_path,
-        gst_map=gst_map, header_row=header_row_1based, log_q=log_q,
-    )
-
-    if wb_path != input_path:
-        import os
-        try:
-            os.remove(wb_path)
-        except OSError:
-            pass
+            progress_cb(0.92, "Building enriched output (pure Python)...")
+        total, found, blank = build_gst_report_pure_python(
+            df, inv_no_col_pd, inv_date_col_pd, gst_map, output_path, log_q,
+        )
+    else:
+        if progress_cb:
+            progress_cb(0.94, "Inserting GST Invoice Number column...")
+        header_row_1based = SKIP_ROWS + 1
+        total, found, blank = insert_gst_column(
+            wb_path=input_path, output_path=output_path,
+            gst_map=gst_map, header_row=header_row_1based, log_q=log_q,
+        )
 
     if progress_cb:
         progress_cb(1.0, "Done")
