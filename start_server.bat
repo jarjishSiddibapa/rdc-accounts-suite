@@ -35,8 +35,8 @@ if exist venv (
 )
 
 if not exist venv (
-    echo First-time setup: creating virtual environment and installing dependencies...
-    echo First-time setup: creating venv and installing dependencies >> "%LOGFILE%"
+    echo First-time setup: creating virtual environment...
+    echo First-time setup: creating venv >> "%LOGFILE%"
     python -m venv venv
     if errorlevel 1 (
         echo ERROR: "python -m venv venv" failed.
@@ -44,16 +44,21 @@ if not exist venv (
         pause
         exit /b 1
     )
-    call venv\Scripts\activate.bat
-    pip install -r requirements.txt
-    if errorlevel 1 (
-        echo ERROR: "pip install -r requirements.txt" failed.
-        echo ERROR: "pip install -r requirements.txt" failed. >> "%LOGFILE%"
-        pause
-        exit /b 1
-    )
-) else (
-    call venv\Scripts\activate.bat
+)
+
+call venv\Scripts\activate.bat
+
+rem Always check requirements.txt against what's installed, not just on
+rem first-time setup - after a "git pull" picks up a new/updated dependency,
+rem this is what actually installs it. pip skips anything already
+rem satisfied, so on a normal run with nothing new this is fast.
+echo Checking dependencies are up to date...
+pip install -r requirements.txt --disable-pip-version-check
+if errorlevel 1 (
+    echo ERROR: "pip install -r requirements.txt" failed.
+    echo ERROR: "pip install -r requirements.txt" failed. >> "%LOGFILE%"
+    pause
+    exit /b 1
 )
 
 echo Starting server on http://0.0.0.0:2805 ...

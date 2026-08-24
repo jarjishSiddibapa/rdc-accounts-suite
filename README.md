@@ -49,9 +49,12 @@ audit log.
    from git because its DLLs are hundreds of MB (over GitHub's 100MB
    per-file limit), so this is a one-time manual step per machine.
 4. **Run it** — double-click `start_server.bat`. First run creates a Python
-   virtual environment and installs dependencies automatically; every run
-   after that just starts the server at `http://<this-pc's-LAN-IP>:2805`.
-   Logs go to `backend/logs/`.
+   virtual environment; every run (including the first) checks
+   `requirements.txt` against what's installed and installs anything
+   missing before starting the server at `http://<this-pc's-LAN-IP>:2805` —
+   so a `git pull` that adds a new dependency is picked up automatically on
+   the next restart, no manual `pip install` needed. Logs go to
+   `backend/logs/`.
 
 The frontend is pre-built and committed under `backend/app/static/`, so
 `start_server.bat` needs only Python at runtime — no Node/npm install on the
