@@ -265,7 +265,31 @@ def excel_convert_to_xlsx(src_path: str, out_path: str, log_q) -> None:
         xl.Visible = False
         xl.DisplayAlerts = False
         xl.ScreenUpdating = False
-        wb = xl.Workbooks.Open(src_abs, ReadOnly=True, UpdateLinks=False)
+        try:
+            wb = xl.Workbooks.Open(src_abs, ReadOnly=True, UpdateLinks=False)
+        except Exception as exc:
+            # win32com's raw error here is a cryptic (-2147352567, 'Exception
+            # occurred.', (0, 'Microsoft Excel', "...cannot access the
+            # file...")) tuple that reads like the file is missing, even
+            # though it was just read successfully a moment ago earlier in
+            # this same pipeline. The file being inaccessible to *Excel
+            # automation specifically* (while perfectly readable to Python)
+            # is Excel COM's generic failure for "there is no interactive
+            # desktop session for me to run in" - Excel automation is not
+            # supported unattended (e.g. started via Task Scheduler with "run
+            # whether user is logged on or not", or with nobody logged into
+            # the server's console) - or a leftover EXCEL.EXE process from a
+            # previous run still holding the application locked.
+            raise RuntimeError(
+                "Excel could not open the uploaded .xlsb file for conversion. "
+                "This is not a missing-file or application bug - Excel's "
+                "automation (COM) generally only works when the server has an "
+                "actual logged-in desktop session (not a Task Scheduler task "
+                "running \"whether user is logged on or not\", and not a "
+                "Windows service). Check that, and also check Task Manager on "
+                "the server for a leftover EXCEL.EXE process from a previous "
+                "run and end it, then try again."
+            ) from exc
         wb.SaveAs(out_abs, FileFormat=51)  # 51 = xlOpenXMLWorkbook (.xlsx)
         log_q.put(("ok", f"Converted to .xlsx ({os.path.getsize(out_abs):,} bytes)"))
     finally:
