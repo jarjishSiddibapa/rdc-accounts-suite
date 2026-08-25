@@ -8,16 +8,9 @@ from unittest.mock import patch
 import pandas as pd
 
 from app.routers import rdc_payables, unaccounted_txn
-from app.services.dms import fetcher
 
 
 class DesktopParityTests(unittest.TestCase):
-    def test_dms_permalink_without_scheme_receives_desktop_https_prefix(self):
-        self.assertEqual(
-            fetcher._validate_url("dms.example.com/document/123"),
-            "https://dms.example.com/document/123",
-        )
-
     def test_payables_job_returns_desktop_stats_breakdowns_and_log(self):
         frame = pd.DataFrame(
             {

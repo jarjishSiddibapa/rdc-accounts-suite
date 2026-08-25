@@ -16,7 +16,5 @@ xlsxwriter
 xlrd
 pyxlsb
 oracledb
-requests
-Pillow
 email-validator
 dnspython

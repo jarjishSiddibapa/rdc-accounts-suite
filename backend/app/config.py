@@ -76,7 +76,3 @@ DB_MAX_OVERFLOW = int(os.environ.get("DB_MAX_OVERFLOW", "10"))
 DB_POOL_TIMEOUT_SECONDS = int(os.environ.get("DB_POOL_TIMEOUT_SECONDS", "30"))
 
 MAX_UPLOAD_BYTES = int(os.environ.get("MAX_UPLOAD_BYTES", str(600 * 1024 * 1024)))
-# The desktop DMS utility did not impose a document-size ceiling.  Keep that
-# behavior by default; deployments that need a guard can still opt in with a
-# positive MAX_DMS_DOWNLOAD_BYTES value.
-MAX_DMS_DOWNLOAD_BYTES = int(os.environ.get("MAX_DMS_DOWNLOAD_BYTES", "0"))
