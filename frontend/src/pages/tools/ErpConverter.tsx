@@ -126,7 +126,7 @@ export default function ErpConverter() {
     const eventKey = `${state.status}|${state.phase || ''}|${state.error || ''}`
     if (lastEventRef.current[job.job_id] !== eventKey) {
       lastEventRef.current[job.job_id] = eventKey
-      appendLog(`${job.filename}: ${state.phase || state.status}${state.error ? ` — ${state.error}` : ''}`)
+      appendLog(`${job.filename}: ${state.phase || state.status}${state.error ? ` - ${state.error}` : ''}`)
     }
   }
 
@@ -185,7 +185,7 @@ export default function ErpConverter() {
           <div className="flex items-center gap-4">
             <span className="icon-tile grid h-12 w-12 place-items-center rounded-xl"><FileSpreadsheet className="h-5 w-5" /></span>
             <div>
-              <p className="text-xs font-bold tracking-[0.1em] text-accent uppercase">Data transformation</p>
+              <p className="text-sm font-semibold text-accent">Data transformation</p>
               <h2 className="mt-1.5 font-display text-xl font-semibold tracking-[-0.025em] text-ink">Convert ERP exports</h2>
               <p className="mt-1 text-sm leading-6 text-ink-dim">Add files or a complete folder, convert them together, and save every resulting workbook.</p>
             </div>
@@ -195,7 +195,7 @@ export default function ErpConverter() {
             multiple
             accept=".xls,.xlsx,.htm,.html"
             label="Drag & drop ERP export files here, or click to browse"
-            hint="Supports .xls, .xlsx, .htm, .html — multiple files at once"
+            hint="Supports .xls, .xlsx, .htm, and .html files, including multiple files at once"
             files={files}
             onFilesSelected={addFiles}
             onRemove={(index) => setFiles((previous) => previous.filter((_, current) => current !== index))}

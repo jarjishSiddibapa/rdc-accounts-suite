@@ -276,16 +276,16 @@ function PreviewTable({ rows }: { rows: PlanRow[] }) {
                 <td className="px-4 py-3 text-right text-ink">{currency(row.total_balance)}</td>
                 <td className="px-4 py-3 text-right text-ink">{currency(row.total_overdue)}</td>
                 <td className="max-w-[14rem] truncate px-4 py-3 text-ink-dim" title={row.to_emails.join(', ')}>
-                  {row.to_emails.join(', ') || '—'}
+                  {row.to_emails.join(', ') || 'Not available'}
                 </td>
                 <td className="max-w-[12rem] truncate px-4 py-3 text-ink-dim" title={row.cc_emails.join(', ')}>
-                  {row.cc_emails.join(', ') || '—'}
+                  {row.cc_emails.join(', ') || 'Not available'}
                 </td>
                 <td className="px-4 py-3 text-center">
                   {row.pdf_attached ? (
                     <Paperclip className="mx-auto h-4 w-4 text-accent" />
                   ) : (
-                    <span className="text-ink-faint">—</span>
+                    <span className="text-ink-faint">Not available</span>
                   )}
                 </td>
                 <td className="px-4 py-3">
@@ -550,7 +550,7 @@ export default function UltrafinePaymentReminder() {
               <Mail className="h-5 w-5" />
             </span>
             <div>
-              <p className="text-xs font-bold tracking-[0.1em] text-accent uppercase">
+              <p className="text-sm font-semibold text-accent">
                 Dunning &amp; collections
               </p>
               <h2 className="mt-1.5 font-display text-xl font-semibold tracking-[-0.025em] text-ink">
@@ -604,7 +604,7 @@ export default function UltrafinePaymentReminder() {
               multiple
               accept=".pdf"
               label="Drag & drop customer PDF statements here, or click to browse"
-              hint="Matched to a customer by exact filename — “{Customer Name}.pdf”"
+              hint="Matched to a customer by exact filename: “{Customer Name}.pdf”"
               files={pdfFiles}
               onFilesSelected={(f) => setPdfFiles((prev) => [...prev, ...f])}
               onRemove={(i) => setPdfFiles((prev) => prev.filter((_, idx) => idx !== i))}
@@ -629,7 +629,7 @@ export default function UltrafinePaymentReminder() {
             <div className="flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
               <div className="flex flex-col gap-2 text-sm">
-                <span className="text-ink-dim">You haven't set up your email sender yet — go to Settings.</span>
+                <span className="text-ink-dim">You haven't set up your email sender yet. Go to Settings.</span>
                 <Link
                   to="/settings"
                   className="inline-flex w-fit items-center gap-1.5 text-sm font-medium text-accent transition hover:gap-2.5"
@@ -690,7 +690,7 @@ export default function UltrafinePaymentReminder() {
 
               <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border p-4">
                 <p className="text-sm text-ink-dim">
-                  Sending from <span className="font-medium text-ink">{previewResult.from_email}</span> —{' '}
+                  Sending from <span className="font-medium text-ink">{previewResult.from_email}</span>.{' '}
                   {formatIndianNumber(sendable.length)} email{sendable.length === 1 ? '' : 's'} will actually
                   go out; skipped rows are never sent.
                 </p>

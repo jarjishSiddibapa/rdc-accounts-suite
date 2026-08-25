@@ -40,7 +40,7 @@ export function PasswordStrengthMeter({ password }: { password: string }) {
         {strength.label}
         {!strength.isAcceptable && (
           <span className="ml-1 font-normal text-ink-faint">
-            — needs at least 10 characters with uppercase, lowercase, a number, and a symbol
+            : needs at least 10 characters with uppercase, lowercase, a number, and a symbol
           </span>
         )}
       </p>

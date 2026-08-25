@@ -95,7 +95,7 @@ export default function Users() {
 
   async function handleAdd() {
     if (!scorePasswordStrength(newPassword).isAcceptable) {
-      setError('Choose a stronger password — at least 10 characters with uppercase, lowercase, a number, and a symbol.')
+      setError('Choose a stronger password. Use at least 10 characters with uppercase, lowercase, a number, and a symbol.')
       return
     }
     setSaving(true)
@@ -142,7 +142,7 @@ export default function Users() {
   async function handleResetPassword() {
     if (!resetTarget) return
     if (!scorePasswordStrength(resetPassword).isAcceptable) {
-      setError('Choose a stronger password — at least 10 characters with uppercase, lowercase, a number, and a symbol.')
+      setError('Choose a stronger password. Use at least 10 characters with uppercase, lowercase, a number, and a symbol.')
       return
     }
     setBusy(true)
@@ -282,7 +282,7 @@ export default function Users() {
         <div className="flex flex-col gap-4">
           <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
             <div>
-              <p className="text-xs font-bold tracking-[0.1em] text-accent uppercase">Access control</p>
+              <p className="text-sm font-semibold text-accent">Access control</p>
               <p className="mt-1 text-sm text-ink-dim">Manage who can sign in and which applications they can use.</p>
             </div>
             <div className="flex flex-wrap items-center gap-3">
@@ -549,7 +549,7 @@ export default function Users() {
       <Modal
         open={editTarget !== null}
         onClose={() => setEditTarget(null)}
-        title={`Edit user details${editTarget ? ` · ${getUserDisplayName(editTarget)}` : ''}`}
+        title={`Edit user details${editTarget ? ` | ${getUserDisplayName(editTarget)}` : ''}`}
       >
         <form
           className="flex flex-col gap-4"
@@ -790,7 +790,7 @@ export default function Users() {
               <div>
                 <p className="text-sm font-semibold text-ink">Company ownership &amp; footer credit</p>
                 <p className="mt-1 text-xs leading-5 text-ink-dim">
-                  Classify each application as RDC or Ultrafine, and credit who it was built with — its footer
+                  Classify each application as RDC or Ultrafine, and credit who it was built with. Its footer
                   always reads &ldquo;Made by Jarjish&rdquo;, plus that name if set. Changes save immediately and are
                   available only to administrators.
                 </p>
@@ -877,7 +877,7 @@ export default function Users() {
       <Modal open={deleteTarget !== null} onClose={() => setDeleteTarget(null)} title="Archive account">
         <p className="mb-6 text-sm text-ink-dim">
           Remove <strong>{deleteTarget ? getUserDisplayName(deleteTarget) : ''}</strong>? They'll no longer be able to sign in and
-          will disappear from this list — but nothing is ever hard-deleted, so their account and
+          will disappear from this list. Nothing is ever hard-deleted, so their account and
           history are preserved. If you just want to temporarily block sign-in, use the
           Deactivate toggle instead.
         </p>

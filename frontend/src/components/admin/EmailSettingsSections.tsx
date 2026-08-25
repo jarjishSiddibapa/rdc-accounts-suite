@@ -75,7 +75,7 @@ export function ReportRecipientsSection() {
 
   return (
     <GlassCard padding="lg">
-      <p className="text-xs font-bold tracking-[0.1em] text-accent uppercase">Delivery defaults</p>
+      <p className="text-sm font-semibold text-accent">Delivery defaults</p>
       <h2 className="mt-1.5 font-display text-xl font-semibold tracking-[-0.025em] text-ink">Report recipients</h2>
       <p className="mt-1 text-sm text-ink-dim">
         Manage the default To and CC recipients independently for each application. Individual
@@ -203,11 +203,11 @@ export function SystemEmailSection() {
 
   return (
     <GlassCard padding="lg">
-      <p className="text-xs font-bold tracking-[0.1em] text-accent uppercase">Platform identity</p>
+      <p className="text-sm font-semibold text-accent">Platform identity</p>
       <h2 className="mt-1.5 font-display text-xl font-semibold tracking-[-0.025em] text-ink">System email</h2>
       <p className="mt-1 text-sm text-ink-dim">
         The address the application itself uses to send password-reset links and other
-        notifications — separate from the per-user sender identity people configure for emailing
+        notifications. This is separate from the per-user sender identity people configure for emailing
         their own reports.
         {info && (
           <span className="ml-1">

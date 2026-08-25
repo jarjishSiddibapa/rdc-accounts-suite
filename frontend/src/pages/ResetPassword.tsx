@@ -33,7 +33,7 @@ export default function ResetPassword() {
       return
     }
     if (!scorePasswordStrength(newPassword).isAcceptable) {
-      setError('Choose a stronger password — at least 10 characters with uppercase, lowercase, a number, and a symbol.')
+      setError('Choose a stronger password. Use at least 10 characters with uppercase, lowercase, a number, and a symbol.')
       return
     }
 
@@ -61,7 +61,7 @@ export default function ResetPassword() {
             <Layers className="h-6 w-6" />
           </span>
           <div>
-            <p className="text-xs font-bold tracking-[0.1em] text-accent uppercase">Account security</p>
+            <p className="text-sm font-semibold text-accent">Account security</p>
             <h1 className="mt-2 font-display text-3xl font-semibold tracking-[-0.04em] text-ink">Reset your password</h1>
           </div>
         </div>

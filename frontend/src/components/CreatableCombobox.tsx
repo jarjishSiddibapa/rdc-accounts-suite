@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
-import { AnimatePresence, motion } from 'framer-motion'
+import { AnimatePresence, motion } from 'motion/react'
 import { Check, ChevronDown, Plus, Search } from 'lucide-react'
 import { cn } from '@/utils/cn'
 

@@ -94,7 +94,7 @@ export default function GstInvoiceAdder() {
               <FileCheck2 className="h-5 w-5" />
             </span>
             <div>
-              <p className="text-xs font-bold tracking-[0.1em] text-accent uppercase">Data enrichment</p>
+              <p className="text-sm font-semibold text-accent">Data enrichment</p>
               <h2 className="mt-1.5 font-display text-xl font-semibold tracking-[-0.025em] text-ink">
                 Add GST Invoice Numbers
               </h2>

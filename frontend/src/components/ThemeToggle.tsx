@@ -1,10 +1,11 @@
 import { Moon, Sun } from 'lucide-react'
-import { motion, AnimatePresence } from 'framer-motion'
+import { motion, AnimatePresence, useReducedMotion } from 'motion/react'
 import { useTheme } from '@/hooks/useTheme'
 import { cn } from '@/utils/cn'
 
 export function ThemeToggle({ className }: { className?: string }) {
   const { theme, toggleTheme } = useTheme()
+  const reduceMotion = useReducedMotion()
 
   return (
     <button
@@ -18,7 +19,7 @@ export function ThemeToggle({ className }: { className?: string }) {
       <AnimatePresence mode="wait" initial={false}>
         <motion.span
           key={theme}
-          initial={{ rotate: -90, opacity: 0, scale: 0.5 }}
+          initial={reduceMotion ? false : { rotate: -90, opacity: 0, scale: 0.5 }}
           animate={{ rotate: 0, opacity: 1, scale: 1 }}
           exit={{ rotate: 90, opacity: 0, scale: 0.5 }}
           transition={{ duration: 0.25, ease: 'easeInOut' }}

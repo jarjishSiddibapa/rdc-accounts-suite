@@ -16,6 +16,7 @@ import { Reveal, RevealGroup } from '@/components/Reveal'
 import { useAuth } from '@/lib/auth-context'
 import { formatIndianNumber, getIndianHour } from '@/lib/regional'
 import { getUserGreetingName } from '@/lib/user'
+import { cn } from '@/utils/cn'
 
 const tools = [
   {
@@ -104,7 +105,7 @@ export default function Dashboard() {
               <p className="text-sm font-semibold text-accent">
                 Accounts workspace
               </p>
-              <h2 className="mt-3 font-display text-[clamp(1.875rem,5vw,2.7rem)] leading-[1.08] font-semibold tracking-[-0.045em] text-ink text-balance">
+              <h2 className="mt-3 font-display text-[clamp(1.875rem,5vw,2.625rem)] leading-[1.1] font-semibold tracking-[-0.03em] text-ink text-balance">
                 {timeGreeting}, {greetingName}
               </h2>
               <p className="mt-3 max-w-xl text-sm leading-6 text-ink-dim sm:text-base">
@@ -131,29 +132,35 @@ export default function Dashboard() {
       <div className="mt-8 flex flex-col justify-between gap-2 sm:flex-row sm:items-end">
         <div>
           <p className="text-sm font-semibold text-accent">Applications</p>
-          <h2 className="mt-1.5 font-display text-2xl font-semibold tracking-[-0.035em] text-ink">Choose what you want to do</h2>
+          <h2 className="mt-1.5 font-display text-2xl font-semibold tracking-[-0.02em] text-ink">Choose what you want to do</h2>
         </div>
         <p className="text-sm text-ink-faint">Select an application to begin</p>
       </div>
 
       <RevealGroup className="dashboard-tools-grid mt-5">
-        {visibleTools.map((tool) => (
+        {visibleTools.map((tool, index) => (
           <Reveal key={tool.to}>
             <Link to={tool.to} className="group block h-full rounded-[1.25rem] focus-visible:outline-none">
-            <article className="tool-card h-full">
+            <article
+              className={cn(
+                'tool-card h-full',
+                index % 4 === 0 && 'tool-card--featured',
+                index % 4 === 3 && 'tool-card--tinted',
+              )}
+            >
               <div className="relative flex w-full flex-col">
                 <div className="flex items-start gap-4">
-                  <span className="grid h-12 w-12 place-items-center rounded-xl bg-accent/10 text-accent">
+                  <span className="tool-card-icon grid h-12 w-12 place-items-center rounded-xl bg-accent/10 text-accent">
                     <tool.icon className="h-5 w-5" strokeWidth={1.9} />
                   </span>
                 </div>
                 <div className="mt-5 flex-1">
-                  <p className="text-sm font-medium text-accent">{tool.category}</p>
-                  <h3 className="mt-2 max-w-xl font-display text-xl font-semibold tracking-[-0.025em] text-ink">{tool.title}</h3>
-                  <p className="mt-2 max-w-md text-sm leading-6 text-ink-dim">{tool.description}</p>
+                  <p className="tool-card-category text-sm font-medium text-accent">{tool.category}</p>
+                  <h3 className="tool-card-title mt-2 max-w-xl font-display text-xl font-semibold tracking-[-0.015em] text-ink">{tool.title}</h3>
+                  <p className="tool-card-description mt-2 max-w-md text-sm leading-6 text-ink-dim">{tool.description}</p>
                 </div>
-                <span className="mt-6 inline-flex w-fit items-center gap-2 text-sm font-semibold text-accent transition group-hover:underline group-hover:underline-offset-4">
-                  Open application <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-1" />
+                <span className="tool-card-action mt-6 inline-flex w-fit items-center gap-2 text-sm font-semibold text-accent">
+                  Open application <ArrowRight className="h-4 w-4" />
                 </span>
               </div>
             </article>

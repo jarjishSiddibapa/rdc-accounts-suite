@@ -101,13 +101,13 @@ export default function SystemMaintenance() {
         <GlassCard padding="lg" className="overflow-hidden">
           <div className="flex flex-col justify-between gap-5 md:flex-row md:items-center">
             <div className="max-w-2xl">
-              <p className="text-xs font-bold tracking-[0.1em] text-accent uppercase">Operations</p>
+              <p className="text-sm font-semibold text-accent">Operations</p>
               <h2 className="mt-1.5 font-display text-2xl font-semibold tracking-[-0.035em] text-ink">
                 Database backups &amp; scratch cleanup
               </h2>
               <p className="mt-2 text-sm leading-6 text-ink-dim">
-                Every backup is a complete mysqldump — table structure, data, routines, triggers, and
-                events — in one .sql file. Restoring anywhere is a single import, no other setup needed.
+                Every backup is a complete mysqldump with table structure, data, routines, triggers, and
+                events in one .sql file. Restoring anywhere is a single import with no other setup needed.
               </p>
             </div>
             <div className="grid grid-cols-2 gap-2 sm:min-w-72">
@@ -201,7 +201,7 @@ export default function SystemMaintenance() {
           <h3 className="font-display text-lg font-semibold text-ink">Scratch file cleanup</h3>
           <p className="mt-1 text-sm text-ink-dim">
             Every tool saves uploaded files and generated reports to a scratch folder while a job runs.
-            Anything older than this, across every tool, is deleted automatically as a safety net —
+            Anything older than this, across every tool, is deleted automatically as a safety net.
             even if a job errored or its output was never downloaded.
           </p>
           {!loading && settings && (
@@ -217,7 +217,7 @@ export default function SystemMaintenance() {
                   className="field-control"
                 />
                 <span className="text-xs text-ink-faint">
-                  5 minutes to 43,200 minutes (30 days) — e.g. 30 minutes to match the app's own auto-logout
+                  5 minutes to 43,200 minutes (30 days). For example, use 30 minutes to match the app's own auto-logout
                   time. Checked every 5 minutes.
                 </span>
               </label>
@@ -233,7 +233,7 @@ export default function SystemMaintenance() {
         <GlassCard padding="lg">
           <h3 className="font-display text-lg font-semibold text-ink">Stored backups</h3>
           {backups.length === 0 ? (
-            <p className="mt-4 text-sm text-ink-faint">No backups yet — run one now, or wait for the schedule.</p>
+            <p className="mt-4 text-sm text-ink-faint">No backups yet. Run one now, or wait for the schedule.</p>
           ) : (
             <div className="mt-4 flex flex-col gap-2">
               {backups.map((b) => (
@@ -244,7 +244,7 @@ export default function SystemMaintenance() {
                   <div className="min-w-0">
                     <p className="truncate font-medium text-ink">{b.filename}</p>
                     <p className="mt-0.5 text-xs text-ink-faint">
-                      {formatIndianDate(b.created_at)} · {formatBytes(b.size_bytes)}
+                      {formatIndianDate(b.created_at)} | {formatBytes(b.size_bytes)}
                     </p>
                   </div>
                   <Button

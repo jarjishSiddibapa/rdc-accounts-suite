@@ -10,7 +10,7 @@ export default function EmailAdministration() {
         <GlassCard padding="lg" className="overflow-hidden">
           <div className="flex flex-col justify-between gap-5 md:flex-row md:items-center">
             <div className="max-w-2xl">
-              <p className="text-xs font-bold tracking-[0.1em] text-accent uppercase">
+              <p className="text-sm font-semibold text-accent">
                 Communication controls
               </p>
               <h2 className="mt-1.5 font-display text-2xl font-semibold tracking-[-0.035em] text-ink">

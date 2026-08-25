@@ -285,7 +285,7 @@ function ValidationWarnings({
       <div className="flex items-center gap-2 text-amber-600">
         <AlertTriangle className="h-4 w-4" />
         <h4 className="font-display text-sm font-semibold">
-          Missing mappings — the workbook was still written with these left blank
+          Missing mappings. The workbook was still written with these left blank
         </h4>
       </div>
       <p className="text-sm text-ink-dim">
@@ -500,7 +500,7 @@ export default function UnappliedReceipts() {
               <Banknote className="h-5 w-5" />
             </span>
             <div>
-              <p className="text-xs font-bold tracking-[0.1em] text-accent uppercase">
+              <p className="text-sm font-semibold text-accent">
                 Receivables intelligence
               </p>
               <h2 className="mt-1.5 font-display text-xl font-semibold tracking-[-0.025em] text-ink">
@@ -581,7 +581,7 @@ export default function UnappliedReceipts() {
                 <p className="mt-1 text-red-600/90 dark:text-red-300/90">
                   The report below was generated, but Location, Sales Person context and the
                   Summary breakdown are blank for every row because Oracle ERP could not be
-                  reached during this run — this is not an application problem. Check the ERP
+                  reached during this run. This is not an application problem. Check the ERP
                   server / connection settings and reprocess once it's reachable.
                 </p>
               </div>

@@ -247,7 +247,7 @@ function MissingAccountHoFix({
         </h4>
       </div>
       <p className="text-sm text-ink-dim">
-        These Account Codes had no Head Office Assigned Person mapped — the column was left
+        These Account Codes had no Head Office Assigned Person mapped. The column was left
         blank in the output. Enter a name for each, then regenerate the report.
       </p>
       {error && <p className="text-sm text-red-500">{error}</p>}
@@ -563,7 +563,7 @@ export default function TrialBalance() {
   const missingAccountHo = result?.missing_account_ho ?? []
 
   return (
-    <AppShell title="Trial Balance — Location-wise Report">
+    <AppShell title="Trial Balance: Location-wise Report">
       <div className="flex flex-col gap-6">
         {/* ── Report generation ──────────────────────────────────────── */}
         <GlassCard padding="lg" className="flex flex-col gap-6">
@@ -572,7 +572,7 @@ export default function TrialBalance() {
               <Scale className="h-5 w-5" />
             </span>
             <div>
-              <p className="text-xs font-bold tracking-[0.1em] text-accent uppercase">
+              <p className="text-sm font-semibold text-accent">
                 Ledger intelligence
               </p>
               <h2 className="mt-1.5 font-display text-xl font-semibold tracking-[-0.025em] text-ink">
@@ -605,7 +605,7 @@ export default function TrialBalance() {
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <span className="flex items-center gap-2 text-sm font-medium text-ink-dim">
                   <ListChecks className="h-4 w-4 text-accent" />
-                  {formatIndianNumber(rawRowCount)} rows parsed —{' '}
+                  {formatIndianNumber(rawRowCount)} rows parsed.{' '}
                   {formatIndianNumber(accounts.length)} distinct account
                   {accounts.length === 1 ? '' : 's'} found. Select which to pivot on
                   (leave none selected for an unfiltered report).
@@ -669,7 +669,7 @@ export default function TrialBalance() {
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <span className="text-xs text-ink-faint">
                   {selectedCount === 0
-                    ? 'No accounts selected — report will be unfiltered.'
+                    ? 'No accounts selected. The report will be unfiltered.'
                     : `${formatIndianNumber(selectedCount)} account${selectedCount === 1 ? '' : 's'} selected.`}
                 </span>
                 <Button onClick={() => void handleProcess()} loading={submitting} disabled={!token}>

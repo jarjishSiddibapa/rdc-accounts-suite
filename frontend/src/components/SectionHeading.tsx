@@ -17,13 +17,12 @@ export function SectionHeading({
   return (
     <div className={cn(align === 'center' && 'text-center', className)}>
       <Reveal>
-        <div className="mb-3 inline-flex items-center gap-2.5 text-sm font-semibold text-accent">
-          <span className="h-px w-5 bg-accent" />
+        <div className="mb-3 inline-flex items-center text-sm font-semibold text-accent">
           {eyebrow}
         </div>
       </Reveal>
       <Reveal delay={0.06}>
-        <h2 className="text-3xl font-semibold tracking-[-0.04em] text-balance sm:text-4xl">
+        <h2 className="text-3xl font-semibold tracking-[-0.025em] text-balance sm:text-4xl">
           {title}
         </h2>
       </Reveal>

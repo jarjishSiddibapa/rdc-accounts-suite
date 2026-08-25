@@ -182,7 +182,7 @@ export function MappingTable({
           <div className="flex items-center gap-2.5">
             <h3 className="font-display text-lg font-bold tracking-tight text-ink">
               {title}
-              {isArchivedView && <span className="ml-2 text-ink-faint">— Archived</span>}
+              {isArchivedView && <span className="ml-2 text-ink-faint">(Archived)</span>}
             </h3>
             <span className="rounded-full border border-border bg-bg-soft/70 px-2.5 py-1 text-[10px] font-bold text-ink-faint">
               {formatIndianNumber(sourceRows.length)} rows
@@ -343,7 +343,7 @@ export function MappingTable({
       <Modal open={deleteIndex !== null} onClose={() => setDeleteIndex(null)} title="Archive mapping row">
         <p className="mb-6 text-sm text-ink-dim">
           Archive this mapping row? It will be hidden from active mapping data
-          {archive ? ' — you can find it later under "View archived" and restore it.' : ', while its history remains preserved.'}
+          {archive ? '. You can find it later under "View archived" and restore it.' : ', while its history remains preserved.'}
         </p>
         <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
           <Button variant="secondary" onClick={() => setDeleteIndex(null)}>

@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react'
+import { motion, useReducedMotion } from 'motion/react'
 import { Sidebar } from '@/components/Sidebar'
 import { TopBar } from '@/components/TopBar'
 import { Footer } from '@/components/Footer'
@@ -26,6 +27,7 @@ function getSavedSidebarWidth(): number {
 }
 
 export function AppShell({ title, children }: { title: string; children: ReactNode }) {
+  const reduceMotion = useReducedMotion()
   const [navigationOpen, setNavigationOpen] = useState(false)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(getSavedSidebarState)
   const [sidebarWidth, setSidebarWidth] = useState(getSavedSidebarWidth)
@@ -66,7 +68,7 @@ export function AppShell({ title, children }: { title: string; children: ReactNo
         type="button"
         aria-label="Close navigation"
         onClick={() => setNavigationOpen(false)}
-        className={`fixed inset-0 z-30 bg-[#090b18]/55 backdrop-blur-md transition-opacity xl:hidden ${
+        className={`app-shell-backdrop fixed inset-0 z-30 bg-[#090b18]/55 backdrop-blur-md transition-opacity xl:hidden ${
           navigationOpen ? 'opacity-100' : 'pointer-events-none opacity-0'
         }`}
       />
@@ -81,7 +83,15 @@ export function AppShell({ title, children }: { title: string; children: ReactNo
       />
       <div className="flex min-w-0 flex-1 flex-col gap-4 xl:gap-5">
         <TopBar title={title} onMenuClick={() => setNavigationOpen(true)} />
-        <main id="main-content" className="page-enter min-w-0 w-full flex-1 pb-4">{children}</main>
+        <motion.main
+          id="main-content"
+          className="min-w-0 w-full flex-1 pb-4"
+          initial={reduceMotion ? false : { opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+        >
+          {children}
+        </motion.main>
         <Footer />
       </div>
     </div>

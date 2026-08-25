@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import { Navigate, useLocation, useNavigate } from 'react-router-dom'
+import { motion, useReducedMotion } from 'motion/react'
 import { FileSpreadsheet, Layers, ListChecks, Mail, Receipt, ShieldCheck } from 'lucide-react'
 import { Button } from '@/components/Button'
 import { Footer } from '@/components/Footer'
@@ -16,6 +17,7 @@ const workflows = [
 ]
 
 export default function Login() {
+  const reduceMotion = useReducedMotion()
   const { user, login } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
@@ -76,7 +78,12 @@ export default function Login() {
       id="main-content"
       className="auth-page grid min-h-[calc(100dvh-3.25rem)] gap-0 p-3 lg:grid-cols-[minmax(0,1.06fr)_minmax(29rem,0.94fr)] lg:gap-3"
     >
-      <section className="auth-brand-surface hidden px-10 py-8 text-white lg:flex lg:flex-col xl:px-14 xl:py-10">
+      <motion.section
+        className="auth-brand-surface hidden px-10 py-8 text-white lg:flex lg:flex-col xl:px-14 xl:py-10"
+        initial={reduceMotion ? false : { opacity: 0, x: -22 }}
+        animate={{ opacity: 1, x: 0 }}
+        transition={{ duration: 0.55, ease: [0.16, 1, 0.3, 1] }}
+      >
         <div className="relative flex items-center gap-3">
           <span className="grid h-11 w-11 place-items-center rounded-xl border border-white/18 bg-white/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.18)]">
             <Layers className="h-5 w-5" />
@@ -91,7 +98,7 @@ export default function Login() {
           <p className="mb-5 text-sm font-semibold text-white/65">
             The central software suite for RDC's Accounts Department
           </p>
-          <h1 className="auth-brand-title max-w-xl font-display text-5xl leading-[1.02] font-semibold tracking-[-0.055em] text-balance xl:text-6xl">
+          <h1 className="auth-brand-title max-w-xl font-display text-5xl leading-[1.04] font-semibold tracking-[-0.04em] text-balance xl:text-6xl">
             Every accounts workflow. One reliable workspace.
           </h1>
           <p className="mt-6 max-w-xl text-base leading-7 text-white/68 xl:text-lg">
@@ -114,9 +121,14 @@ export default function Login() {
             Secure internal access for authorized users
           </p>
         </div>
-      </section>
+      </motion.section>
 
-      <section className="auth-form-zone relative flex items-center justify-center px-3 py-16 sm:p-8 lg:px-8 lg:py-6 xl:px-12">
+      <motion.section
+        className="auth-form-zone relative flex items-center justify-center px-3 py-16 sm:p-8 lg:px-8 lg:py-6 xl:px-12"
+        initial={reduceMotion ? false : { opacity: 0, x: 22 }}
+        animate={{ opacity: 1, x: 0 }}
+        transition={{ duration: 0.55, delay: 0.04, ease: [0.16, 1, 0.3, 1] }}
+      >
         <div className="absolute top-[max(1rem,env(safe-area-inset-top))] right-[max(1rem,env(safe-area-inset-right))] sm:top-7 sm:right-7">
           <ThemeToggle />
         </div>
@@ -135,7 +147,7 @@ export default function Login() {
           <p className="text-sm font-semibold text-accent">
             {forgotOpen ? 'Account recovery' : 'Welcome back'}
           </p>
-          <h1 className="mt-2 font-display text-3xl font-semibold tracking-[-0.04em] text-ink sm:text-[2rem]">
+          <h1 className="mt-2 font-display text-3xl font-semibold tracking-[-0.025em] text-ink sm:text-[2rem]">
             {forgotOpen ? 'Reset your password' : 'Sign in'}
           </h1>
           <p className="mt-2 text-sm leading-6 text-ink-dim">
@@ -146,7 +158,13 @@ export default function Login() {
         </div>
 
         {!forgotOpen ? (
-          <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
+          <motion.form
+            className="flex flex-col gap-4"
+            onSubmit={handleSubmit}
+            initial={reduceMotion ? false : { opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
+          >
             <label className="flex flex-col gap-1.5 text-sm">
               <span className="font-medium text-ink-dim">Email</span>
               <div className="relative">
@@ -197,9 +215,15 @@ export default function Login() {
             >
               Forgot password?
             </button>
-          </form>
+          </motion.form>
         ) : (
-          <form className="flex flex-col gap-4" onSubmit={handleForgotSubmit}>
+          <motion.form
+            className="flex flex-col gap-4"
+            onSubmit={handleForgotSubmit}
+            initial={reduceMotion ? false : { opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
+          >
             <label className="flex flex-col gap-1.5 text-sm">
               <span className="font-medium text-ink-dim">Email</span>
               <div className="relative">
@@ -234,10 +258,10 @@ export default function Login() {
             >
               Back to sign in
             </button>
-          </form>
+          </motion.form>
         )}
       </div>
-      </section>
+      </motion.section>
     </main>
     <Footer />
     </>

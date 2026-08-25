@@ -121,7 +121,7 @@ export default function Settings() {
               <UserRound className="h-5 w-5" />
             </div>
             <div>
-              <p className="text-xs font-bold tracking-[0.1em] text-accent uppercase">Personal details</p>
+              <p className="text-sm font-semibold text-accent">Personal details</p>
               <h2 className="mt-1.5 font-display text-xl font-semibold tracking-[-0.025em] text-ink">Your profile</h2>
               <p className="mt-1 text-sm text-ink-dim">
                 Add your name so the dashboard and account menu feel personal. Both fields are optional.
@@ -204,7 +204,7 @@ export default function Settings() {
         </GlassCard>
 
       <GlassCard padding="lg">
-        <p className="text-xs font-bold tracking-[0.1em] text-accent uppercase">Report delivery</p>
+        <p className="text-sm font-semibold text-accent">Report delivery</p>
         <h2 className="mt-1.5 font-display text-xl font-semibold tracking-[-0.025em] text-ink">Email sender identity</h2>
         <p className="mt-1 text-sm text-ink-dim">
           Used as the "from" address when you personally send a generated report by email. Who

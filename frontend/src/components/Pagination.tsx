@@ -54,7 +54,7 @@ export function Pagination({
     >
       <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-ink-faint">
         <span>
-          Showing <strong className="font-semibold text-ink">{formatIndianNumber(start)}–{formatIndianNumber(end)}</strong> of{' '}
+          Showing <strong className="font-semibold text-ink">{formatIndianNumber(start)}-{formatIndianNumber(end)}</strong> of{' '}
           <strong className="font-semibold text-ink">{formatIndianNumber(totalItems)}</strong> {itemLabel}
         </span>
         <label className="flex items-center gap-2">

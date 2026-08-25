@@ -79,12 +79,12 @@ export default function AuditLog() {
               <ClipboardList className="h-5 w-5" />
             </div>
             <div>
-              <p className="text-xs font-bold tracking-[0.1em] text-accent uppercase">Accountability</p>
+              <p className="text-sm font-semibold text-accent">Accountability</p>
               <h2 className="mt-1.5 font-display text-xl font-semibold tracking-[-0.025em] text-ink">
                 Every action, who did it, when
               </h2>
               <p className="mt-1 text-sm text-ink-dim">
-                Every API call across every tool is recorded here — actor, action, result, IP, and
+                Every API call across every tool is recorded here, including actor, action, result, IP, and
                 timing. This same trail is also mirrored to <code>logs/audit.log</code> on disk,
                 independent of the database.
               </p>
@@ -176,12 +176,12 @@ export default function AuditLog() {
                       <td className="px-4 py-3 whitespace-nowrap text-ink-dim">
                         {formatIndianDateTime(row.timestamp)}
                       </td>
-                      <td className="px-4 py-3 text-ink">{row.actor_email ?? '—'}</td>
+                      <td className="px-4 py-3 text-ink">{row.actor_email ?? 'Not available'}</td>
                       <td className="px-4 py-3 font-mono text-xs text-ink">{row.action}</td>
                       <td className={`px-4 py-3 font-semibold ${statusColor(row.status_code)}`}>
-                        {row.status_code ?? '—'}
+                        {row.status_code ?? 'Not available'}
                       </td>
-                      <td className="px-4 py-3 text-ink-faint">{row.ip_address ?? '—'}</td>
+                      <td className="px-4 py-3 text-ink-faint">{row.ip_address ?? 'Not available'}</td>
                     </tr>
                   ))
                 )}

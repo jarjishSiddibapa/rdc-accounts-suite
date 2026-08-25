@@ -81,7 +81,7 @@ function UnresolvedStateCodesFix({
         </h4>
       </div>
       <p className="text-sm text-ink-dim">
-        These GST state codes weren't in the State Codes table — the output workbook used a
+        These GST state codes weren't in the State Codes table. The output workbook used a
         placeholder like &quot;Unknown state (NN)&quot; instead. Enter the real state name for
         each, then combine again.
       </p>
@@ -287,7 +287,7 @@ export default function Gstr2bCombinator() {
           <div className="flex items-center gap-4">
             <span className="icon-tile grid h-12 w-12 place-items-center rounded-xl"><Combine className="h-5 w-5" /></span>
             <div>
-              <p className="text-xs font-bold tracking-[0.1em] text-accent uppercase">Data consolidation</p>
+              <p className="text-sm font-semibold text-accent">Data consolidation</p>
               <h2 className="mt-1.5 font-display text-xl font-semibold tracking-[-0.025em] text-ink">Combine GSTR-2B files</h2>
               <p className="mt-1 text-sm leading-6 text-ink-dim">Upload GSTR-2B Excel exports from every state and combine their B2B, B2BA, B2B-CDNR, B2B-CDNRA and IMPG tabs into one workbook.</p>
             </div>

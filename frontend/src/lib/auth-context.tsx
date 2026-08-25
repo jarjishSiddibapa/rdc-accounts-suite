@@ -18,7 +18,7 @@ import {
   subscribeToTabLogout,
 } from './tab-session'
 
-// Lazy: pulls in Modal + framer-motion, which every page (including the
+// Lazy: pulls in Modal + Motion, which every page (including the
 // unauthenticated login screen) would otherwise have to load upfront just
 // for a warning that only ever shows after 29 idle minutes.
 const IdleWarningModal = lazy(() =>

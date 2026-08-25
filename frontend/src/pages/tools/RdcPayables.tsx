@@ -334,7 +334,7 @@ export default function RdcPayables() {
               <Receipt className="h-5 w-5" />
             </span>
             <div>
-              <p className="text-xs font-bold tracking-[0.1em] text-accent uppercase">Payables intelligence</p>
+              <p className="text-sm font-semibold text-accent">Payables intelligence</p>
               <h2 className="mt-1.5 font-display text-xl font-semibold tracking-[-0.025em] text-ink">Generate payables report</h2>
               <p className="mt-1 text-sm leading-6 text-ink-dim">
                 Upload an Oracle ERP export and pick the GL cutoff period.
@@ -414,7 +414,7 @@ export default function RdcPayables() {
                 <div className="mr-auto">
                   <span className="text-ink-faint">Reporting reference date</span>
                   <p className="text-ink">
-                    {result.reporting_ref_date ? formatIndianDate(result.reporting_ref_date) : '—'}
+                    {result.reporting_ref_date ? formatIndianDate(result.reporting_ref_date) : 'Not available'}
                   </p>
                 </div>
                 <Button

@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
 import { CalendarDays, Menu } from 'lucide-react'
+import { motion, useReducedMotion } from 'motion/react'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { useAuth } from '@/lib/auth-context'
 import { formatIndianDate } from '@/lib/regional'
@@ -7,6 +8,7 @@ import { getUserDisplayName, getUserInitials } from '@/lib/user'
 
 export function TopBar({ title, onMenuClick }: { title: string; onMenuClick?: () => void }) {
   const { user } = useAuth()
+  const reduceMotion = useReducedMotion()
   const today = formatIndianDate(new Date(), {
     weekday: 'short',
     day: '2-digit',
@@ -14,7 +16,12 @@ export function TopBar({ title, onMenuClick }: { title: string; onMenuClick?: ()
   })
 
   return (
-    <header className="app-topbar glass sticky z-20 flex min-h-[4.5rem] min-w-0 items-center justify-between gap-2 rounded-[1.25rem] px-3 py-3 sm:gap-3 sm:px-5">
+    <motion.header
+      className="app-topbar glass sticky z-20 flex min-h-[4.5rem] min-w-0 items-center justify-between gap-2 rounded-[1.25rem] px-3 py-3 sm:gap-3 sm:px-5"
+      initial={reduceMotion ? false : { opacity: 0, y: -10 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.48, ease: [0.16, 1, 0.3, 1] }}
+    >
       <div className="flex min-w-0 items-center gap-2">
         <button
           type="button"
@@ -26,10 +33,10 @@ export function TopBar({ title, onMenuClick }: { title: string; onMenuClick?: ()
           <Menu className="h-5 w-5" />
         </button>
         <div className="min-w-0">
-          <p className="hidden text-[11px] font-semibold tracking-wide text-ink-faint sm:block">
+          <p className="hidden text-xs font-medium text-ink-faint sm:block">
             Accounts workspace
           </p>
-          <h1 className="truncate font-display text-lg font-semibold tracking-[-0.025em] text-ink sm:text-xl">
+          <h1 className="truncate font-display text-lg font-semibold tracking-[-0.015em] text-ink sm:text-xl">
             {title}
           </h1>
         </div>
@@ -58,6 +65,6 @@ export function TopBar({ title, onMenuClick }: { title: string; onMenuClick?: ()
           </Link>
         )}
       </div>
-    </header>
+    </motion.header>
   )
 }

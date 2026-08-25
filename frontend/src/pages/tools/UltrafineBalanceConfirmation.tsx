@@ -130,7 +130,7 @@ function recipientSourceLabel(source: RecipientSource): string {
 }
 
 function EmailList({ emails }: { emails: string[] }) {
-  if (emails.length === 0) return <span className="text-ink-faint">—</span>
+  if (emails.length === 0) return <span className="text-ink-faint">Not available</span>
   return (
     <div className="flex flex-col gap-0.5">
       {emails.map((e) => (
@@ -649,7 +649,7 @@ export default function UltrafineBalanceConfirmation() {
               <Mail className="h-5 w-5" />
             </span>
             <div>
-              <p className="text-xs font-bold tracking-[0.1em] text-accent uppercase">
+              <p className="text-sm font-semibold text-accent">
                 Balance confirmation
               </p>
               <h2 className="mt-1.5 font-display text-xl font-semibold tracking-[-0.025em] text-ink">
@@ -657,7 +657,7 @@ export default function UltrafineBalanceConfirmation() {
               </h2>
               <p className="mt-1 text-sm leading-6 text-ink-dim">
                 Upload the balance workbook (Customer Name, Net O/s, optionally To/CC Email IDs)
-                and any per-customer PDF statements — each PDF is matched to a customer by
+                and any per-customer PDF statements. Each PDF is matched to a customer by
                 filename. Recipients not given in the upload fall back to the saved mapping
                 below. Every email is built and shown to you before anything is sent.
               </p>
@@ -724,7 +724,7 @@ export default function UltrafineBalanceConfirmation() {
             <div className="flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
               <div className="flex flex-col gap-2 text-sm">
-                <span className="text-ink-dim">You haven't set up your email sender yet — go to Settings.</span>
+                <span className="text-ink-dim">You haven't set up your email sender yet. Go to Settings.</span>
                 <Link
                   to="/settings"
                   className="inline-flex w-fit items-center gap-1.5 text-sm font-medium text-accent transition hover:gap-2.5"

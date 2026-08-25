@@ -23,7 +23,7 @@ export function formatIndianDate(
   options?: Intl.DateTimeFormatOptions,
 ): string {
   const date = parseDate(value)
-  if (Number.isNaN(date.getTime())) return '—'
+  if (Number.isNaN(date.getTime())) return 'Not available'
 
   const selectedOptions = options ?? {
     day: '2-digit',

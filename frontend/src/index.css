@@ -1,50 +1,66 @@
-@import "@fontsource-variable/manrope";
-@import "@fontsource/ibm-plex-mono/latin-500.css";
-@import "@fontsource/ibm-plex-mono/latin-600.css";
 @import "tailwindcss";
+
+@font-face {
+  font-family: "Geist Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("../node_modules/@fontsource-variable/geist/files/geist-latin-wght-normal.woff2") format("woff2-variations");
+}
+
+@font-face {
+  font-family: "Geist Mono Variable";
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 900;
+  src: url("../node_modules/@fontsource-variable/geist-mono/files/geist-mono-latin-wght-normal.woff2") format("woff2-variations");
+}
 
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
 
 @theme {
-  --font-display: "Manrope", "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
-  --font-sans: "Manrope", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
-  --font-mono: "IBM Plex Mono", "Cascadia Code", ui-monospace, monospace;
+  --font-display: "Geist Variable", "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+  --font-sans: "Geist Variable", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "Geist Mono Variable", "Cascadia Code", ui-monospace, monospace;
 
-  --color-bg: #f5f7fa;
-  --color-bg-soft: #edf1f6;
-  --color-surface: #ffffff;
-  --color-border: #d5dde8;
+  --color-bg: #f1f3fa;
+  --color-bg-soft: #e5e9f5;
+  --color-surface: #fcfcff;
+  --color-border: #ccd3e5;
 
-  --color-ink: #151a24;
-  --color-ink-dim: #4c596b;
-  --color-ink-faint: #68758a;
+  --color-ink: #171a2b;
+  --color-ink-dim: #505a71;
+  --color-ink-faint: #687287;
 
-  --color-accent: #2458c6;
-  --color-accent-2: #173d8f;
-  --color-accent-3: #4978d7;
+  --color-accent: #5046d8;
+  --color-accent-2: #3731a5;
+  --color-accent-3: #746ce2;
   --color-warm: #d97706;
 }
 
 :root {
-  --shadow-rgb: 31, 46, 74;
+  --shadow-rgb: 32, 48, 72;
   --shadow-strength: 1;
   --surface-highlight: rgba(255, 255, 255, 0.96);
   --surface-glow: rgba(255, 255, 255, 0.38);
+  --ease-enter: cubic-bezier(0.16, 1, 0.3, 1);
+  --radius-control: 0.75rem;
+  --radius-panel: 1rem;
 }
 
 :root[data-theme="dark"] {
-  --color-bg: #0d121b;
-  --color-bg-soft: #141b28;
-  --color-surface: #192231;
-  --color-border: #344052;
+  --color-bg: #0d1020;
+  --color-bg-soft: #14182b;
+  --color-surface: #1b2035;
+  --color-border: #353c56;
 
-  --color-ink: #f5f7fa;
-  --color-ink-dim: #bdc6d3;
-  --color-ink-faint: #96a2b4;
+  --color-ink: #f3f4fa;
+  --color-ink-dim: #c2c7d5;
+  --color-ink-faint: #9ba3b7;
 
-  --color-accent: #8fb1ff;
-  --color-accent-2: #315ba8;
-  --color-accent-3: #668eea;
+  --color-accent: #aaa2f7;
+  --color-accent-2: #5a52c5;
+  --color-accent-3: #8178e4;
   --color-warm: #f0b429;
 
   --shadow-rgb: 0, 0, 0;
@@ -73,11 +89,13 @@
     @apply bg-bg text-ink font-sans antialiased;
     min-height: 100vh;
     min-height: 100dvh;
-    background-image: linear-gradient(
-      180deg,
-      color-mix(in oklab, var(--color-surface) 58%, var(--color-bg)) 0,
-      var(--color-bg) 22rem
-    );
+    background-image:
+      radial-gradient(circle at 88% -8%, color-mix(in oklab, var(--color-accent) 10%, transparent) 0, transparent 34rem),
+      radial-gradient(circle at -8% 48%, color-mix(in oklab, var(--color-accent-3) 6%, transparent) 0, transparent 28rem),
+      linear-gradient(180deg, color-mix(in oklab, var(--color-surface) 52%, transparent), transparent 20rem);
+    background-attachment: fixed;
+    font-size: 1rem;
+    line-height: 1.5;
     font-feature-settings: "kern" 1, "liga" 1, "calt" 1;
     font-variant: normal;
     font-synthesis: none;
@@ -88,7 +106,17 @@
   }
 
   body::before {
-    content: none;
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    content: '';
+    pointer-events: none;
+    opacity: 0.34;
+    background-image:
+      linear-gradient(90deg, color-mix(in oklab, var(--color-accent) 5%, transparent) 1px, transparent 1px);
+    background-size: 88px 100%;
+    mask-image: linear-gradient(90deg, transparent, black 15%, black 85%, transparent);
+    -webkit-mask-image: linear-gradient(90deg, transparent, black 15%, black 85%, transparent);
   }
 
   body::after {
@@ -175,6 +203,7 @@
 }
 
 @layer components {
+  /* Layer scale: top bar 20, dropdown/overlay 30, navigation 40, modal 50, skip link 60. */
   .field-control {
     @apply min-h-11 rounded-xl border border-border bg-surface px-3.5 py-2.5 text-ink outline-none transition duration-200;
   }
@@ -220,7 +249,27 @@
   }
 
   .premium-card::before {
-    content: none;
+    position: absolute;
+    top: -1px;
+    left: 1.25rem;
+    width: 5.5rem;
+    height: 1px;
+    content: '';
+    pointer-events: none;
+    background: linear-gradient(90deg, var(--color-accent), transparent);
+    opacity: 0.72;
+  }
+
+  .premium-card::after {
+    position: absolute;
+    top: 1.25rem;
+    right: -1px;
+    width: 1px;
+    height: 3.5rem;
+    content: '';
+    pointer-events: none;
+    background: linear-gradient(180deg, color-mix(in oklab, var(--color-accent) 72%, transparent), transparent);
+    opacity: 0.5;
   }
 
   .motion-surface {
@@ -240,7 +289,7 @@
 
   .subpanel {
     border: 1px solid color-mix(in oklab, var(--color-border) 78%, transparent);
-    border-radius: 1rem;
+    border-radius: var(--radius-panel);
     background: color-mix(in oklab, var(--color-surface) 92%, var(--color-bg-soft));
     box-shadow: inset 0 1px 0 var(--surface-highlight);
     transition:
@@ -252,6 +301,7 @@
 
   .subpanel:hover {
     border-color: color-mix(in oklab, var(--color-accent) 16%, var(--color-border));
+    transform: translateY(-1px);
     box-shadow:
       inset 0 1px 0 var(--surface-highlight),
       0 12px 28px -24px rgba(var(--shadow-rgb), 0.45);
@@ -296,7 +346,8 @@
   }
 
   .table-shell {
-    @apply overflow-x-auto rounded-2xl border border-border;
+    @apply overflow-x-auto border border-border;
+    border-radius: var(--radius-panel);
     overscroll-behavior-inline: contain;
     scrollbar-gutter: stable;
     background: color-mix(in oklab, var(--color-surface) 78%, transparent);
@@ -307,6 +358,9 @@
 
   .app-shell-frame {
     --shell-inset: 0.75rem;
+    width: 100%;
+    max-width: 106rem;
+    margin-inline: auto;
     gap: 0.75rem;
     padding:
       max(var(--shell-inset), env(safe-area-inset-top))
@@ -327,6 +381,30 @@
 
   .app-topbar {
     top: max(var(--shell-inset), env(safe-area-inset-top));
+  }
+
+  .app-sidebar::before {
+    position: absolute;
+    inset: 0;
+    content: '';
+    pointer-events: none;
+    background-image:
+      linear-gradient(135deg, transparent 0 76%, color-mix(in oklab, var(--color-accent) 11%, transparent) 76.15%, transparent 76.3%),
+      linear-gradient(135deg, transparent 0 84%, color-mix(in oklab, var(--color-accent) 8%, transparent) 84.15%, transparent 84.3%);
+    mask-image: linear-gradient(to bottom, black, transparent 48%);
+    -webkit-mask-image: linear-gradient(to bottom, black, transparent 48%);
+  }
+
+  .app-topbar::after {
+    position: absolute;
+    right: 1.25rem;
+    bottom: -1px;
+    width: clamp(5rem, 14vw, 11rem);
+    height: 1px;
+    content: '';
+    pointer-events: none;
+    background: linear-gradient(90deg, transparent, var(--color-accent));
+    opacity: 0.62;
   }
 
   .skip-link {
@@ -359,8 +437,10 @@
     isolation: isolate;
     overflow: hidden;
     border: 1px solid rgba(255, 255, 255, 0.1);
-    border-radius: 1.75rem;
-    background: linear-gradient(145deg, #101827 0%, #172a50 68%, #214fa5 145%);
+    border-radius: var(--radius-panel);
+    background:
+      linear-gradient(135deg, rgba(255, 255, 255, 0.05), transparent 42%),
+      linear-gradient(155deg, #10162e 0%, #20265b 58%, #5046d8 132%);
     box-shadow:
       inset 0 1px 0 rgba(255, 255, 255, 0.12),
       0 30px 70px -44px rgba(18, 35, 75, 0.78);
@@ -368,7 +448,31 @@
 
   .auth-brand-surface::before,
   .auth-brand-surface::after {
-    content: none;
+    position: absolute;
+    content: '';
+    pointer-events: none;
+  }
+
+  .auth-brand-surface::before {
+    inset: 0;
+    background-image:
+      linear-gradient(rgba(255, 255, 255, 0.045) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255, 255, 255, 0.045) 1px, transparent 1px);
+    background-size: 64px 64px;
+    mask-image: linear-gradient(135deg, black, transparent 80%);
+    -webkit-mask-image: linear-gradient(135deg, black, transparent 80%);
+  }
+
+  .auth-brand-surface::after {
+    width: 28rem;
+    height: 28rem;
+    right: -14rem;
+    bottom: -12rem;
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 50%;
+    box-shadow:
+      0 0 0 5rem rgba(255, 255, 255, 0.022),
+      0 0 0 10rem rgba(255, 255, 255, 0.014);
   }
 
   .auth-form-zone {
@@ -376,13 +480,23 @@
   }
 
   .auth-form-zone::before {
-    content: none;
+    position: absolute;
+    z-index: -1;
+    width: 24rem;
+    height: 24rem;
+    top: 6%;
+    right: -11rem;
+    content: '';
+    pointer-events: none;
+    border-radius: 50%;
+    background: color-mix(in oklab, var(--color-accent) 10%, transparent);
+    filter: blur(72px);
   }
 
   .auth-card {
     width: 100%;
     border: 1px solid color-mix(in oklab, var(--color-border) 86%, transparent);
-    border-radius: 1.5rem;
+    border-radius: var(--radius-panel);
     background: color-mix(in oklab, var(--color-surface) 94%, transparent);
     padding: clamp(1.5rem, 4vw, 2.5rem);
     box-shadow:
@@ -419,8 +533,10 @@
     isolation: isolate;
     overflow: hidden;
     border: 1px solid var(--color-border);
-    border-radius: 1.5rem;
-    background: color-mix(in oklab, var(--color-surface) 96%, transparent);
+    border-radius: var(--radius-panel);
+    background:
+      radial-gradient(circle at 88% 18%, color-mix(in oklab, var(--color-accent) 10%, transparent), transparent 18rem),
+      linear-gradient(135deg, color-mix(in oklab, var(--color-surface) 96%, transparent), color-mix(in oklab, var(--color-bg-soft) 72%, var(--color-surface)));
     box-shadow:
       inset 0 1px 0 var(--surface-highlight),
       0 24px 64px -48px rgba(var(--shadow-rgb), 0.65);
@@ -432,16 +548,28 @@
     width: 0.3rem;
     content: '';
     background: var(--color-accent);
+    transform-origin: top;
   }
 
   .workspace-hero::after {
-    content: none;
+    position: absolute;
+    width: 22rem;
+    height: 22rem;
+    right: -9rem;
+    bottom: -13rem;
+    content: '';
+    pointer-events: none;
+    border: 1px solid color-mix(in oklab, var(--color-accent) 24%, transparent);
+    border-radius: 50%;
+    box-shadow:
+      0 0 0 4rem color-mix(in oklab, var(--color-accent) 3%, transparent),
+      0 0 0 7rem color-mix(in oklab, var(--color-accent) 1.5%, transparent);
   }
 
   .workspace-summary {
     border: 1px solid color-mix(in oklab, var(--color-border) 88%, transparent);
-    border-radius: 1.125rem;
-    background: color-mix(in oklab, var(--color-bg-soft) 58%, transparent);
+    border-radius: var(--radius-panel);
+    background: color-mix(in oklab, var(--color-bg-soft) 72%, var(--color-surface));
   }
 
   .dashboard-tools-grid {
@@ -453,27 +581,127 @@
   .tool-card {
     position: relative;
     display: flex;
-    min-height: 15.5rem;
+    min-height: 14.5rem;
     overflow: hidden;
     border: 1px solid var(--color-border);
-    border-radius: 1.25rem;
-    background: var(--color-surface);
+    border-radius: var(--radius-panel);
+    background:
+      linear-gradient(145deg, color-mix(in oklab, var(--color-surface) 97%, transparent), color-mix(in oklab, var(--color-bg-soft) 18%, var(--color-surface)));
     padding: clamp(1.25rem, 2.4vw, 1.75rem);
-    box-shadow: 0 18px 48px -42px rgba(var(--shadow-rgb), 0.62);
+    box-shadow:
+      inset 0 1px 0 var(--surface-highlight),
+      0 18px 48px -42px rgba(var(--shadow-rgb), 0.62);
     transition:
-      transform 0.28s cubic-bezier(0.16, 1, 0.3, 1),
+      transform 0.32s var(--ease-enter),
       border-color 0.24s ease,
-      box-shadow 0.28s ease;
+      background-color 0.24s ease,
+      box-shadow 0.32s var(--ease-enter);
+  }
+
+  .tool-card::before {
+    position: absolute;
+    top: -1px;
+    left: 1.65rem;
+    width: 4.75rem;
+    height: 2px;
+    content: '';
+    pointer-events: none;
+    background: linear-gradient(90deg, var(--color-accent), transparent);
+    opacity: 0.58;
+    transform-origin: left;
+    transition:
+      opacity 0.28s ease,
+      transform 0.36s var(--ease-enter);
   }
 
   .tool-card::after {
-    content: none;
+    position: absolute;
+    inset: auto -4rem -6rem auto;
+    width: 12rem;
+    height: 12rem;
+    content: '';
+    pointer-events: none;
+    border: 1px solid color-mix(in oklab, var(--color-accent) 18%, transparent);
+    border-radius: 50%;
+    box-shadow: 0 0 0 2.75rem color-mix(in oklab, var(--color-accent) 2.5%, transparent);
+    opacity: 0.78;
+    transition:
+      opacity 0.3s ease,
+      transform 0.5s var(--ease-enter);
   }
 
   .group:hover .tool-card {
-    transform: translateY(-3px);
+    transform: translateY(-4px);
     border-color: color-mix(in oklab, var(--color-accent) 34%, var(--color-border));
     box-shadow: 0 30px 58px -40px color-mix(in oklab, var(--color-accent) 34%, rgba(var(--shadow-rgb), 0.58));
+  }
+
+  .group:hover .tool-card::before {
+    opacity: 0.92;
+    transform: scaleX(1.3);
+  }
+
+  .group:hover .tool-card::after {
+    opacity: 1;
+    transform: translate3d(-0.6rem, -0.4rem, 0) scale(1.04);
+  }
+
+  .group:active .tool-card {
+    transform: translateY(-1px) scale(0.992);
+  }
+
+  .tool-card-icon,
+  .tool-card-action,
+  .tool-card-action svg {
+    transition:
+      transform 0.32s var(--ease-enter),
+      color 0.22s ease,
+      background-color 0.22s ease;
+  }
+
+  .group:hover .tool-card-icon {
+    transform: translateY(-2px) rotate(-2deg) scale(1.06);
+  }
+
+  .group:hover .tool-card-action {
+    text-decoration: underline;
+    text-underline-offset: 0.28rem;
+  }
+
+  .group:hover .tool-card-action svg {
+    transform: translateX(0.3rem);
+  }
+
+  .tool-card--featured {
+    border-color: color-mix(in oklab, var(--color-accent) 28%, var(--color-border));
+    background: linear-gradient(
+      135deg,
+      color-mix(in oklab, var(--color-accent) 11%, var(--color-surface)),
+      var(--color-surface) 64%
+    );
+    box-shadow:
+      inset 0 1px 0 var(--surface-highlight),
+      0 24px 54px -42px color-mix(in oklab, var(--color-accent) 34%, transparent);
+  }
+
+  .tool-card--featured .tool-card-icon {
+    border: 1px solid color-mix(in oklab, var(--color-accent) 78%, var(--color-border));
+    background: var(--color-accent);
+    color: #f7f9fc;
+    box-shadow:
+      inset 0 1px 0 rgba(255, 255, 255, 0.22),
+      0 14px 26px -18px color-mix(in oklab, var(--color-accent) 72%, transparent);
+  }
+
+  .group:hover .tool-card--featured {
+    border-color: color-mix(in oklab, var(--color-accent) 48%, var(--color-border));
+    box-shadow: 0 30px 62px -42px color-mix(in oklab, var(--color-accent) 48%, transparent);
+  }
+
+  .tool-card--tinted {
+    background:
+      radial-gradient(circle at 100% 100%, color-mix(in oklab, var(--color-accent) 10%, transparent), transparent 13rem),
+      color-mix(in oklab, var(--color-accent) 4%, var(--color-surface));
   }
 }
 
@@ -486,7 +714,9 @@
   }
 
   .glass {
-    background: var(--color-surface);
+    background: color-mix(in oklab, var(--color-surface) 94%, transparent);
+    backdrop-filter: blur(16px) saturate(120%);
+    -webkit-backdrop-filter: blur(16px) saturate(120%);
     border: 1px solid var(--color-border);
     box-shadow:
       inset 0 1px 0 var(--surface-highlight),
@@ -503,10 +733,7 @@
       0px 24px 40px -8px rgba(var(--shadow-rgb), calc(0.08 * var(--shadow-strength)));
   }
 
-  .page-enter {
-    animation: none;
-  }
-
+  .page-enter,
   .ambient-orb {
     animation: none;
   }
@@ -520,6 +747,38 @@
 @keyframes progress-shimmer {
   from { background-position: 100% 0; }
   to { background-position: -100% 0; }
+}
+
+@keyframes accent-reveal {
+  from {
+    opacity: 0;
+    transform: scaleY(0);
+  }
+  to {
+    opacity: 1;
+    transform: scaleY(1);
+  }
+}
+
+@keyframes status-enter {
+  from {
+    opacity: 0;
+    transform: translateY(0.375rem);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .workspace-hero::before {
+    animation: accent-reveal 0.7s var(--ease-enter) both;
+  }
+
+  .status-banner {
+    animation: status-enter 0.38s var(--ease-enter) both;
+  }
 }
 
 @media (min-width: 40rem) {
@@ -604,8 +863,20 @@
 }
 
 @media (prefers-reduced-transparency: reduce) {
+  .glass {
+    background: var(--color-surface);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+
   .auth-card {
     background: var(--color-surface);
+  }
+
+  .modal-backdrop,
+  .app-shell-backdrop {
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
   }
 }
 

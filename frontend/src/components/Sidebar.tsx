@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { NavLink } from 'react-router-dom'
+import { motion, useReducedMotion } from 'motion/react'
 import { SIDEBAR_DEFAULT_WIDTH, SIDEBAR_MAX_WIDTH, SIDEBAR_MIN_WIDTH } from '@/lib/sidebarLayout'
 import {
   LayoutDashboard,
@@ -19,7 +20,9 @@ import {
   LogOut,
   Layers,
   Mail,
-  Menu,
+  PanelLeftClose,
+  PanelLeftOpen,
+  X,
 } from 'lucide-react'
 import { cn } from '@/utils/cn'
 import { useAuth } from '@/lib/auth-context'
@@ -96,6 +99,7 @@ export function Sidebar({
 }: SidebarProps) {
   const { user, logout } = useAuth()
   const isDesktop = useIsDesktopSidebar()
+  const reduceMotion = useReducedMotion()
   const [resizing, setResizing] = useState(false)
   const dragStart = useRef({ x: 0, width: width ?? SIDEBAR_DEFAULT_WIDTH })
 
@@ -127,13 +131,15 @@ export function Sidebar({
   )
 
   return (
-    <aside
+    <motion.aside
       id="primary-navigation"
       aria-label="Primary navigation"
+      layout={!resizing}
+      transition={{ layout: { type: 'spring', stiffness: 380, damping: 36, mass: 0.8 } }}
       style={isDesktop && !collapsed && width ? { width: `${width}px` } : undefined}
       className={cn(
         'glass relative flex w-64 shrink-0 flex-col gap-5 overflow-hidden rounded-[1.25rem] p-3.5',
-        !resizing && 'transition-[width,transform,padding] duration-300',
+        !resizing && 'transition-transform duration-300',
         'xl:translate-x-0',
         collapsed ? 'xl:w-20 xl:px-3' : 'xl:w-64',
         mobileOpen ? 'translate-x-0' : '-translate-x-[calc(100%+1rem)]',
@@ -163,7 +169,7 @@ export function Sidebar({
             <p className="truncate font-display text-sm font-bold tracking-tight text-ink">
               RDC Accounts Suite
             </p>
-            <p className="mt-0.5 truncate text-[10px] font-medium text-ink-faint">
+            <p className="mt-0.5 truncate text-[11px] font-medium text-ink-faint">
               Finance operations
             </p>
           </div>
@@ -175,7 +181,7 @@ export function Sidebar({
           aria-controls="primary-navigation"
           className="ml-auto grid h-11 w-11 shrink-0 place-items-center rounded-xl border border-transparent text-ink-dim transition hover:border-border hover:bg-bg-soft hover:text-ink xl:hidden"
         >
-          <Menu className="h-5 w-5" />
+          <X className="h-5 w-5" />
         </button>
         <button
           type="button"
@@ -189,11 +195,16 @@ export function Sidebar({
             collapsed ? 'mx-auto' : 'ml-auto',
           )}
         >
-          <Menu className="h-5 w-5" />
+          {collapsed ? <PanelLeftOpen className="h-5 w-5" /> : <PanelLeftClose className="h-5 w-5" />}
         </button>
       </div>
 
-      <nav className="flex flex-1 flex-col gap-1.5 overflow-y-auto py-1">
+      <motion.nav
+        className="flex flex-1 flex-col gap-1.5 overflow-y-auto py-1"
+        initial={reduceMotion ? false : { opacity: 0, x: -10 }}
+        animate={{ opacity: 1, x: 0 }}
+        transition={{ duration: 0.45, delay: 0.08, ease: [0.16, 1, 0.3, 1] }}
+      >
         {visibleNav.map((item) => (
           <SidebarLink
             key={item.to}
@@ -208,7 +219,7 @@ export function Sidebar({
           <>
             <div
               className={cn(
-                'mt-4 mb-1 px-3 text-[11px] font-semibold tracking-wide text-ink-faint',
+                'mt-4 mb-1 px-3 text-xs font-semibold text-ink-faint',
                 collapsed && 'xl:hidden',
               )}
             >
@@ -239,7 +250,7 @@ export function Sidebar({
 
         <div
           className={cn(
-            'mt-4 mb-1 px-3 text-[11px] font-semibold tracking-wide text-ink-faint',
+            'mt-4 mb-1 px-3 text-xs font-semibold text-ink-faint',
             collapsed && 'xl:hidden',
           )}
         >
@@ -250,7 +261,7 @@ export function Sidebar({
           collapsed={collapsed}
           onNavigate={onNavigate}
         />
-      </nav>
+      </motion.nav>
 
       <button
         onClick={() => void logout()}
@@ -262,9 +273,11 @@ export function Sidebar({
         )}
       >
         <LogOut className="h-4 w-4 shrink-0" />
-        <span className={cn(collapsed && 'xl:hidden')}>Logout</span>
+        <span className={cn('whitespace-nowrap transition-opacity duration-200', collapsed && 'xl:w-0 xl:overflow-hidden xl:opacity-0')}>
+          Logout
+        </span>
       </button>
-    </aside>
+    </motion.aside>
   )
 }
 
@@ -289,16 +302,34 @@ function SidebarLink({
       title={item.label}
       className={({ isActive }) =>
         cn(
-          'group flex min-h-11 items-center gap-3 rounded-xl border px-3 py-2.5 text-sm font-semibold transition duration-200',
+          'group relative flex min-h-11 items-center gap-3 overflow-hidden rounded-xl border px-3 py-2.5 text-sm font-semibold transition duration-200 hover:translate-x-0.5 active:scale-[0.985]',
           collapsed && 'xl:justify-center xl:px-0',
           isActive
-            ? 'border-accent/15 bg-accent/10 text-accent shadow-[inset_3px_0_0_var(--color-accent)]'
+            ? 'border-transparent text-accent'
             : 'border-transparent text-ink-dim hover:border-border hover:bg-bg-soft/75 hover:text-ink',
         )
       }
     >
-      <Icon className="h-4 w-4 shrink-0" strokeWidth={1.9} />
-      <span className={cn('truncate', collapsed && 'xl:hidden')}>{item.label}</span>
+      {({ isActive }) => (
+        <>
+          {isActive && (
+            <motion.span
+              layoutId="sidebar-active-item"
+              className="absolute inset-0 rounded-xl border border-accent/15 bg-accent/10 shadow-[inset_3px_0_0_var(--color-accent)]"
+              transition={{ type: 'spring', stiffness: 420, damping: 34, mass: 0.72 }}
+            />
+          )}
+          <Icon className="relative h-4 w-4 shrink-0" strokeWidth={1.9} />
+          <span
+            className={cn(
+              'relative truncate whitespace-nowrap transition-opacity duration-200',
+              collapsed && 'xl:w-0 xl:overflow-hidden xl:opacity-0',
+            )}
+          >
+            {item.label}
+          </span>
+        </>
+      )}
     </NavLink>
   )
 }

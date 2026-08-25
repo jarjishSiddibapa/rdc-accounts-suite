@@ -189,7 +189,7 @@ function UnmappedSitesFix({
         </h4>
       </div>
       <p className="text-sm text-ink-dim">
-        Pick a Location for each unmapped Supplier Site — Accounts Incharge is filled in
+        Pick a Location for each unmapped Supplier Site. Accounts Incharge is filled in
         automatically from the Location table.
       </p>
       {error && <p className="text-sm text-red-500">{error}</p>}
@@ -425,7 +425,7 @@ function MrnTab({ knownLocations }: { knownLocations: string[] }) {
       {periods.length > 0 && (
         <div className="flex flex-col gap-2 rounded-xl border border-border p-4">
           <span className="text-sm font-medium text-ink-dim">
-            Periods found — uncheck any to exclude them from the report
+            Periods found. Uncheck any to exclude them from the report
           </span>
           <div className="flex flex-wrap gap-3">
             {periodPagination.pagedItems.map((p) => (
@@ -575,7 +575,7 @@ function PoTab({ knownLocations }: { knownLocations: string[] }) {
       {months.length > 0 && (
         <div className="flex flex-col gap-2 rounded-xl border border-border p-4">
           <span className="text-sm font-medium text-ink-dim">
-            Months found — uncheck any to exclude them from the report
+            Months found. Uncheck any to exclude them from the report
           </span>
           <div className="flex flex-wrap gap-3">
             {monthPagination.pagedItems.map((m) => (
@@ -978,7 +978,7 @@ function MailTab({
       setMrnPeriods(res.periods)
       setMrnIncluded(Object.fromEntries(res.periods.map((p) => [p, true])))
     } catch {
-      // Non-fatal — user can still send without a period breakdown.
+      // Non-fatal. The user can still send without a period breakdown.
     } finally {
       setDetectingMrn(false)
     }
@@ -1273,7 +1273,7 @@ function MailTab({
           <CalendarDays className="h-4 w-4 text-accent" /> Period labels &amp; filename date
         </span>
         <p className="-mt-2 text-xs text-ink-faint">
-          Every month used anywhere in this send, in one place — set the subject month once and sync it
+          Every month used anywhere in this send, in one place. Set the subject month once and sync it
           everywhere, or fine-tune each report individually.
         </p>
 
@@ -1305,7 +1305,7 @@ function MailTab({
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           {includeUa && (
             <label className="flex flex-col gap-1.5 text-sm">
-              <span className="font-medium text-ink-dim">Unaccounted — body line month</span>
+              <span className="font-medium text-ink-dim">Unaccounted: body line month</span>
               <MonthYearPicker
                 value={monthUa}
                 onValueChange={setMonthUa}
@@ -1316,7 +1316,7 @@ function MailTab({
           )}
           {includeMrn && (
             <label className="flex flex-col gap-1.5 text-sm">
-              <span className="font-medium text-ink-dim">Pending MRN — body line month</span>
+              <span className="font-medium text-ink-dim">Pending MRN: body line month</span>
               <MonthYearPicker
                 value={monthMrn}
                 onValueChange={setMonthMrn}
@@ -1327,7 +1327,7 @@ function MailTab({
           )}
           {includePo && (
             <label className="flex flex-col gap-1.5 text-sm">
-              <span className="font-medium text-ink-dim">Uninvoiced Expenses — body line month</span>
+              <span className="font-medium text-ink-dim">Uninvoiced Expenses: body line month</span>
               <MonthYearPicker
                 value={monthPo}
                 onValueChange={setMonthPo}
@@ -1442,7 +1442,7 @@ function MailTab({
       </div>
 
       <p className="text-right text-xs text-ink-faint sm:text-left">
-        This always generates the reports and shows you the exact email first — nothing is ever
+        This always generates the reports and shows you the exact email first. Nothing is ever
         sent without your explicit confirmation on the next screen.
       </p>
       <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
@@ -1474,7 +1474,7 @@ function MailTab({
         <div className="flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
           <div className="flex flex-col gap-2 text-sm">
-            <span className="text-ink-dim">You haven't set up your email sender yet — go to Settings.</span>
+            <span className="text-ink-dim">You haven't set up your email sender yet. Go to Settings.</span>
             <Link
               to="/settings"
               className="inline-flex w-fit items-center gap-1.5 text-sm font-medium text-accent transition hover:gap-2.5"
@@ -1507,7 +1507,7 @@ function MailTab({
           <div className="flex flex-col gap-1 text-sm">
             <span className="font-medium text-emerald-600">Email sent successfully.</span>
             <span className="text-ink-dim">Subject: {sentResult.subject}</span>
-            <span className="text-ink-dim">To: {sentResult.to.join(', ') || '—'}</span>
+            <span className="text-ink-dim">To: {sentResult.to.join(', ') || 'Not available'}</span>
             {sentResult.cc.length > 0 && <span className="text-ink-dim">Cc: {sentResult.cc.join(', ')}</span>}
           </div>
         </div>
@@ -1522,7 +1522,7 @@ function MailTab({
               <div className="flex items-center gap-2 text-accent">
                 <Eye className="h-4 w-4" />
                 <h4 className="font-display text-sm font-semibold">
-                  Review before sending — nothing has been sent yet
+                  Review before sending. Nothing has been sent yet
                 </h4>
               </div>
 
@@ -1530,7 +1530,7 @@ function MailTab({
                 <span className="text-ink-faint">From</span>
                 <span className="text-ink">{jobResult.from_email}</span>
                 <span className="text-ink-faint">To</span>
-                <span className="text-ink">{(jobResult.to ?? []).join(', ') || '—'}</span>
+                <span className="text-ink">{(jobResult.to ?? []).join(', ') || 'Not available'}</span>
                 {jobResult.cc && jobResult.cc.length > 0 && (
                   <>
                     <span className="text-ink-faint">Cc</span>
@@ -1541,7 +1541,7 @@ function MailTab({
                 <span className="text-ink">{jobResult.subject}</span>
                 <span className="text-ink-faint">Attachments</span>
                 <span className="text-ink">
-                  {(jobResult.attachments ?? []).map((a) => a.split(/[\\/]/).pop()).join(', ') || '—'}
+                  {(jobResult.attachments ?? []).map((a) => a.split(/[\\/]/).pop()).join(', ') || 'Not available'}
                 </span>
               </div>
 
@@ -1599,7 +1599,7 @@ function MailTab({
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
               <div className="flex flex-col gap-2 text-sm">
                 <span className="text-ink-dim">
-                  {jobResult.message ?? "You haven't set up your email sender yet — go to Settings."}
+                  {jobResult.message ?? "You haven't set up your email sender yet. Go to Settings."}
                 </span>
                 <Link
                   to="/settings"
@@ -2355,7 +2355,7 @@ export default function UnaccountedTransactions() {
               <ListChecks className="h-5 w-5" />
             </span>
             <div>
-              <p className="text-xs font-bold tracking-[0.1em] text-accent uppercase">Exception intelligence</p>
+              <p className="text-sm font-semibold text-accent">Exception intelligence</p>
               <h2 className="mt-1.5 font-display text-xl font-semibold tracking-[-0.025em] text-ink">
                 Unaccounted Transactions, Pending MRN &amp; Uninvoiced Expense POs Report Generator
               </h2>
