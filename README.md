@@ -28,9 +28,10 @@ audit log.
   are supervised independently without requiring Celery or Redis.
 - **Frontend:** React + Vite + TypeScript + Tailwind, built to static files
   and served directly by FastAPI. No Node process at runtime.
-- Windows-only integrations used by a few tools: `win32com` (Excel COM
-  automation for pivot tables) and Oracle Instant Client (thick-mode
-  `oracledb`, for the Unapplied Receipts and GST Invoice Adder tools).
+- Windows deployment integration: Oracle Instant Client (thick-mode
+  `oracledb`, for the Unapplied Receipts and GST Invoice Adder tools). Report
+  generation and `.xlsb` handling are pure Python and do not require Excel COM
+  or an interactive Microsoft Excel session.
 
 ## First-time setup
 
@@ -74,6 +75,13 @@ npm run build
 
 `npm run build` writes straight into `backend/app/static/`, which is what
 gets committed and what `start_server.bat` serves.
+
+## AI coding agents
+
+Future coding agents must read `AGENTS.md` and
+`docs/AI_CODING_AGENT_HANDOFF.md` before changing the application. Those files
+record the soft-delete, mapping, concurrency, Oracle, email, parity, frontend
+build, testing, and deployment decisions that are not obvious from the UI.
 
 ## Deploying an update to the production PC
 
