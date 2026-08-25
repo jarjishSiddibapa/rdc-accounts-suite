@@ -17,7 +17,6 @@ xlrd
 pyxlsb
 oracledb
 requests
-pywin32
 Pillow
 email-validator
 dnspython

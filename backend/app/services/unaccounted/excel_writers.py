@@ -21,6 +21,25 @@ def _thin_border():
     return Border(left=s, right=s, top=s, bottom=s)
 
 
+def _autofit_header_only(ws, hdr_row: int = 1, min_width: int = 8,
+                          max_width: int = 60, padding: int = 4,
+                          date_cap: int = 13) -> None:
+    """Size each visible column to its header text only (data length ignored),
+    then cap any column whose header contains "Date" so only the date portion
+    is visible. Pure-Python equivalent of the compact "AutoFit header row
+    only" pass this suite used to run through Excel COM automation."""
+    for col in ws.columns:
+        col_letter = get_column_letter(col[0].column)
+        if ws.column_dimensions[col_letter].hidden:
+            continue
+        header_val = ws.cell(row=hdr_row, column=col[0].column).value
+        width = min(max(len(str(header_val)) + padding, min_width), max_width) \
+            if header_val is not None else min_width
+        if header_val and "Date" in str(header_val):
+            width = min(width, date_cap)
+        ws.column_dimensions[col_letter].width = width
+
+
 def _autofit_columns(ws, min_width: int = 8, max_width: int = 60, padding: int = 4) -> None:
     """Set each visible column's width based on header + up to 200 data rows."""
     for col in ws.columns:
@@ -475,56 +494,6 @@ def write_formatted_excel(df: "pd.DataFrame", path: str) -> None:
         _autofit_columns(sheet)
 
     wb.save(path)
-    _com_autofit_unaccounted(path)
-
-
-def _com_autofit_unaccounted(path: str) -> None:
-    """Open the saved xlsx in Excel COM and run AutoFit on every sheet.
-
-    Equivalent to selecting all cells (Ctrl+A) then Alt→O→C→A (Format →
-    Column → AutoFit Selection) in Excel.  Silently skips if Excel COM is
-    unavailable (e.g. Excel not installed).
-    """
-    import os
-    try:
-        import win32com.client as win32
-        import pythoncom
-    except ImportError:
-        return
-    from app.excel_com_lock import EXCEL_COM_LOCK
-
-    xl  = None
-    wb  = None
-    EXCEL_COM_LOCK.acquire()
-    pythoncom.CoInitialize()
-    try:
-        xl = win32.DispatchEx("Excel.Application")
-        xl.Visible           = False
-        xl.DisplayAlerts     = False
-        xl.AskToUpdateLinks  = False
-        wb = xl.Workbooks.Open(os.path.abspath(path))
-        for i in range(1, wb.Sheets.Count + 1):
-            try:
-                wb.Sheets(i).UsedRange.Columns.AutoFit()
-            except Exception:
-                pass
-        wb.Save()
-    except Exception:
-        pass
-    finally:
-        try:
-            if wb  is not None: wb.Close(False)
-        except Exception:
-            pass
-        try:
-            if xl  is not None: xl.Quit()
-        except Exception:
-            pass
-        try:
-            pythoncom.CoUninitialize()
-        except Exception:
-            pass
-        EXCEL_COM_LOCK.release()
 
 
 # ── PO pivot sheet ────────────────────────────────────────────────────────────
@@ -871,6 +840,7 @@ def write_formatted_po_excel(
     ws_main.sheet_view.showGridLines = False
     main_df = _sort_by_po_line(main_df)
     _write_sheet(ws_main, main_df)   # no title_text → headers at row 1
+    _autofit_header_only(ws_main, hdr_row=1)
 
     # ── Sheet 2: Excluded POs (hidden by default — right-click tab → Unhide) ────
     EXCL_HDR_BG = "F4B8C8"   # same pink as the Main pivot header
@@ -888,6 +858,7 @@ def write_formatted_po_excel(
         moved_df = _sort_by_po_line(moved_df)
         # No title row — headers at row 1, data from row 2
         _write_sheet(ws_del, moved_df)
+        _autofit_header_only(ws_del, hdr_row=1)
         # Recolour header row to Main-pivot pink
         excl_hdr_fill = PatternFill("solid", fgColor=EXCL_HDR_BG)
         for ci in range(1, n_del_cols + 1):
@@ -906,6 +877,7 @@ def write_formatted_po_excel(
             f"(Supplier Site not in mapping table)",
             UNM_TITLE,
         )
+        _autofit_header_only(ws_unm, hdr_row=2)
         unm_fill1 = PatternFill("solid", fgColor=UNM_ROW1)
         unm_fill2 = PatternFill("solid", fgColor=UNM_ROW2)
         for ri in range(3, len(unmapped_df) + 3):
@@ -920,395 +892,6 @@ def write_formatted_po_excel(
     _add_po_pivot_sheet(wb, main_df)
 
     wb.save(path)
-    _com_autofit_po(path)
-
-
-def _com_autofit_po(path: str) -> None:
-    """Open the saved PO xlsx in Excel COM and AutoFit column widths.
-
-    - Pivot sheet (Main): fixed widths already set by openpyxl — skip.
-    - Data sheets: AutoFit based on the header row only (row 2), which gives
-      a compact but readable width matching the column name length.
-    - After fitting, any column whose header contains "Date" is capped at
-      width 13 so only the date portion is visible; users can widen to see time.
-    """
-    import os
-    try:
-        import win32com.client as win32
-        import pythoncom
-    except ImportError:
-        return
-    from app.excel_com_lock import EXCEL_COM_LOCK
-
-    xl = None
-    wb = None
-    EXCEL_COM_LOCK.acquire()
-    pythoncom.CoInitialize()
-    try:
-        xl = win32.DispatchEx("Excel.Application")
-        xl.Visible          = False
-        xl.DisplayAlerts    = False
-        xl.AskToUpdateLinks = False
-        wb = xl.Workbooks.Open(os.path.abspath(path))
-        for i in range(1, wb.Sheets.Count + 1):
-            try:
-                ws_obj = wb.Sheets(i)
-                if ws_obj.Name == "Main":
-                    # Pivot has a title row so UsedRange AutoFit works better than header-row only
-                    ws_obj.UsedRange.Columns.AutoFit()
-                    continue
-                # Summary and Excluded POs have no title row — headers in row 1.
-                # Mapping Not Found still has a title in row 1, headers in row 2.
-                if ws_obj.Name == "Mapping Not Found":
-                    hdr_row = 2
-                else:
-                    hdr_row = 1
-                # AutoFit based on the header row only (compact, "right size")
-                ws_obj.Rows(hdr_row).Columns.AutoFit()
-                # Cap date columns so only the date is visible (time requires expand)
-                last_col = ws_obj.UsedRange.Columns.Count
-                for ci in range(1, last_col + 1):
-                    try:
-                        header_val = ws_obj.Cells(hdr_row, ci).Value
-                        if header_val and "Date" in str(header_val):
-                            col_obj = ws_obj.Columns(ci)
-                            if col_obj.ColumnWidth > 13:
-                                col_obj.ColumnWidth = 13
-                    except Exception:
-                        pass
-            except Exception:
-                pass
-        wb.Save()
-    except Exception:
-        pass
-    finally:
-        try:
-            if wb is not None: wb.Close(False)
-        except Exception:
-            pass
-        try:
-            if xl is not None: xl.Quit()
-        except Exception:
-            pass
-        try:
-            pythoncom.CoUninitialize()
-        except Exception:
-            pass
-        EXCEL_COM_LOCK.release()
-
-
-# ── Real PivotTable builder (win32com / Excel COM automation) ─────────────────
-def _add_real_pivots(path: str) -> bool:
-    """Open the saved xlsx with Excel COM and replace the static pivot sheets
-    with fully interactive Excel PivotTables.
-
-    Vendorwise Pivot
-      - Report Filter : Location
-      - Column Labels : ACCOUNTING PERIOD
-      - Row Labels    : SUPPLIER NAME
-      - Values        : Count of Location  (sorted ↓ Grand Total)
-
-    Locationwise Pivot
-      - Column Labels : ACCOUNTING PERIOD
-      - Row Labels    : Location (outer) → Accounts Incharge (inner)
-      - Values        : Count of Location  (sorted ↓ Grand Total)
-
-    Returns True on success, False if Excel COM is unavailable or fails.
-    Existing static sheets survive untouched when this returns False.
-    """
-    import os
-    try:
-        import win32com.client as win32
-        import pythoncom
-    except ImportError:
-        return False
-
-    from app.excel_com_lock import EXCEL_COM_LOCK
-
-    EXCEL_COM_LOCK.acquire()
-    pythoncom.CoInitialize()
-    abs_path = os.path.abspath(path)
-    xl = win32.DispatchEx("Excel.Application")
-    xl.Visible       = False
-    xl.DisplayAlerts = False
-
-    # Excel OLE colour constants
-    XL_DATABASE   = 1
-    XL_ROW        = 1
-    XL_COLUMN     = 2
-    XL_PAGE       = 3      # Report Filter
-    XL_COUNT      = -4112
-    XL_DESCENDING = 2
-
-    try:
-        wb = xl.Workbooks.Open(abs_path)
-
-        # ── PivotCache: data source = "Summary" sheet, from header row (row 1) down ──
-        data_ws = wb.Sheets("Summary")
-        used    = data_ws.UsedRange
-        src = data_ws.Range(
-            data_ws.Cells(1, used.Column),
-            data_ws.Cells(used.Row + used.Rows.Count - 1,
-                          used.Column + used.Columns.Count - 1),
-        )
-        pc = wb.PivotCaches().Create(SourceType=XL_DATABASE, SourceData=src)
-
-        # ── Shared: case-insensitive PivotField lookup ───────────────────────
-        def _fld(pt, name):
-            """Find a PivotField by exact name first, then case-insensitive scan."""
-            try:
-                return pt.PivotFields(name)          # fast path: exact match
-            except Exception:
-                pass
-            # Slow path: case-insensitive scan (PivotFields() with () returns collection)
-            name_l = name.lower().strip()
-            count = pt.PivotFields().Count
-            for i in range(1, count + 1):
-                f = pt.PivotFields(i)
-                if f.Name.lower().strip() == name_l:
-                    return f
-            avail = [pt.PivotFields(i).Name for i in range(1, pt.PivotFields().Count + 1)]
-            raise KeyError(f"PivotField '{name}' not found. Available: {avail}")
-
-        # ── Shared: sort ACCOUNTING PERIOD items chronologically + format captions
-        def _sort_period_field(pt):
-            """Sort ACCOUNTING PERIOD PivotItems chronologically and format
-            their display captions as 'Feb-26' (Mon-YY) instead of 'FEB-2026'."""
-            try:
-                pf = _fld(pt, "ACCOUNTING PERIOD")
-                n  = pf.PivotItems().Count
-                names = [pf.PivotItems(i).Name for i in range(1, n + 1)]
-
-                def _key(p):
-                    ts = _parse_mrn_period(p)
-                    return ts if ts is not None else pd.Timestamp.max
-
-                for pos, name in enumerate(sorted(names, key=_key), 1):
-                    item = pf.PivotItems(name)
-                    item.Position = pos
-                    # Format caption to Mon-YY (handles "FEB-2026" or "Feb-26")
-                    ts = _parse_mrn_period(name)
-                    if ts is not None:
-                        try:
-                            item.Caption = ts.strftime("%b-%y")
-                        except Exception:
-                            pass
-            except Exception as e:
-                print(f"[WARN] Period sort: {e}")
-
-        # ── Helper: replace static sheet with a real PivotTable ──────────────
-        def _make_pivot(sheet_name, dest_cell, table_name, setup_fn, tab_rgb):
-            for sh in wb.Sheets:
-                if sh.Name == sheet_name:
-                    sh.Name = sheet_name + "__old"
-                    break
-            new_ws = wb.Sheets.Add(After=wb.Sheets(wb.Sheets.Count))
-            new_ws.Name = sheet_name
-            r = (tab_rgb >> 16) & 0xFF
-            g = (tab_rgb >>  8) & 0xFF
-            b =  tab_rgb        & 0xFF
-            new_ws.Tab.Color = r + g * 256 + b * 65536
-            pt = pc.CreatePivotTable(
-                TableDestination=new_ws.Range(dest_cell),
-                TableName=table_name,
-            )
-            setup_fn(pt)
-            for sh in wb.Sheets:
-                if sh.Name == sheet_name + "__old":
-                    sh.Delete()
-                    break
-            return pt
-
-        # ── Vendorwise Pivot ──────────────────────────────────────────────────
-        def _setup_vendorwise(pt):
-            _fld(pt, "Location").Orientation          = XL_PAGE    # Report Filter
-            _fld(pt, "ACCOUNTING PERIOD").Orientation = XL_COLUMN  # Column Labels
-            _fld(pt, "SUPPLIER NAME").Orientation     = XL_ROW     # Row Labels
-            # Show "Supplier Name" in the row-labels header cell instead of "Row Labels"
-            _fld(pt, "SUPPLIER NAME").Caption = "Supplier Name"
-            try:
-                pt.CompactLayoutRowHeader = "Supplier Name"
-            except Exception:
-                pass
-            # Count via SUPPLIER SITE — keeps SUPPLIER NAME firmly in Row Labels
-            df_fld = pt.AddDataField(_fld(pt, "SUPPLIER SITE"), "Count of Location", XL_COUNT)
-            df_fld.NumberFormat = INDIAN_FMT   # Indian format; zero → "-"
-            _fld(pt, "SUPPLIER NAME").AutoSort(XL_DESCENDING, "Count of Location")
-            _sort_period_field(pt)   # sort + format captions: FEB-2026 → Feb-26
-            # Light style for header shading
-            try:
-                pt.TableStyle2 = "PivotStyleLight16"
-            except Exception:
-                pass
-            # Full table grid: thin continuous borders on every cell of the pivot
-            try:
-                rng = pt.TableRange2          # entire pivot incl. headers + totals
-                rng.Borders.LineStyle = 1     # xlContinuous — all edges + inside
-                rng.Borders.Weight    = 2     # xlThin
-            except Exception:
-                pass
-
-        _make_pivot("Vendorwise Pivot",  "A3", "VendorwisePivot",   _setup_vendorwise,  0x1F6DB1)
-
-        # Locationwise Pivot is kept as a plain openpyxl static table (not a real
-        # PivotTable) — see _add_locationwise_pivot_sheet() which writes it with
-        # flat Location × Accounts Incharge × Period columns and SUBTOTAL formulas.
-
-        # ── AutoFit every sheet via COM (openpyxl widths are approximate) ──
-        for _i in range(1, wb.Sheets.Count + 1):
-            try:
-                wb.Sheets(_i).UsedRange.Columns.AutoFit()
-            except Exception:
-                pass
-
-        # ── Reorder sheets: Locationwise, Vendorwise, Summary, Unmapped Sites ──
-        # (COM re-adds the Vendorwise pivot at the end, so fix the order here.)
-        # Move each desired sheet to the front in reverse, so the first one ends
-        # up leftmost.
-        for name in reversed(["Locationwise Pivot", "Vendorwise Pivot",
-                              "Summary", "Unmapped Sites"]):
-            try:
-                wb.Sheets(name).Move(Before=wb.Sheets(1))
-            except Exception:
-                pass
-
-        wb.Save()
-        return True
-
-    except Exception as exc:
-        import traceback
-        print(f"[WARN] COM pivot creation failed: {exc}\n{traceback.format_exc()}")
-        return False
-    finally:
-        try:
-            wb.Close(SaveChanges=False)
-        except Exception:
-            pass
-        try:
-            xl.Quit()
-        except Exception:
-            pass
-        try:
-            pythoncom.CoUninitialize()
-        except Exception:
-            pass
-        EXCEL_COM_LOCK.release()
-
-
-def _add_real_pivot_unaccounted(path: str, month_label: str = "") -> bool:
-    """Open the saved Unaccounted Transactions xlsx and replace the static
-    'Pivot' sheet with a real interactive Excel PivotTable.
-
-    Pivot layout
-    - Row Labels : Location (outer) → Accounts Incharge (inner)
-    - Values     : Count, captioned with the GL Date month  (e.g. "May-26")
-    - Sorted descending by count
-
-    Returns True on success; static sheet survives unchanged on failure.
-    """
-    import os
-    try:
-        import win32com.client as win32
-        import pythoncom
-    except ImportError:
-        return False
-
-    from app.excel_com_lock import EXCEL_COM_LOCK
-
-    EXCEL_COM_LOCK.acquire()
-    pythoncom.CoInitialize()
-    abs_path = os.path.abspath(path)
-    xl = win32.DispatchEx("Excel.Application")
-    xl.Visible       = False
-    xl.DisplayAlerts = False
-
-    XL_DATABASE   = 1
-    XL_ROW        = 1
-    XL_COUNT      = -4112
-    XL_DESCENDING = 2
-
-    try:
-        wb = xl.Workbooks.Open(abs_path)
-
-        # ── PivotCache: "Summary" data sheet, from header row (row 2) down ─
-        data_ws = wb.Sheets("Summary")
-        used    = data_ws.UsedRange
-        src = data_ws.Range(
-            data_ws.Cells(2, used.Column),
-            data_ws.Cells(used.Row + used.Rows.Count - 1,
-                          used.Column + used.Columns.Count - 1),
-        )
-        pc = wb.PivotCaches().Create(SourceType=XL_DATABASE, SourceData=src)
-
-        # Rename existing static sheet so new one can take the name
-        for sh in wb.Sheets:
-            if sh.Name == "Main":
-                sh.Name = "Pivot__old"
-                break
-
-        # New sheet — insert right after the data sheet
-        new_ws = wb.Sheets.Add(After=wb.Sheets("Summary"))
-        new_ws.Name = "Main"
-        # Tab colour: 1F3864 (dark blue) → OLE = R + G*256 + B*65536
-        new_ws.Tab.Color = 0x1F + 0x38 * 256 + 0x64 * 65536
-
-        pt = pc.CreatePivotTable(
-            TableDestination=new_ws.Range("A1"),
-            TableName="UnaccountedPivot",
-        )
-
-        # Case-insensitive field lookup (note: PivotFields is a method in win32com)
-        def _fld(name):
-            try:
-                return pt.PivotFields(name)          # fast path: exact match
-            except Exception:
-                pass
-            name_l = name.lower().strip()
-            count = pt.PivotFields().Count
-            for i in range(1, count + 1):
-                f = pt.PivotFields(i)
-                if f.Name.lower().strip() == name_l:
-                    return f
-            avail = [pt.PivotFields(i).Name for i in range(1, pt.PivotFields().Count + 1)]
-            raise KeyError(f"PivotField '{name}' not found. Available: {avail}")
-
-        # Row Labels: Location (outer), Accounts Incharge (inner)
-        _fld("Location").Orientation          = XL_ROW
-        _fld("Accounts Incharge").Orientation = XL_ROW
-
-        # Count via Supplier Site (keeps Location/Accounts Incharge in Row Labels)
-        # Caption = GL Date month, e.g. "May-26" — matches the reference pivot exactly
-        caption = month_label if month_label else "Count"
-        pt.AddDataField(_fld("Supplier Site"), caption, XL_COUNT)
-        _fld("Location").AutoSort(XL_DESCENDING, caption)
-
-        # Delete old static sheet
-        for sh in wb.Sheets:
-            if sh.Name == "Pivot__old":
-                sh.Delete()
-                break
-
-        wb.Save()
-        return True
-
-    except Exception as exc:
-        import traceback
-        print(f"[WARN] COM pivot (Unaccounted) failed: {exc}\n{traceback.format_exc()}")
-        return False
-    finally:
-        try:
-            wb.Close(SaveChanges=False)
-        except Exception:
-            pass
-        try:
-            xl.Quit()
-        except Exception:
-            pass
-        try:
-            pythoncom.CoUninitialize()
-        except Exception:
-            pass
-        EXCEL_COM_LOCK.release()
 
 
 # ── Shared helpers for MRN pivot sheets ───────────────────────────────────────
@@ -1970,11 +1553,5 @@ def write_formatted_mrn_excel(df: "pd.DataFrame", path: str) -> None:
         _autofit_columns(sheet)
 
     wb.save(path)
-
-    # ── Replace static sheets with real Excel PivotTables via COM ─────────────
-    # If Excel is installed (it always is on this machine) this upgrades both
-    # pivot sheets to fully interactive PivotTables. The static sheets above
-    # survive untouched if COM is unavailable.
-    _add_real_pivots(path)
 
 

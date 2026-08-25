@@ -19,11 +19,9 @@ from concurrent.futures import ThreadPoolExecutor
 # Some of these jobs process very large files (multi-hundred-MB ERP
 # exports) in pandas/openpyxl, which is memory-hungry more than
 # CPU-parallel-friendly; running many of them at once on 8GB total RAM risks
-# thrashing the whole PC rather than helping throughput. Excel COM
-# automation (win32com) is separately serialized process-wide regardless of
-# this number - see app/excel_com_lock.py - so raising this does not risk
-# concurrent-Excel instability. Override via JOB_POOL_WORKERS in .env if the
-# actual deployment hardware has more headroom (or less).
+# thrashing the whole PC rather than helping throughput. Override via
+# JOB_POOL_WORKERS in .env if the actual deployment hardware has more
+# headroom (or less).
 _JOB_POOL_WORKERS = int(os.environ.get("JOB_POOL_WORKERS", "3"))
 _executor = ThreadPoolExecutor(max_workers=_JOB_POOL_WORKERS)
 _jobs: dict[str, dict] = {}
