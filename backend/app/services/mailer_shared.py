@@ -311,9 +311,12 @@ def sheet_to_html(path: str, sheet_name: str) -> str:
         try:
             if color_obj.type == "rgb":
                 v = str(color_obj.rgb)          # may be 8-char AARRGGBB or 6-char RRGGBB
+                # openpyxl stores a plain hex string passed to PatternFill(fgColor=...)
+                # as "00RRGGBB" - that leading "00" is just its placeholder for "no
+                # alpha specified", not a real transparent alpha channel. A solid
+                # PatternFill is never actually invisible, so always take the color
+                # itself rather than treating a "00" prefix as "no fill".
                 if len(v) == 8:
-                    if v[:2].upper() == "00":   # fully transparent → no fill
-                        return None
                     return v[2:]
                 if len(v) == 6:
                     return v
