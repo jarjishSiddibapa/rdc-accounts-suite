@@ -29,7 +29,7 @@ from sqlalchemy.orm import Session
 from app.auth import get_current_user
 from app.config import SCRATCH_DIR
 from app.database import SessionLocal, get_db
-from app.jobs import get_job, submit_job
+from app.jobs import cancel_job, get_job, submit_job
 from app.models import User
 from app.permissions import require_app_access
 from app.services.gstr2b import combiner, state_codes_store
@@ -95,13 +95,11 @@ def _run_combine_job(file_pairs: list[tuple[str, str]], output_path: str, progre
     finally:
         db.close()
 
-    result = combiner.run_combine(file_pairs, output_path, state_codes, log_q)
-
-    for _, path in file_pairs:
-        try:
+    try:
+        result = combiner.run_combine(file_pairs, output_path, state_codes, log_q)
+    finally:
+        for _, path in file_pairs:
             Path(path).unlink(missing_ok=True)
-        except OSError:
-            pass
 
     if progress_cb:
         progress_cb(1.0, "Combined workbook ready")
@@ -141,6 +139,14 @@ async def submit_combine(
 @router.get("/jobs/{job_id}")
 def job_status(job_id: str, user: User = Depends(get_current_user)):
     job = get_job(job_id, owner_id=user.id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return job
+
+
+@router.post("/jobs/{job_id}/cancel")
+def cancel(job_id: str, user: User = Depends(get_current_user)):
+    job = cancel_job(job_id, owner_id=user.id)
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
     return job

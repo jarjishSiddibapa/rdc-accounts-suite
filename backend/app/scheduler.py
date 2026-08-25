@@ -7,6 +7,7 @@ design.
 """
 
 import logging
+import shutil
 import threading
 import time
 from filelock import FileLock, Timeout
@@ -27,9 +28,14 @@ _POLL_SECONDS = 45
 # job that errors before its own cleanup runs) - on a server that stays up
 # for weeks, that silently accumulates multi-hundred-MB ERP exports forever.
 # This is a generous backstop, not the primary cleanup mechanism: anything
-# older than the admin-configured BackupSettings.scratch_cleanup_hours has
+# older than the admin-configured BackupSettings.scratch_cleanup_minutes has
 # certainly finished (or died) one way or another.
-_SCRATCH_SWEEP_INTERVAL_SECONDS = 30 * 60  # only actually sweep every 30 min
+#
+# Kept well below the minimum allowed scratch_cleanup_minutes (5) so a short
+# retention setting (e.g. 30 min, to match the app's own session length)
+# is actually honored close to on time, rather than the sweep's own polling
+# cadence silently doubling how long files really stick around.
+_SCRATCH_SWEEP_INTERVAL_SECONDS = 5 * 60  # sweep every 5 min
 _last_scratch_sweep = 0.0
 
 
@@ -42,7 +48,7 @@ def _sweep_scratch() -> None:
 
     db = SessionLocal()
     try:
-        max_age_seconds = _get_or_create_settings(db).scratch_cleanup_hours * 60 * 60
+        max_age_seconds = _get_or_create_settings(db).scratch_cleanup_minutes * 60
     finally:
         db.close()
 
@@ -51,6 +57,14 @@ def _sweep_scratch() -> None:
         try:
             if path.is_file() and now - path.stat().st_mtime > max_age_seconds:
                 path.unlink()
+                removed += 1
+            elif path.is_dir() and now - path.stat().st_mtime > max_age_seconds:
+                # Some tools (e.g. unaccounted_txn's combined mail workflow)
+                # write their output into a whole per-request subdirectory
+                # rather than a single file - those are otherwise never
+                # reclaimed since they're not a "file" this sweep would
+                # otherwise touch.
+                shutil.rmtree(path, ignore_errors=True)
                 removed += 1
         except OSError:
             continue  # another process may be writing/reading it right now

@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
-import { ClipboardList, Search } from 'lucide-react'
+import { ClipboardList } from 'lucide-react'
 import { AppShell } from '@/components/AppShell'
 import { GlassCard } from '@/components/GlassCard'
 import { Pagination } from '@/components/Pagination'
+import { SearchBox } from '@/components/SearchBox'
 import { ApiError, get } from '@/lib/api'
 import { formatIndianDateTime } from '@/lib/regional'
 
@@ -29,6 +30,9 @@ export default function AuditLog() {
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(25)
   const [actionFilter, setActionFilter] = useState('')
+  const [actorFilter, setActorFilter] = useState('')
+  const [startDate, setStartDate] = useState('')
+  const [endDate, setEndDate] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -41,6 +45,9 @@ export default function AuditLog() {
       offset: String((page - 1) * pageSize),
     })
     if (actionFilter.trim()) params.set('action_contains', actionFilter.trim())
+    if (actorFilter.trim()) params.set('actor_contains', actorFilter.trim())
+    if (startDate) params.set('start_date', startDate)
+    if (endDate) params.set('end_date', endDate)
 
     get<{ total: number; items: AuditRow[] }>(`/admin/audit-log?${params.toString()}`)
       .then((data) => {
@@ -59,7 +66,7 @@ export default function AuditLog() {
     return () => {
       cancelled = true
     }
-  }, [page, pageSize, actionFilter])
+  }, [page, pageSize, actionFilter, actorFilter, startDate, endDate])
 
   const pageCount = Math.max(1, Math.ceil(total / pageSize))
 
@@ -86,20 +93,52 @@ export default function AuditLog() {
         </GlassCard>
 
         <GlassCard padding="lg">
-          <label className="relative block max-w-sm">
-            <Search className="pointer-events-none absolute top-1/2 left-3.5 h-4 w-4 -translate-y-1/2 text-ink-faint" />
-            <input
-              type="search"
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            <SearchBox
+              value={actorFilter}
+              onChange={(value) => {
+                setActorFilter(value)
+                setPage(1)
+              }}
+              placeholder="Search by actor email or name"
+              aria-label="Filter audit log by actor email or name"
+            />
+            <SearchBox
               value={actionFilter}
-              onChange={(e) => {
-                setActionFilter(e.target.value)
+              onChange={(value) => {
+                setActionFilter(value)
                 setPage(1)
               }}
               placeholder="Filter by action (e.g. /api/admin/users)"
               aria-label="Filter audit log by action"
-              className="field-control pl-10"
             />
-          </label>
+            <label className="flex flex-col gap-1.5 text-sm">
+              <span className="sr-only">From date</span>
+              <input
+                type="date"
+                value={startDate}
+                onChange={(e) => {
+                  setStartDate(e.target.value)
+                  setPage(1)
+                }}
+                aria-label="From date"
+                className="field-control"
+              />
+            </label>
+            <label className="flex flex-col gap-1.5 text-sm">
+              <span className="sr-only">To date</span>
+              <input
+                type="date"
+                value={endDate}
+                onChange={(e) => {
+                  setEndDate(e.target.value)
+                  setPage(1)
+                }}
+                aria-label="To date"
+                className="field-control"
+              />
+            </label>
+          </div>
 
           {error && (
             <p className="mt-4 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-500">

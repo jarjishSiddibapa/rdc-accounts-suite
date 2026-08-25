@@ -138,6 +138,30 @@ def _apply_additive_schema_updates() -> None:
                         "INT NOT NULL DEFAULT 6"
                     )
                 )
+            backup_columns.add("scratch_cleanup_hours")
+
+        # Superseded by scratch_cleanup_minutes below (minute granularity -
+        # the old hours-only column couldn't express e.g. "30 minutes", to
+        # match the app's own session-timeout length). The old column is
+        # left in place, unused, rather than dropped - no destructive
+        # schema change for a settings field this minor.
+        if "scratch_cleanup_minutes" not in backup_columns:
+            with engine.begin() as connection:
+                connection.execute(
+                    text(
+                        "ALTER TABLE `backup_settings` ADD COLUMN `scratch_cleanup_minutes` "
+                        "INT NOT NULL DEFAULT 30"
+                    )
+                )
+                # Carry forward whatever an admin had already configured in
+                # the old hours-based field, rather than silently resetting
+                # everyone's existing setting to the new 30-minute default.
+                connection.execute(
+                    text(
+                        "UPDATE `backup_settings` SET `scratch_cleanup_minutes` = "
+                        "`scratch_cleanup_hours` * 60"
+                    )
+                )
 
     if "users" not in existing_tables:
         return

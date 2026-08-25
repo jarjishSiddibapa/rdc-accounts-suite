@@ -8,7 +8,6 @@ import {
   Pencil,
   Plus,
   RotateCcw,
-  Search,
   Trash2,
 } from 'lucide-react'
 import { cn } from '@/utils/cn'
@@ -16,6 +15,7 @@ import { formatIndianNumber } from '@/lib/regional'
 import { Button } from '@/components/Button'
 import { Modal } from '@/components/Modal'
 import { Pagination } from '@/components/Pagination'
+import { SearchBox } from '@/components/SearchBox'
 import { usePagination } from '@/hooks/usePagination'
 import { CreatableCombobox } from '@/components/CreatableCombobox'
 
@@ -204,15 +204,12 @@ export function MappingTable({
           </div>
         )}
         <div className="ml-auto flex w-full flex-col items-stretch gap-3 sm:w-auto sm:flex-row sm:items-center">
-          <div className="relative w-full sm:w-auto">
-            <Search className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-ink-faint" />
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search..."
-              className="field-control min-h-11 w-full rounded-xl py-2 pr-3 pl-9 text-sm"
-            />
-          </div>
+          <SearchBox
+            value={search}
+            onChange={setSearch}
+            placeholder="Search..."
+            className="w-full sm:w-auto"
+          />
           {archive && (
             <Button
               variant="secondary"
@@ -336,6 +333,7 @@ export function MappingTable({
         open={modalMode !== null}
         onClose={() => setModalMode(null)}
         title={modalMode === 'add' ? addLabel : 'Edit row'}
+        className="max-w-2xl"
       >
         <form
           className="flex flex-col gap-4"

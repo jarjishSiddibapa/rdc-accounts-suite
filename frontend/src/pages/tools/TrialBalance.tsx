@@ -699,6 +699,7 @@ export default function TrialBalance() {
                 setActivityLog((previous) => [...previous, `[ERR] ${error}`])
                 setSubmitting(false)
               }}
+              onCancel={() => post(`${BASE}/jobs/${jobId}/cancel`)}
             />
           )}
 

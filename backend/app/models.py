@@ -152,6 +152,9 @@ class BackupSettings(Base):
     # How long a job's scratch upload/output files sit under backend/data/scratch
     # before the scheduler's sweep deletes them (see app/scheduler.py's
     # _sweep_scratch) - a backstop for jobs whose own router cleanup never ran
-    # (error before cleanup, or a result nobody ever downloaded).
-    scratch_cleanup_hours = Column(Integer, default=6, nullable=False)
+    # (error before cleanup, or a result nobody ever downloaded). In minutes
+    # (not hours) so it can be set as low as the app's own session length -
+    # e.g. 30 minutes, matching the default auto-logout time, so nothing
+    # outlives a user's own session on disk.
+    scratch_cleanup_minutes = Column(Integer, default=30, nullable=False)
     is_deleted = Column(Boolean, default=False, nullable=False)

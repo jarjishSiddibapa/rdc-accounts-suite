@@ -33,6 +33,8 @@ from openpyxl import Workbook
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
+from app.jobs import JobUserError
+
 TARGET_TABS = ["B2B", "B2BA", "B2B-CDNR", "B2B-CDNRA", "IMPG"]
 
 TAB_CFG: dict[str, dict] = {
@@ -231,7 +233,7 @@ def run_combine(
     """
     pairs = sorted(files, key=lambda pair: pair[0])
     if not pairs:
-        raise FileNotFoundError("No .xlsx files were uploaded")
+        raise JobUserError("No .xlsx files were uploaded")
 
     frames: dict[str, list[pd.DataFrame]] = {t: [] for t in TARGET_TABS}
     counts: dict[str, int]                = {t: 0  for t in TARGET_TABS}
@@ -270,7 +272,7 @@ def run_combine(
                 log_q.put(("error", f"  [{tab}]  ERROR - {exc}"))
 
     if n_files == 0:
-        raise ValueError(
+        raise JobUserError(
             "None of the uploaded files could be parsed as GSTR-2B exports "
             "(expected filename pattern MMYYYY_SSGSTIN_GSTR2B_DDMMYYYY.xlsx) "
             "- see the log above for why each file was skipped."

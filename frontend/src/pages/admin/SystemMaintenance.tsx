@@ -10,7 +10,7 @@ interface BackupSettings {
   enabled: boolean
   backup_time: string
   max_backups: number
-  scratch_cleanup_hours: number
+  scratch_cleanup_minutes: number
 }
 
 interface BackupFile {
@@ -207,16 +207,19 @@ export default function SystemMaintenance() {
           {!loading && settings && (
             <div className="mt-5 flex flex-col gap-4">
               <label className="flex max-w-xs flex-col gap-1.5 text-sm">
-                <span className="font-medium text-ink-dim">Delete scratch files older than (hours)</span>
+                <span className="font-medium text-ink-dim">Delete scratch files older than (minutes)</span>
                 <input
                   type="number"
-                  min={1}
-                  max={720}
-                  value={settings.scratch_cleanup_hours}
-                  onChange={(e) => setSettings({ ...settings, scratch_cleanup_hours: Number(e.target.value) })}
+                  min={5}
+                  max={43_200}
+                  value={settings.scratch_cleanup_minutes}
+                  onChange={(e) => setSettings({ ...settings, scratch_cleanup_minutes: Number(e.target.value) })}
                   className="field-control"
                 />
-                <span className="text-xs text-ink-faint">1 hour to 720 hours (30 days). Checked every 30 minutes.</span>
+                <span className="text-xs text-ink-faint">
+                  5 minutes to 43,200 minutes (30 days) — e.g. 30 minutes to match the app's own auto-logout
+                  time. Checked every 5 minutes.
+                </span>
               </label>
               <div className="flex justify-end">
                 <Button loading={saving} onClick={() => void handleSave()}>

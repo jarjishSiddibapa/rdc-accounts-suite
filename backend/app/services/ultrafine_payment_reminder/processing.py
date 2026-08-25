@@ -18,6 +18,7 @@ import mimetypes
 import os
 import re
 import smtplib
+import threading
 from email.message import EmailMessage
 from pathlib import Path
 from typing import Optional
@@ -25,6 +26,8 @@ from typing import Optional
 import dns.resolver
 import pandas as pd
 from email_validator import EmailNotValidError, validate_email
+
+from app.jobs import JobUserError
 
 # ── Excel readers (verbatim from excel_reader.py) ──────────────────────────
 
@@ -51,7 +54,7 @@ def read_data_excel(file_path: str) -> pd.DataFrame:
 
     missing = [c for c in DATA_REQUIRED_COLUMNS if c not in df.columns]
     if missing:
-        raise ValueError(
+        raise JobUserError(
             f"Missing columns in Data File: {', '.join(missing)}\n"
             "Please ensure the file format matches strict requirements."
         )
@@ -59,7 +62,7 @@ def read_data_excel(file_path: str) -> pd.DataFrame:
     if not df["Customer Name"].is_unique:
         duplicates = df[df.duplicated("Customer Name", keep=False)]["Customer Name"].unique()
         dup_str = ", ".join(map(str, duplicates[:10]))
-        raise ValueError(
+        raise JobUserError(
             f"Duplicate Customer Names found in Data File: {dup_str}...\n"
             "Each Customer Name must be unique."
         )
@@ -74,7 +77,7 @@ def read_emails_excel(file_path: str) -> pd.DataFrame:
 
     missing = [c for c in EMAILS_REQUIRED_COLUMNS if c not in df.columns]
     if missing:
-        raise ValueError(f"Missing required columns in Emails File: {', '.join(missing)}")
+        raise JobUserError(f"Missing required columns in Emails File: {', '.join(missing)}")
 
     df["To Email IDs"] = df["To Email IDs"].fillna("").astype(str).str.strip()
     if "CC Email IDs" not in df.columns:
@@ -85,7 +88,7 @@ def read_emails_excel(file_path: str) -> pd.DataFrame:
     if not df["Customer Name"].is_unique:
         duplicates = df[df.duplicated("Customer Name", keep=False)]["Customer Name"].unique()
         dup_str = ", ".join(map(str, duplicates[:10]))
-        raise ValueError(
+        raise JobUserError(
             f"Duplicate Customer Names found in Emails File: {dup_str}...\n"
             "Each Customer Name must appear only once."
         )
@@ -221,8 +224,14 @@ COMMON_TYPOS = {
     "redifmail.com": "rediffmail.com",
 }
 
-# Cache for MX lookups to avoid repeated DNS queries
+# Cache for MX lookups to avoid repeated DNS queries. Shared across
+# concurrent job threads, so guarded by a lock - without it, two threads
+# racing on the same not-yet-cached domain would each do a redundant DNS
+# lookup (harmless beyond the wasted lookup, since dict writes are atomic
+# per-key in CPython, but the lock makes that guarantee explicit rather
+# than incidental).
 _mx_cache: dict[str, bool] = {}
+_mx_cache_lock = threading.Lock()
 
 
 def validate_email_address(email: str) -> dict:
@@ -263,14 +272,16 @@ def validate_email_address(email: str) -> dict:
 
     # 3. MX record check (with cache)
     if domain not in _mx_cache:
-        try:
-            answers = dns.resolver.resolve(domain, "MX", lifetime=5)
-            _mx_cache[domain] = len(answers) > 0
-        except (dns.resolver.NXDOMAIN, dns.resolver.NoNameservers):
-            _mx_cache[domain] = False
-        except (dns.resolver.NoAnswer, dns.resolver.LifetimeTimeout, Exception):
-            # DNS timeout or no answer — don't flag, just skip
-            _mx_cache[domain] = True  # Give benefit of doubt
+        with _mx_cache_lock:
+            if domain not in _mx_cache:  # re-check inside the lock
+                try:
+                    answers = dns.resolver.resolve(domain, "MX", lifetime=5)
+                    _mx_cache[domain] = len(answers) > 0
+                except (dns.resolver.NXDOMAIN, dns.resolver.NoNameservers):
+                    _mx_cache[domain] = False
+                except (dns.resolver.NoAnswer, dns.resolver.LifetimeTimeout, Exception):
+                    # DNS timeout or no answer — don't flag, just skip
+                    _mx_cache[domain] = True  # Give benefit of doubt
 
     if not _mx_cache[domain]:
         result["valid"] = False

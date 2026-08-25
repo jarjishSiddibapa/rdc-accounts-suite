@@ -10,10 +10,9 @@ processor.py / mapping_store.py) onto the shared FastAPI backend:
                                (mirrors the desktop app's blocking
                                _AccountPickerDialog, now a two-step API).
                                The parsed rows are stashed server-side keyed
-                               by a short-lived token (same pattern as
-                               app.routers.dms_downloader's in-memory
-                               token stash) so /process doesn't need the
-                               file re-uploaded or re-parsed.
+                               by a short-lived in-memory token so
+                               /process doesn't need the file re-uploaded
+                               or re-parsed.
   2. POST /process           – takes that token + the user's selected
                                Account Codes, runs process_report/
                                to_excel_bytes as a background job.
@@ -53,7 +52,8 @@ from sqlalchemy.orm import Session
 from app.auth import get_current_user
 from app.config import SCRATCH_DIR
 from app.database import SessionLocal, get_db
-from app.jobs import get_job, submit_job
+from app import jobs
+from app.jobs import cancel_job, get_job, run_cpu_phase, submit_job
 from app.models import User
 from app.permissions import require_app_access
 from app.regional import format_indian_number, now_ist
@@ -69,8 +69,7 @@ _XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.
 
 # ── in-memory token stash for the upload -> account-picker -> process flow ──
 # token -> {"path": str, "columns": list, "rows": list, "ts": float, "owner_id": int}
-# Mirrors app.routers.dms_downloader's `_fetched` pattern: short-lived,
-# in-process, pruned on access, scoped to the owning user.
+# Short-lived, in-process, pruned on access, scoped to the owning user.
 _ACCOUNTS_TTL_SECONDS = 30 * 60
 _stashed: dict[str, dict] = {}
 _stash_lock = threading.Lock()
@@ -128,7 +127,11 @@ async def parse_accounts(file: UploadFile = File(...), user: User = Depends(get_
     token so POST /process can reuse them without re-uploading."""
     input_path = await save_upload(file, SCRATCH_DIR)
     try:
-        columns, rows = processor.parse_html_report(str(input_path))
+        # CPU-bound (regex parse over the whole file) - runs on the CPU
+        # process pool via the awaitable variant so it doesn't block this
+        # process's event loop (and every other request it's serving)
+        # while parsing a large export.
+        columns, rows = await jobs.run_cpu_phase_async(processor.parse_html_report, str(input_path))
     except Exception:
         input_path.unlink(missing_ok=True)
         raise
@@ -175,40 +178,41 @@ def _run_process_job(input_path: str, columns: list, rows: list,
         progress_cb(0.05, "Loading centralized mappings...")
     add_log("INFO", f"Starting: {Path(input_path).name}")
 
-    db = SessionLocal()
     try:
-        loc_name_map, region_incharge_map, name_region_map, account_ho_map = mapping_store.load_all(db)
+        db = SessionLocal()
+        try:
+            loc_name_map, region_incharge_map, name_region_map, account_ho_map = mapping_store.load_all(db)
+        finally:
+            db.close()
+
+        raw_row_count = len(rows)
+        add_log("OK", f"Parsed {format_indian_number(raw_row_count)} rows")
+
+        if progress_cb:
+            progress_cb(0.35, "Deriving Location Code and cascading mappings...")
+        # CPU-bound (pandas transform) - real multi-core throughput via the
+        # process pool instead of a GIL-bound thread.
+        df, missing_codes, missing_account_ho = run_cpu_phase(
+            processor.process_report,
+            columns, rows, loc_name_map, region_incharge_map, name_region_map, account_ho_map,
+        )
+        add_log("OK", f"Output rows: {format_indian_number(len(df))}")
+
+        if missing_codes:
+            add_log("WARN", f"Unmapped location codes: {format_indian_number(len(missing_codes))}")
+        if missing_account_ho:
+            add_log("WARN", f"Unmapped account HO codes: {format_indian_number(len(missing_account_ho))}")
+
+        matched_count = int((df["Region"] != "").sum())
+        unmatched_count = len(df) - matched_count
+
+        if progress_cb:
+            progress_cb(0.7, "Generating Excel output...")
+        add_log("INFO", "Generating Excel output...")
+        xlsx_bytes = run_cpu_phase(processor.to_excel_bytes, df, pivot_accounts if pivot_accounts else None)
+        Path(output_path).write_bytes(xlsx_bytes)
     finally:
-        db.close()
-
-    raw_row_count = len(rows)
-    add_log("OK", f"Parsed {format_indian_number(raw_row_count)} rows")
-
-    if progress_cb:
-        progress_cb(0.35, "Deriving Location Code and cascading mappings...")
-    df, missing_codes, missing_account_ho = processor.process_report(
-        columns, rows, loc_name_map, region_incharge_map, name_region_map, account_ho_map
-    )
-    add_log("OK", f"Output rows: {format_indian_number(len(df))}")
-
-    if missing_codes:
-        add_log("WARN", f"Unmapped location codes: {format_indian_number(len(missing_codes))}")
-    if missing_account_ho:
-        add_log("WARN", f"Unmapped account HO codes: {format_indian_number(len(missing_account_ho))}")
-
-    matched_count = int((df["Region"] != "").sum())
-    unmatched_count = len(df) - matched_count
-
-    if progress_cb:
-        progress_cb(0.7, "Generating Excel output...")
-    add_log("INFO", "Generating Excel output...")
-    xlsx_bytes = processor.to_excel_bytes(df, pivot_accounts if pivot_accounts else None)
-    Path(output_path).write_bytes(xlsx_bytes)
-
-    try:
         Path(input_path).unlink(missing_ok=True)
-    except OSError:
-        pass
 
     filename = f"{Path(input_path).stem}_Location_Report.xlsx"
     add_log("OK", f"Done - {filename} ({format_indian_number(len(xlsx_bytes) // 1024)} KB)")
@@ -267,6 +271,14 @@ def submit_process(body: ProcessRequest, user: User = Depends(get_current_user))
 @router.get("/jobs/{job_id}")
 def job_status(job_id: str, user: User = Depends(get_current_user)):
     job = get_job(job_id, owner_id=user.id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return job
+
+
+@router.post("/jobs/{job_id}/cancel")
+def cancel(job_id: str, user: User = Depends(get_current_user)):
+    job = cancel_job(job_id, owner_id=user.id)
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
     return job

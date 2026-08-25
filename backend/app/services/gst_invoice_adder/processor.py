@@ -64,6 +64,8 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import column_index_from_string, get_column_letter
 
+from app.jobs import JobUserError
+
 try:
     import pyxlsb as _pyxlsb
     _PYXLSB_OK = True
@@ -232,9 +234,9 @@ def read_data_df(input_path: str):
     inv_date_col = col_map.get(COL_INV_DATE.strip().lower())
 
     if inv_no_col is None:
-        raise ValueError(f"Column '{COL_INV_NO}' not found.\nFound: {list(df.columns)}")
+        raise JobUserError(f"Column '{COL_INV_NO}' not found.\nFound: {list(df.columns)}")
     if inv_date_col is None:
-        raise ValueError(f"Column '{COL_INV_DATE}' not found.\nFound: {list(df.columns)}")
+        raise JobUserError(f"Column '{COL_INV_DATE}' not found.\nFound: {list(df.columns)}")
 
     return df, inv_no_col, inv_date_col
 
@@ -396,7 +398,7 @@ def insert_gst_column(wb_path: str, output_path: str, gst_map: dict,
 
     def _require(name):
         if name not in header_map:
-            raise ValueError(
+            raise JobUserError(
                 f"Header '{name}' not found in row {header_row}.\n"
                 f"Found: {list(header_map.keys())}")
         return header_map[name]
@@ -520,7 +522,7 @@ def _make_pool(oracle_cfg: OracleConfig, log_q):
         # mode, not an oracledb exception (verified against a real failed
         # connection). A cryptic driver string here reads as "the
         # application is broken" - say plainly that Oracle is unreachable.
-        raise RuntimeError(_ORACLE_CONNECT_ERROR) from exc
+        raise JobUserError(_ORACLE_CONNECT_ERROR) from exc
     log_q.put(("ok", "Pool ready - connections established"))
     return pool
 
@@ -594,7 +596,7 @@ def _fetch_all_parallel(pairs_unique: list, pool, log_q, progress_cb) -> dict:
     # reads as the application failing to do its job rather than as Oracle
     # being down.
     if batches and conn_failures == len(batches):
-        raise RuntimeError(_ORACLE_CONNECT_ERROR)
+        raise JobUserError(_ORACLE_CONNECT_ERROR)
 
     return merged
 
@@ -611,7 +613,7 @@ def process_report(input_path: str, output_path: str, oracle_cfg: OracleConfig,
     df, inv_no_col_pd, inv_date_col_pd = read_data_df(input_path)
     log_q.put(("info", f"{len(df)} data rows found"))
     if len(df) == 0:
-        raise ValueError("No data rows found after skipping header rows.")
+        raise JobUserError("No data rows found after skipping header rows.")
 
     if progress_cb:
         progress_cb(0.04, "Extracting unique keys...")

@@ -747,6 +747,7 @@ export default function UltrafineBalanceConfirmation() {
                 setPreviewError(err)
                 setPreviewSubmitting(false)
               }}
+              onCancel={() => post(`${BASE}/jobs/${previewJobId}/cancel`)}
             />
           )}
 

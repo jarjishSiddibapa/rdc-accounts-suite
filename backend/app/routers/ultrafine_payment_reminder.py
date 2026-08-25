@@ -33,7 +33,7 @@ from sqlalchemy.orm import Session
 from app.auth import get_current_user
 from app.config import SCRATCH_DIR
 from app.database import get_db
-from app.jobs import submit_job, get_job
+from app.jobs import cancel_job, run_cpu_phase, submit_job, get_job
 from app.permissions import require_app_access
 from app.services import mailer_shared
 from app.services.ultrafine_payment_reminder import mapping_store, processing
@@ -77,6 +77,20 @@ def download_template():
     )
 
 
+def _cpu_phase_preview(data_path: str, emails_path: Optional[str], pdf_pairs: list,
+                        as_on_date: str, signature: str, mapping: dict):
+    """100% CPU (pandas read + merge + plan building), no I/O - runs on the
+    CPU process pool. build_send_plan's own progress_cb (fine-grained
+    "Built preview N of M") can't cross the process boundary, so the UI
+    shows one "Building preview..." phase for the whole call instead of a
+    live count - a cosmetic regression, not a correctness one."""
+    data_df = processing.read_data_excel(data_path)
+    emails_df = processing.read_emails_excel(emails_path) if emails_path else None
+    groups = processing.merge_and_group_data(data_df, emails_df, mapping)
+    pdf_index = processing.build_pdf_index(pdf_pairs)
+    return processing.build_send_plan(groups, signature, as_on_date or None, pdf_index)
+
+
 # ── Job bodies (run in the background thread pool) ────────────────────────────
 
 def _job_preview(
@@ -89,24 +103,23 @@ def _job_preview(
     from_email: str,
     progress_cb=None,
 ) -> dict:
-    if progress_cb:
-        progress_cb(0.02, "Reading balance/aging workbook")
-    data_df = processing.read_data_excel(data_path)
-
-    emails_df = None
-    if emails_path:
+    try:
         if progress_cb:
-            progress_cb(0.06, "Reading emails workbook")
-        emails_df = processing.read_emails_excel(emails_path)
+            progress_cb(0.05, "Building preview...")
+        plan = run_cpu_phase(
+            _cpu_phase_preview, data_path, emails_path, pdf_pairs, as_on_date, signature, mapping,
+        )
+        if progress_cb:
+            progress_cb(0.95, "Preview ready")
+    finally:
+        # Only the data/emails workbooks are done with after this job - the
+        # matched PDFs (pdf_pairs) are referenced by path inside `plan` and
+        # still needed by _job_send once the user confirms, so they're
+        # cleaned up there instead.
+        Path(data_path).unlink(missing_ok=True)
+        if emails_path:
+            Path(emails_path).unlink(missing_ok=True)
 
-    if progress_cb:
-        progress_cb(0.1, "Merging and grouping customers")
-    groups = processing.merge_and_group_data(data_df, emails_df, mapping)
-
-    pdf_index = processing.build_pdf_index(pdf_pairs)
-    plan = processing.build_send_plan(
-        groups, signature, as_on_date or None, pdf_index, progress_cb=progress_cb
-    )
     sendable = [c for c in plan if not c["skip_reason"]]
     skipped = [c for c in plan if c["skip_reason"]]
     return {
@@ -121,14 +134,20 @@ def _job_preview(
 
 
 def _job_send(from_email: str, app_password: str, customers: list, progress_cb=None) -> dict:
-    report = processing.send_bulk_mails(from_email, app_password, customers, progress_cb=progress_cb)
-    return {
-        "status": "sent",
-        "report": report,
-        "sent": sum(1 for r in report if r["status"] == "sent"),
-        "failed": sum(1 for r in report if r["status"] == "failed"),
-        "skipped": sum(1 for r in report if r["status"] == "skipped"),
-    }
+    try:
+        report = processing.send_bulk_mails(from_email, app_password, customers, progress_cb=progress_cb)
+        return {
+            "status": "sent",
+            "report": report,
+            "sent": sum(1 for r in report if r["status"] == "sent"),
+            "failed": sum(1 for r in report if r["status"] == "failed"),
+            "skipped": sum(1 for r in report if r["status"] == "skipped"),
+        }
+    finally:
+        for customer in customers:
+            pdf_path = customer.get("pdf_attachment_path")
+            if pdf_path:
+                Path(pdf_path).unlink(missing_ok=True)
 
 
 # ── Preview / confirm-send ──────────────────────────────────────────────────
@@ -225,6 +244,14 @@ def confirm_send(body: ConfirmSendBody, user=Depends(get_current_user)):
 @router.get("/jobs/{job_id}")
 def job_status(job_id: str, user=Depends(get_current_user)):
     job = get_job(job_id, owner_id=user.id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return job
+
+
+@router.post("/jobs/{job_id}/cancel")
+def cancel(job_id: str, user=Depends(get_current_user)):
+    job = cancel_job(job_id, owner_id=user.id)
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
     return job

@@ -658,6 +658,7 @@ export default function UltrafinePaymentReminder() {
                 setPreviewError(e)
                 setSubmitting(false)
               }}
+              onCancel={() => post(`${BASE}/jobs/${previewJobId}/cancel`)}
             />
           )}
 

@@ -24,6 +24,24 @@ router = APIRouter(
 _job_outputs: dict[str, dict] = {}
 
 
+def _job_convert(input_path: str, output_path: str, progress_cb=None):
+    """100% CPU work (HTML/xlrd parsing + openpyxl writing), so it runs on
+    the CPU process pool for real multi-core throughput instead of a GIL-
+    bound thread. Trade-off: convert_file's own progress_cb (which reports
+    fine-grained "Parsing report NN%" progress for large HTML exports) can't
+    cross the process boundary, so the UI shows a single "Converting..."
+    phase for the whole call instead of a live percentage - a cosmetic
+    regression for very large files, not a correctness one; cancellation
+    still works, just only takes effect once this file's conversion
+    finishes rather than mid-parse."""
+    if progress_cb:
+        progress_cb(0.02, "Converting...")
+    try:
+        return jobs.run_cpu_phase(converter.convert_file, input_path, output_path)
+    finally:
+        Path(input_path).unlink(missing_ok=True)
+
+
 class DownloadAllBody(BaseModel):
     job_ids: list[str]
 
@@ -42,7 +60,7 @@ async def convert(
         output_path = config.SCRATCH_DIR / f"{input_path.stem}_{stem}.xlsx"
 
         job_id = jobs.submit_job(
-            converter.convert_file,
+            _job_convert,
             str(input_path),
             str(output_path),
             owner_id=user.id,

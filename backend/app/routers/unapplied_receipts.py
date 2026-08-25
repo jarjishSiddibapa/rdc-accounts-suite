@@ -43,7 +43,7 @@ from app.config import (
     SCRATCH_DIR,
 )
 from app.database import SessionLocal, get_db
-from app.jobs import get_job, submit_job
+from app.jobs import cancel_job, get_job, run_cpu_phase, submit_job
 from app.models import User
 from app.permissions import require_app_access
 from app.services.unapplied_receipts import mapping_store, processor
@@ -101,6 +101,45 @@ class _LogQueue:
                 pass
 
 
+class _CollectingLogQueue:
+    """Plain picklable log_q (no progress_cb wiring, which isn't picklable):
+    just accumulates (level, message) tuples. Used inside _cpu_phase_finish
+    below, which runs in a subprocess via run_cpu_phase - its collected
+    messages are handed back as part of that call's return value and merged
+    into the outer _LogQueue's own messages, so the detailed per-step log
+    this tool's UI shows is preserved exactly as before even though half of
+    it now happens in a different process."""
+
+    def __init__(self):
+        self.messages: list[tuple[str, str]] = []
+
+    def put(self, item) -> None:
+        self.messages.append(item)
+
+
+def _cpu_phase_finish_report(df, ageing_path, incharge_map, supplier_site_map,
+                              output_path, as_on_date, df_unidentified):
+    """The rest of the pipeline after process_report's Oracle-dependent read
+    (which stays on the calling thread) - classify, validate, and write the
+    workbook are all pure pandas/openpyxl CPU work with no I/O, so this runs
+    on the CPU process pool for real multi-core throughput."""
+    log_q = _CollectingLogQueue()
+    df_main, df_advance, _salesperson_map = processor.classify_advance_customers(
+        df, ageing_path, log_q,
+    )
+    validation_errors = processor._validate_before_save(df_main, incharge_map, supplier_site_map)
+    validation_warnings = [
+        {"category": category, "items": items} for category, items in validation_errors
+    ]
+    for category, items in validation_errors:
+        log_q.put(("warn", f"{category}: {len(items)} unmapped value(s)"))
+    processor.write_formatted_excel(
+        df_main, df_advance, output_path, as_on_date,
+        df_unidentified=df_unidentified, incharge_map=incharge_map, log_q=log_q,
+    )
+    return len(df_main), len(df_advance), validation_warnings, log_q.messages
+
+
 # ── /process job pipeline ───────────────────────────────────────────────────
 
 def _run_process_job(input_path: str, ageing_path: str, output_path: str,
@@ -121,40 +160,26 @@ def _run_process_job(input_path: str, ageing_path: str, output_path: str,
     finally:
         db.close()
 
-    if progress_cb:
-        progress_cb(0.08, "Reading register and fetching Oracle ERP data...")
-    df, total_input_rows, unidentified_removed_count, df_unidentified, erp_ok = processor.process_report(
-        input_path, log_q, as_on_date,
-        oracle_cfg=_ORACLE_CFG, supplier_site_map=supplier_site_map,
-    )
-
-    if progress_cb:
-        progress_cb(0.55, "Classifying advance-of-customer rows...")
-    df_main, df_advance, _salesperson_map = processor.classify_advance_customers(
-        df, ageing_path, log_q,
-    )
-
-    if progress_cb:
-        progress_cb(0.75, "Validating mappings...")
-    validation_errors = processor._validate_before_save(df_main, incharge_map, supplier_site_map)
-    validation_warnings = [
-        {"category": category, "items": items} for category, items in validation_errors
-    ]
-    for category, items in validation_errors:
-        log_q.put(("warn", f"{category}: {len(items)} unmapped value(s)"))
-
-    if progress_cb:
-        progress_cb(0.86, "Writing formatted workbook...")
-    processor.write_formatted_excel(
-        df_main, df_advance, output_path, as_on_date,
-        df_unidentified=df_unidentified, incharge_map=incharge_map, log_q=log_q,
-    )
-
     try:
+        if progress_cb:
+            progress_cb(0.08, "Reading register and fetching Oracle ERP data...")
+        df, total_input_rows, unidentified_removed_count, df_unidentified, erp_ok = processor.process_report(
+            input_path, log_q, as_on_date,
+            oracle_cfg=_ORACLE_CFG, supplier_site_map=supplier_site_map,
+        )
+
+        if progress_cb:
+            progress_cb(0.55, "Classifying, validating, and writing the workbook...")
+        # Pure pandas/openpyxl CPU work, no Oracle/DB - runs on the CPU
+        # process pool for real multi-core throughput.
+        main_row_count, advance_row_count, validation_warnings, cpu_log_messages = run_cpu_phase(
+            _cpu_phase_finish_report,
+            df, ageing_path, incharge_map, supplier_site_map, output_path, as_on_date, df_unidentified,
+        )
+        log_q.messages.extend(cpu_log_messages)
+    finally:
         Path(input_path).unlink(missing_ok=True)
         Path(ageing_path).unlink(missing_ok=True)
-    except OSError:
-        pass
 
     filename = f"Unapplied_Receipts_Report_As_On_{as_on_date.isoformat()}.xlsx"
     log_q.put(("ok", f"Done - {filename}"))
@@ -167,8 +192,8 @@ def _run_process_job(input_path: str, ageing_path: str, output_path: str,
         "as_on_date": as_on_date.isoformat(),
         "total_input_rows": total_input_rows,
         "unidentified_removed_count": unidentified_removed_count,
-        "main_row_count": len(df_main),
-        "advance_row_count": len(df_advance),
+        "main_row_count": main_row_count,
+        "advance_row_count": advance_row_count,
         "validation_warnings": validation_warnings,
         "oracle_ok": erp_ok,
         "log": log_q.messages,
@@ -213,6 +238,14 @@ async def submit_process(
 @router.get("/jobs/{job_id}")
 def job_status(job_id: str, user: User = Depends(get_current_user)):
     job = get_job(job_id, owner_id=user.id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return job
+
+
+@router.post("/jobs/{job_id}/cancel")
+def cancel(job_id: str, user: User = Depends(get_current_user)):
+    job = cancel_job(job_id, owner_id=user.id)
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
     return job

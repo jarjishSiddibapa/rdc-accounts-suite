@@ -389,6 +389,7 @@ export default function RdcPayables() {
                 setActivityLog((previous) => [...previous, `[ERR] ${error}`])
                 setSubmitting(false)
               }}
+              onCancel={() => post(`${BASE}/jobs/${jobId}/cancel`)}
             />
           )}
 

@@ -67,6 +67,8 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
+from app.jobs import JobUserError
+
 
 # ── Oracle connection config ────────────────────────────────────────────────
 
@@ -109,7 +111,7 @@ def _connect_oracle(oracle_cfg: "OracleConfig"):
             user=oracle_cfg.user, password=oracle_cfg.password, dsn=oracle_cfg.dsn
         )
     except Exception as exc:
-        raise RuntimeError(_ORACLE_CONNECT_ERROR) from exc
+        raise JobUserError(_ORACLE_CONNECT_ERROR) from exc
 
 
 def _init_oracle_client(instant_client_dir: str) -> None:
@@ -219,7 +221,7 @@ def _read_html_streaming(path: str, log_q=None) -> pd.DataFrame:
             continue                # try next encoding
 
     if not parser.rows:
-        raise ValueError(
+        raise JobUserError(
             f"No table rows extracted from HTML file: {os.path.basename(path)}")
 
     if log_q:
@@ -284,7 +286,7 @@ def _read_ageing(path: str) -> pd.DataFrame:
         # Locate the actual header row (normally row 13 in Oracle ERP exports)
         hdr = _find_header_row(df_raw, "Customer Account", default=13)
         if len(df_raw) <= hdr:
-            raise ValueError(
+            raise JobUserError(
                 f"Ageing file has only {len(df_raw)} rows; "
                 f"could not find header row (tried row {hdr}).")
         # Promote that row to column names and strip whitespace
@@ -400,7 +402,7 @@ def process_report(input_path: str, log_q, as_on_date: _dt.date = None, *,
     # ── Locate and promote the real header row (Oracle puts 8 metadata rows) ──
     HDR_ROW = 8
     if len(df) <= HDR_ROW:
-        raise ValueError(
+        raise JobUserError(
             f"File has only {len(df)} rows — expected at least {HDR_ROW + 2}. "
             "Is this the correct unapplied receipts file?")
     # Strip whitespace from column names to avoid hidden-space KeyErrors
@@ -419,7 +421,7 @@ def process_report(input_path: str, log_q, as_on_date: _dt.date = None, *,
     # ── Separate "***** Unidentified" rows → own sheet, not deleted ──────────
     cust_col = "Customer Name"
     if cust_col not in df.columns:
-        raise ValueError(
+        raise JobUserError(
             f"Column '{cust_col}' not found after reading.\n"
             f"Columns found: {list(df.columns)[:10]}")
     before         = len(df)
@@ -451,7 +453,7 @@ def process_report(input_path: str, log_q, as_on_date: _dt.date = None, *,
 
     # ── Fetch Location from Oracle ERP ────────────────────────────────────────
     if pay_num_col not in df.columns:
-        raise ValueError(
+        raise JobUserError(
             f"Column '{pay_num_col}' not found.\n"
             f"Columns found: {list(df.columns)[:10]}")
     receipts = [str(r).strip() for r in df[pay_num_col].dropna().unique()

@@ -329,6 +329,7 @@ export default function Gstr2bCombinator() {
               poller={pollCombineJob}
               onDone={(next) => setResult(next ?? null)}
               onError={(message) => setError(message)}
+              onCancel={() => post(`${BASE}/jobs/${jobId}/cancel`)}
             />
 
             {result && (

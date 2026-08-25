@@ -4,8 +4,8 @@ import logging
 from contextlib import asynccontextmanager
 from logging.handlers import RotatingFileHandler
 
-from fastapi import FastAPI, HTTPException
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 
@@ -40,6 +40,7 @@ _file_handler = RotatingFileHandler(
 _file_handler.setFormatter(logging.Formatter(_LOG_FORMAT))
 
 logging.basicConfig(level=logging.INFO, format=_LOG_FORMAT, handlers=[logging.StreamHandler(), _file_handler])
+logger = logging.getLogger(__name__)
 
 
 def _attach_file_logging_to_uvicorn() -> None:
@@ -84,6 +85,35 @@ app = FastAPI(
 app.middleware("http")(audit_middleware.audit_middleware)
 app.middleware("http")(http_middleware.security_and_performance_middleware)
 app.add_middleware(GZipMiddleware, minimum_size=1_024, compresslevel=5)
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    """Last-resort safety net for anything a route/job didn't already turn
+    into a proper HTTPException. Without this, an unexpected bug (a bare
+    KeyError, an AttributeError, etc.) would leak Starlette's raw default
+    500 page - including, on /api/* routes, whatever the exception's own
+    str() happens to say - straight to the user. This only ever runs for
+    exceptions that AREN'T already an HTTPException: FastAPI's own
+    HTTPException handler is more specific and always wins for those, so
+    every existing `raise HTTPException(...)` across the app keeps behaving
+    exactly as before."""
+    logger.exception("Unhandled exception on %s %s", request.method, request.url.path)
+    if request.url.path.startswith("/api/"):
+        return JSONResponse(
+            status_code=500,
+            content={"detail": "Something went wrong. Please try again or contact support."},
+        )
+    raise exc
+
+
+@app.get("/api/health", include_in_schema=False)
+def health():
+    """Trivial liveness probe - deliberately does not touch the database or
+    any external service, so it still reports honestly even if MySQL/Oracle
+    is down, rather than hanging on a dependency this endpoint isn't meant
+    to check."""
+    return {"status": "ok"}
 
 
 app.include_router(auth_routes.router)

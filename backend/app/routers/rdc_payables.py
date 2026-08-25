@@ -31,7 +31,7 @@ from sqlalchemy.orm import Session
 from app.auth import get_current_user
 from app.config import SCRATCH_DIR
 from app.database import SessionLocal, get_db
-from app.jobs import get_job, submit_job
+from app.jobs import cancel_job, get_job, submit_job
 from app.models import User
 from app.permissions import require_app_access
 from app.regional import format_indian_number, now_ist
@@ -127,78 +127,76 @@ def _run_process_job(input_path: str, output_path: str,
         progress_cb(0.03, "Loading centralized mappings...")
     add_log("INFO", f"Starting: {Path(input_path).name}")
 
-    db = SessionLocal()
     try:
-        (mapping, loc_code_map, exclusions, invoice_overrides,
-         region_incharge_map, txn_type_overrides) = mapping_store.load_all(db)
-    finally:
-        db.close()
+        db = SessionLocal()
+        try:
+            (mapping, loc_code_map, exclusions, invoice_overrides,
+             region_incharge_map, txn_type_overrides) = mapping_store.load_all(db)
+        finally:
+            db.close()
 
-    if progress_cb:
-        progress_cb(0.08, "Parsing HTML report...")
-    parse_started = perf_counter()
-    columns, rows = processor.parse_html_report(input_path)
-    raw_row_count = len(rows)
-    parse_seconds = perf_counter() - parse_started
-    add_log("OK", f"Parsed {format_indian_number(raw_row_count)} rows in {parse_seconds:.1f}s")
+        if progress_cb:
+            progress_cb(0.08, "Parsing HTML report...")
+        parse_started = perf_counter()
+        columns, rows = processor.parse_html_report(input_path)
+        raw_row_count = len(rows)
+        parse_seconds = perf_counter() - parse_started
+        add_log("OK", f"Parsed {format_indian_number(raw_row_count)} rows in {parse_seconds:.1f}s")
 
-    if progress_cb:
-        progress_cb(0.40, "Applying filters and mappings...")
-    cutoff_label = datetime(cutoff_year, cutoff_month, 1).strftime("%b-%Y")
-    add_log("INFO", f"Including GL data through: {cutoff_label}")
-    df, reporting_ref_date = processor.process_report(
-        columns, rows, cutoff_year, cutoff_month, mapping,
-        loc_code_map=loc_code_map,
-        exclusions=exclusions,
-        invoice_overrides=invoice_overrides,
-        region_incharge_map=region_incharge_map,
-        txn_type_overrides=txn_type_overrides,
-    )
-
-    add_log("OK", f"Output rows: {format_indian_number(len(df))}")
-    if reporting_ref_date:
-        add_log(
-            "INFO",
-            "Reporting month (for aging): "
-            f"{reporting_ref_date.strftime('%b-%Y')} "
-            f"(ref date {reporting_ref_date.strftime('%d-%b-%Y')})",
+        if progress_cb:
+            progress_cb(0.40, "Applying filters and mappings...")
+        cutoff_label = datetime(cutoff_year, cutoff_month, 1).strftime("%b-%Y")
+        add_log("INFO", f"Including GL data through: {cutoff_label}")
+        df, reporting_ref_date = processor.process_report(
+            columns, rows, cutoff_year, cutoff_month, mapping,
+            loc_code_map=loc_code_map,
+            exclusions=exclusions,
+            invoice_overrides=invoice_overrides,
+            region_incharge_map=region_incharge_map,
+            txn_type_overrides=txn_type_overrides,
         )
 
-    if progress_cb:
-        progress_cb(0.75, "Checking mappings and report totals...")
-    missing_codes: list = []
-    if "Region" in df.columns and "Vendor Site Code" in df.columns:
-        unmapped_df = df[df["Region"] == ""]
-        if not unmapped_df.empty:
-            missing_codes = unmapped_df["Vendor Site Code"].dropna().unique().tolist()
-    if missing_codes:
-        add_log("WARN", f"Unmapped site codes: {format_indian_number(len(missing_codes))}")
+        add_log("OK", f"Output rows: {format_indian_number(len(df))}")
+        if reporting_ref_date:
+            add_log(
+                "INFO",
+                "Reporting month (for aging): "
+                f"{reporting_ref_date.strftime('%b-%Y')} "
+                f"(ref date {reporting_ref_date.strftime('%d-%b-%Y')})",
+            )
 
-    matched_count = int((df["Region"] != "").sum()) if "Region" in df.columns else 0
-    unmatched_count = len(df) - matched_count
-    transaction_type_counts = (
-        {str(key): int(value) for key, value in df["Transaction Type"].value_counts().items()}
-        if "Transaction Type" in df.columns else {}
-    )
-    aging_bucket_counts = (
-        {str(key): int(value) for key, value in df["Aging Bucket"].value_counts().items()}
-        if "Aging Bucket" in df.columns else {}
-    )
-    for transaction_type, count in transaction_type_counts.items():
-        add_log("INFO", f"  {transaction_type}: {format_indian_number(count)}")
-    for bucket, count in aging_bucket_counts.items():
-        add_log("INFO", f"  Aging - {bucket}: {format_indian_number(count)}")
+        if progress_cb:
+            progress_cb(0.75, "Checking mappings and report totals...")
+        missing_codes: list = []
+        if "Region" in df.columns and "Vendor Site Code" in df.columns:
+            unmapped_df = df[df["Region"] == ""]
+            if not unmapped_df.empty:
+                missing_codes = unmapped_df["Vendor Site Code"].dropna().unique().tolist()
+        if missing_codes:
+            add_log("WARN", f"Unmapped site codes: {format_indian_number(len(missing_codes))}")
 
-    if progress_cb:
-        progress_cb(0.86, "Generating Excel output...")
-    add_log("INFO", "Generating Excel output...")
-    xlsx_bytes = processor.to_excel_bytes(df, missing_codes if missing_codes else None)
-    Path(output_path).write_bytes(xlsx_bytes)
+        matched_count = int((df["Region"] != "").sum()) if "Region" in df.columns else 0
+        unmatched_count = len(df) - matched_count
+        transaction_type_counts = (
+            {str(key): int(value) for key, value in df["Transaction Type"].value_counts().items()}
+            if "Transaction Type" in df.columns else {}
+        )
+        aging_bucket_counts = (
+            {str(key): int(value) for key, value in df["Aging Bucket"].value_counts().items()}
+            if "Aging Bucket" in df.columns else {}
+        )
+        for transaction_type, count in transaction_type_counts.items():
+            add_log("INFO", f"  {transaction_type}: {format_indian_number(count)}")
+        for bucket, count in aging_bucket_counts.items():
+            add_log("INFO", f"  Aging - {bucket}: {format_indian_number(count)}")
 
-    try:
+        if progress_cb:
+            progress_cb(0.86, "Generating Excel output...")
+        add_log("INFO", "Generating Excel output...")
+        xlsx_bytes = processor.to_excel_bytes(df, missing_codes if missing_codes else None)
+        Path(output_path).write_bytes(xlsx_bytes)
+    finally:
         Path(input_path).unlink(missing_ok=True)
-    except OSError:
-        pass
 
     filename = f"Payables_Report_Through_{cutoff_label}.xlsx"
     add_log("OK", f"Done - {filename} ({format_indian_number(len(xlsx_bytes) // 1024)} KB)")
@@ -253,6 +251,14 @@ async def submit_process(
 @router.get("/jobs/{job_id}")
 def job_status(job_id: str, user: User = Depends(get_current_user)):
     job = get_job(job_id, owner_id=user.id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return job
+
+
+@router.post("/jobs/{job_id}/cancel")
+def cancel(job_id: str, user: User = Depends(get_current_user)):
+    job = cancel_job(job_id, owner_id=user.id)
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
     return job

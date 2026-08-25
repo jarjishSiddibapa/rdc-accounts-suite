@@ -22,7 +22,7 @@ from sqlalchemy.orm import Session
 from app.auth import get_current_user
 from app.config import SCRATCH_DIR
 from app.database import get_db
-from app.jobs import submit_job, get_job
+from app.jobs import cancel_job, run_cpu_phase, submit_job, get_job
 from app.permissions import require_app_access
 from app.regional import now_ist
 from app.services import mailer_shared
@@ -78,12 +78,61 @@ def _split_csv(value: Optional[str]) -> list[str]:
     return [v.strip() for v in value.split(",") if v.strip()]
 
 
-# ── Job bodies (run in the background thread pool) ────────────────────────────
+class _CollectingLogQueue:
+    """Plain picklable log_q: just accumulates (level, message) tuples, no
+    progress_cb wiring (which isn't picklable and couldn't cross a process
+    boundary anyway). Used inside the CPU-phase wrapper functions below,
+    which run in a subprocess via run_cpu_phase - the collected messages are
+    handed back as part of that call's return value (a mutated side-channel
+    object's state never crosses back from a subprocess on its own, only
+    what the call actually returns does), so the detailed per-step log this
+    tool's UI shows the user is preserved exactly as before."""
 
-def _job_unaccounted(paths: list, output_path: str, progress_cb=None) -> dict:
-    log_q = _LogQueue(progress_cb)
+    def __init__(self):
+        self.messages: list[tuple[str, str]] = []
+
+    def put(self, item) -> None:
+        self.messages.append(item)
+
+
+def _cpu_phase_unaccounted(paths: list, output_path: str):
+    log_q = _CollectingLogQueue()
     df, total_rows, input_cols, matched = processing.process_report_multi(paths, log_q)
     excel_writers.write_formatted_excel(df, output_path)
+    return df, total_rows, input_cols, matched, log_q.messages
+
+
+def _cpu_phase_mrn(path: str, exclude_periods: set, output_path: str):
+    log_q = _CollectingLogQueue()
+    df, total_rows, input_cols, matched = processing.process_mrn_report(path, exclude_periods, log_q)
+    excel_writers.write_formatted_mrn_excel(df, output_path)
+    return df, total_rows, input_cols, matched, log_q.messages
+
+
+def _cpu_phase_po(path: str, exclude_months: set, keywords: list, fuzzy_threshold: float, output_path: str):
+    log_q = _CollectingLogQueue()
+    main_df, moved_df, unmapped_df, total_rows, input_cols, matched = processing.process_po_report(
+        path, exclude_months, keywords, log_q, fuzzy_threshold
+    )
+    excel_writers.write_formatted_po_excel(main_df, moved_df, unmapped_df, output_path)
+    return main_df, moved_df, unmapped_df, total_rows, input_cols, matched, log_q.messages
+
+
+# ── Job bodies (run in the background thread pool; CPU-heavy work above runs
+#    on the CPU process pool via run_cpu_phase for real multi-core throughput) ──
+
+def _job_unaccounted(paths: list, output_path: str, progress_cb=None) -> dict:
+    if progress_cb:
+        progress_cb(0.05, "Processing report...")
+    try:
+        df, total_rows, input_cols, matched, log_messages = run_cpu_phase(
+            _cpu_phase_unaccounted, paths, output_path
+        )
+    finally:
+        for path in paths:
+            Path(path).unlink(missing_ok=True)
+    if progress_cb:
+        progress_cb(0.95, "Report ready")
     unmapped = sorted(
         df[df["Location"].astype(str).str.strip() == ""]["Supplier Site"]
         .astype(str).unique().tolist()
@@ -95,14 +144,21 @@ def _job_unaccounted(paths: list, output_path: str, progress_cb=None) -> dict:
         "unmatched": total_rows - matched,
         "unmapped_sites": unmapped,
         "output_path": output_path,
-        "log": log_q.messages,
+        "log": log_messages,
     }
 
 
 def _job_mrn(path: str, exclude_periods: set, output_path: str, progress_cb=None) -> dict:
-    log_q = _LogQueue(progress_cb)
-    df, total_rows, input_cols, matched = processing.process_mrn_report(path, exclude_periods, log_q)
-    excel_writers.write_formatted_mrn_excel(df, output_path)
+    if progress_cb:
+        progress_cb(0.05, "Processing report...")
+    try:
+        df, total_rows, input_cols, matched, log_messages = run_cpu_phase(
+            _cpu_phase_mrn, path, exclude_periods, output_path
+        )
+    finally:
+        Path(path).unlink(missing_ok=True)
+    if progress_cb:
+        progress_cb(0.95, "Report ready")
     from app.services.unaccounted.constants import MRN_SITE_COL
     unmapped = sorted(
         df[df["Location"].astype(str).str.strip() == ""][MRN_SITE_COL]
@@ -115,7 +171,7 @@ def _job_mrn(path: str, exclude_periods: set, output_path: str, progress_cb=None
         "unmatched": total_rows - matched,
         "unmapped_sites": unmapped,
         "output_path": output_path,
-        "log": log_q.messages,
+        "log": log_messages,
     }
 
 
@@ -127,11 +183,16 @@ def _job_po(
     output_path: str,
     progress_cb=None,
 ) -> dict:
-    log_q = _LogQueue(progress_cb)
-    main_df, moved_df, unmapped_df, total_rows, input_cols, matched = processing.process_po_report(
-        path, exclude_months, keywords, log_q, fuzzy_threshold
-    )
-    excel_writers.write_formatted_po_excel(main_df, moved_df, unmapped_df, output_path)
+    if progress_cb:
+        progress_cb(0.05, "Processing report...")
+    try:
+        main_df, moved_df, unmapped_df, total_rows, input_cols, matched, log_messages = run_cpu_phase(
+            _cpu_phase_po, path, exclude_months, keywords, fuzzy_threshold, output_path
+        )
+    finally:
+        Path(path).unlink(missing_ok=True)
+    if progress_cb:
+        progress_cb(0.95, "Report ready")
     from app.services.unaccounted.constants import PO_SITE_COL
     unmapped = (
         sorted(unmapped_df[PO_SITE_COL].astype(str).unique().tolist())
@@ -144,7 +205,7 @@ def _job_po(
         "unmatched": total_rows - matched,
         "unmapped_sites": unmapped,
         "output_path": output_path,
-        "log": log_q.messages,
+        "log": log_messages,
     }
 
 
@@ -252,6 +313,14 @@ async def detect_po_periods(file: UploadFile = File(...), user=Depends(get_curre
 @router.get("/jobs/{job_id}")
 def job_status(job_id: str, user=Depends(get_current_user)):
     job = get_job(job_id, owner_id=user.id)
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return job
+
+
+@router.post("/jobs/{job_id}/cancel")
+def cancel(job_id: str, user=Depends(get_current_user)):
+    job = cancel_job(job_id, owner_id=user.id)
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
     return job
@@ -642,42 +711,57 @@ def _job_mail_send(
     safe_month_mrn = month_mrn.strip() or "Report"
     safe_month_po = month_po.strip() or "Report"
 
-    if include_ua and ua_paths:
-        df_ua, *_ = processing.process_report_multi(ua_paths, log_q)
-        unmapped = sorted(
-            df_ua[df_ua["Location"].astype(str).str.strip() == ""]["Supplier Site"]
-            .astype(str).unique().tolist()
-        )
-        if unmapped:
-            unmapped_all["unaccounted"] = unmapped
-        ua_out = str(output_dir / f"Unaccounted {safe_month_ua} as on {safe_date}.xlsx")
-        excel_writers.write_formatted_excel(df_ua, ua_out)
+    try:
+        if include_ua and ua_paths:
+            df_ua, *_ = processing.process_report_multi(ua_paths, log_q)
+            unmapped = sorted(
+                df_ua[df_ua["Location"].astype(str).str.strip() == ""]["Supplier Site"]
+                .astype(str).unique().tolist()
+            )
+            if unmapped:
+                unmapped_all["unaccounted"] = unmapped
+            ua_out = str(output_dir / f"Unaccounted {safe_month_ua} as on {safe_date}.xlsx")
+            excel_writers.write_formatted_excel(df_ua, ua_out)
 
-    if include_mrn and mrn_path:
-        df_mrn, *_ = processing.process_mrn_report(mrn_path, exclude_periods, log_q)
-        from app.services.unaccounted.constants import MRN_SITE_COL
-        unmapped = sorted(
-            df_mrn[df_mrn["Location"].astype(str).str.strip() == ""][MRN_SITE_COL]
-            .astype(str).unique().tolist()
-        )
-        if unmapped:
-            unmapped_all["mrn"] = unmapped
-        mrn_out = str(output_dir / f"Pending MRN till {safe_month_mrn} as on {safe_date}.xlsx")
-        excel_writers.write_formatted_mrn_excel(df_mrn, mrn_out)
+        if include_mrn and mrn_path:
+            df_mrn, *_ = processing.process_mrn_report(mrn_path, exclude_periods, log_q)
+            from app.services.unaccounted.constants import MRN_SITE_COL
+            unmapped = sorted(
+                df_mrn[df_mrn["Location"].astype(str).str.strip() == ""][MRN_SITE_COL]
+                .astype(str).unique().tolist()
+            )
+            if unmapped:
+                unmapped_all["mrn"] = unmapped
+            mrn_out = str(output_dir / f"Pending MRN till {safe_month_mrn} as on {safe_date}.xlsx")
+            excel_writers.write_formatted_mrn_excel(df_mrn, mrn_out)
 
-    if include_po and po_path:
-        main_df, moved_df, unmapped_df, *_ = processing.process_po_report(
-            po_path, exclude_months, keywords, log_q, fuzzy_threshold
-        )
-        from app.services.unaccounted.constants import PO_SITE_COL
-        unmapped = (
-            sorted(unmapped_df[PO_SITE_COL].astype(str).unique().tolist())
-            if PO_SITE_COL in unmapped_df.columns else []
-        )
-        if unmapped:
-            unmapped_all["po"] = unmapped
-        po_out = str(output_dir / f"Uninvoiced Expense Report till {safe_month_po} as on {safe_date}.xlsx")
-        excel_writers.write_formatted_po_excel(main_df, moved_df, unmapped_df, po_out)
+        if include_po and po_path:
+            main_df, moved_df, unmapped_df, *_ = processing.process_po_report(
+                po_path, exclude_months, keywords, log_q, fuzzy_threshold
+            )
+            from app.services.unaccounted.constants import PO_SITE_COL
+            unmapped = (
+                sorted(unmapped_df[PO_SITE_COL].astype(str).unique().tolist())
+                if PO_SITE_COL in unmapped_df.columns else []
+            )
+            if unmapped:
+                unmapped_all["po"] = unmapped
+            po_out = str(output_dir / f"Uninvoiced Expense Report till {safe_month_po} as on {safe_date}.xlsx")
+            excel_writers.write_formatted_po_excel(main_df, moved_df, unmapped_df, po_out)
+    finally:
+        # Inputs are fully consumed by this point and never read again.
+        # output_dir is NOT cleaned up here - its 3 generated reports are
+        # still needed later by /mail/confirm-send and /mail/download, an
+        # indeterminate time after this job finishes (or possibly never, if
+        # the user only downloads reports without ever sending). It's
+        # reclaimed by the scheduled scratch sweep instead (see
+        # app/scheduler.py, extended to also remove stale directories).
+        for path in ua_paths:
+            Path(path).unlink(missing_ok=True)
+        if mrn_path:
+            Path(mrn_path).unlink(missing_ok=True)
+        if po_path:
+            Path(po_path).unlink(missing_ok=True)
 
     if unmapped_all and not force_send:
         return {

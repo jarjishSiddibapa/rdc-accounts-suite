@@ -4,6 +4,7 @@ import os
 
 import pandas as pd
 
+from app.jobs import JobUserError
 from app.regional import format_indian_number, today_ist
 
 import re
@@ -15,7 +16,7 @@ from .constants import (
     PO_ANCHOR_COL, PO_APPROVED_DATE, PO_SITE_COL, PO_ORG_COL, PO_HDR_COL,
 )
 from .site_mapping import SITE_MAPPING
-from .mappings import _load_custom_mappings, _save_creator_map, _load_location_incharge
+from .mappings import _load_custom_mappings, _upsert_creator_mapping, _load_location_incharge
 
 
 def _read_export_tables(path: str) -> list:
@@ -32,7 +33,7 @@ def _read_export_tables(path: str) -> list:
     with open(path, "rb") as fh:
         head = fh.read(4)
     if head[:2] == b"PK":
-        raise ValueError(
+        raise JobUserError(
             f"'{os.path.basename(path)}' is a real Excel file (.xlsx), not the "
             "original ERP export. Please re-download this report directly from "
             "the ERP (do not open and re-save it in Excel first) and upload that "
@@ -41,7 +42,7 @@ def _read_export_tables(path: str) -> list:
     try:
         return pd.read_html(path, flavor="lxml")
     except ValueError as exc:
-        raise ValueError(
+        raise JobUserError(
             f"'{os.path.basename(path)}' doesn't look like a valid ERP export - "
             "no data table could be found in it. Please re-download this report "
             "directly from the ERP and try again."
@@ -119,7 +120,7 @@ def merge_xls_files(paths: list, log_q) -> "pd.DataFrame":
         tables = _read_export_tables(path)
         raw = find_data_table(tables)
         if raw is None:
-            raise ValueError(
+            raise JobUserError(
                 f"Could not locate data table in {os.path.basename(path)}"
             )
         if idx == 0:
@@ -130,7 +131,7 @@ def merge_xls_files(paths: list, log_q) -> "pd.DataFrame":
         log_q.put(("ok", f"  → {format_indian_number(max(0, len(raw) - 2))} data rows from {os.path.basename(path)}"))
 
     if not merged_parts:
-        raise ValueError("No input files provided.")
+        raise JobUserError("No input files provided.")
 
     combined = pd.concat(merged_parts, ignore_index=True)
     log_q.put(("info", f"Merged {format_indian_number(len(paths))} file(s) → {format_indian_number(max(0, len(combined) - 2))} total data rows"))
@@ -144,7 +145,7 @@ def process_report(input_path: str, log_q) -> tuple:
 
     raw = find_data_table(tables)
     if raw is None:
-        raise ValueError(
+        raise JobUserError(
             f"Could not locate data table in {os.path.basename(input_path)}"
         )
 
@@ -225,10 +226,14 @@ def process_report(input_path: str, log_q) -> tuple:
                 if creator not in creator_map:
                     new_discoveries[creator] = (loc, inc)
 
-        # Auto-save newly discovered creator mappings for future runs
+        # Auto-save newly discovered creator mappings for future runs. Each
+        # one is a targeted single-row upsert (not a read-modify-write of
+        # the whole table), so two concurrent report jobs discovering
+        # different new creators can never clobber each other's discovery -
+        # see _upsert_creator_mapping's docstring.
         if new_discoveries:
-            updated_creator = {**creator_map, **new_discoveries}
-            _save_creator_map(updated_creator)
+            for _creator, (_loc, _inc) in new_discoveries.items():
+                _upsert_creator_mapping(_creator, _loc, _inc)
             log_q.put(("ok",
                 f"Saved {len(new_discoveries)} new creator mapping(s) to history"))
 
@@ -282,7 +287,7 @@ def process_report_multi(input_paths: list, log_q) -> tuple:
         tables = _read_export_tables(path)
         raw = find_data_table(tables)
         if raw is None:
-            raise ValueError(f"Could not locate data table in {os.path.basename(path)}")
+            raise JobUserError(f"Could not locate data table in {os.path.basename(path)}")
 
         period = _extract_period_name(tables) or today_ist().strftime("%b-%y")
 
@@ -357,8 +362,8 @@ def process_report_multi(input_paths: list, log_q) -> tuple:
                     new_discoveries[creator] = (loc, inc)
 
         if new_discoveries:
-            updated_creator = {**creator_map, **new_discoveries}
-            _save_creator_map(updated_creator)
+            for _creator, (_loc, _inc) in new_discoveries.items():
+                _upsert_creator_mapping(_creator, _loc, _inc)
             log_q.put(("ok",
                 f"Saved {len(new_discoveries)} new creator mapping(s) to history"))
 
@@ -507,7 +512,7 @@ def process_po_report(
     tables = _read_export_tables(input_path)
     raw    = find_po_data_table(tables)
     if raw is None:
-        raise ValueError(
+        raise JobUserError(
             f"Could not locate PO data table in {os.path.basename(input_path)}")
 
     headers    = [str(v).strip() for v in raw.iloc[0].values]
@@ -669,7 +674,7 @@ def process_mrn_report(input_path: str, exclude_periods: set, log_q) -> tuple:
     tables = _read_export_tables(input_path)
     raw    = find_mrn_data_table(tables)
     if raw is None:
-        raise ValueError(
+        raise JobUserError(
             f"Could not locate MRN data table in {os.path.basename(input_path)}")
 
     # Row 0 = column headers (MRN has no merged-title first row unlike Report 1)

@@ -569,6 +569,7 @@ export default function UnappliedReceipts() {
                 setActivityLog((previous) => [...previous, ['error', error]])
                 setSubmitting(false)
               }}
+              onCancel={() => post(`${BASE}/jobs/${jobId}/cancel`)}
             />
           )}
 

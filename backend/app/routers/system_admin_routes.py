@@ -5,18 +5,19 @@ two can be edited independently without colliding.
 """
 
 import re
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, field_validator
-from sqlalchemy import desc
+from sqlalchemy import desc, or_
 from sqlalchemy.orm import Session
 
 from app import auth, backup
 from app.database import get_db
-from app.models import AuditLog, BackupSettings
-from app.regional import to_ist_iso
+from app.models import AuditLog, BackupSettings, User
+from app.regional import IST, to_ist_iso
 
 router = APIRouter(prefix="/api/admin", tags=["admin"])
 
@@ -27,7 +28,7 @@ class BackupSettingsBody(BaseModel):
     enabled: bool
     backup_time: str
     max_backups: int
-    scratch_cleanup_hours: int
+    scratch_cleanup_minutes: int
 
     @field_validator("backup_time")
     @classmethod
@@ -43,11 +44,11 @@ class BackupSettingsBody(BaseModel):
             raise ValueError("max_backups must be between 1 and 365")
         return v
 
-    @field_validator("scratch_cleanup_hours")
+    @field_validator("scratch_cleanup_minutes")
     @classmethod
-    def _validate_scratch_cleanup_hours(cls, v: int) -> int:
-        if not (1 <= v <= 720):
-            raise ValueError("scratch_cleanup_hours must be between 1 and 720 (30 days)")
+    def _validate_scratch_cleanup_minutes(cls, v: int) -> int:
+        if not (5 <= v <= 43_200):
+            raise ValueError("scratch_cleanup_minutes must be between 5 and 43200 (30 days)")
         return v
 
 
@@ -56,7 +57,7 @@ def _settings_dict(settings: BackupSettings) -> dict:
         "enabled": settings.enabled,
         "backup_time": settings.backup_time,
         "max_backups": settings.max_backups,
-        "scratch_cleanup_hours": settings.scratch_cleanup_hours,
+        "scratch_cleanup_minutes": settings.scratch_cleanup_minutes,
     }
 
 
@@ -64,7 +65,7 @@ def _get_or_create_settings(db: Session) -> BackupSettings:
     settings = db.query(BackupSettings).filter(BackupSettings.id == 1).first()
     if settings is None:
         settings = BackupSettings(
-            id=1, enabled=True, backup_time="03:00", max_backups=30, scratch_cleanup_hours=6,
+            id=1, enabled=True, backup_time="03:00", max_backups=30, scratch_cleanup_minutes=30,
         )
         db.add(settings)
         db.commit()
@@ -87,12 +88,26 @@ def _audit_log_dict(row: AuditLog) -> dict:
     }
 
 
+def _ist_date_to_utc_naive(value: date) -> datetime:
+    """Midnight of an IST calendar date, converted to the naive UTC the
+    audit_log.timestamp column actually stores (see AuditLog.timestamp's
+    default=datetime.utcnow)."""
+    return (
+        datetime(value.year, value.month, value.day, tzinfo=IST)
+        .astimezone(timezone.utc)
+        .replace(tzinfo=None)
+    )
+
+
 @router.get("/audit-log", dependencies=[Depends(auth.require_admin)])
 def get_audit_log(
     limit: int = 100,
     offset: int = 0,
     user_id: int | None = None,
     action_contains: str | None = None,
+    actor_contains: str | None = None,
+    start_date: str | None = None,
+    end_date: str | None = None,
     db: Session = Depends(get_db),
 ):
     limit = max(1, min(limit, 1000))
@@ -103,6 +118,27 @@ def get_audit_log(
         query = query.filter(AuditLog.user_id == user_id)
     if action_contains:
         query = query.filter(AuditLog.action.contains(action_contains))
+    if actor_contains:
+        # Also matches by first/last name, not just the stored actor_email,
+        # since that's what an admin is more likely to search by.
+        query = query.outerjoin(User, AuditLog.user_id == User.id).filter(
+            or_(
+                AuditLog.actor_email.contains(actor_contains),
+                User.first_name.contains(actor_contains),
+                User.last_name.contains(actor_contains),
+            )
+        )
+    if start_date:
+        try:
+            query = query.filter(AuditLog.timestamp >= _ist_date_to_utc_naive(date.fromisoformat(start_date)))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="start_date must be an ISO date (YYYY-MM-DD)")
+    if end_date:
+        try:
+            end_exclusive = _ist_date_to_utc_naive(date.fromisoformat(end_date) + timedelta(days=1))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="end_date must be an ISO date (YYYY-MM-DD)")
+        query = query.filter(AuditLog.timestamp < end_exclusive)
 
     total = query.count()
     rows = query.order_by(desc(AuditLog.timestamp)).offset(offset).limit(limit).all()
@@ -121,7 +157,7 @@ def put_backup_settings(body: BackupSettingsBody, db: Session = Depends(get_db))
     settings.enabled = body.enabled
     settings.backup_time = body.backup_time
     settings.max_backups = body.max_backups
-    settings.scratch_cleanup_hours = body.scratch_cleanup_hours
+    settings.scratch_cleanup_minutes = body.scratch_cleanup_minutes
     db.commit()
     db.refresh(settings)
     return _settings_dict(settings)

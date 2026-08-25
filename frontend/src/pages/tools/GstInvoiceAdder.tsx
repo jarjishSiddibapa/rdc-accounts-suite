@@ -5,7 +5,7 @@ import { GlassCard } from '@/components/GlassCard'
 import { Button } from '@/components/Button'
 import { FileDropzone } from '@/components/FileDropzone'
 import { ProgressPanel, type JobState, type JobStatus } from '@/components/ProgressPanel'
-import { ApiError, apiUrl, get, postForm } from '@/lib/api'
+import { ApiError, apiUrl, get, post, postForm } from '@/lib/api'
 import { formatIndianNumber } from '@/lib/regional'
 
 const BASE = '/tools/gst-invoice-adder'
@@ -152,6 +152,7 @@ export default function GstInvoiceAdder() {
                 setError(message)
                 setSubmitting(false)
               }}
+              onCancel={() => post(`${BASE}/jobs/${jobId}/cancel`)}
             />
 
             {result && (

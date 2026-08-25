@@ -38,6 +38,7 @@ import pandas as pd
 from email_validator import EmailNotValidError, validate_email
 
 from . import mail_builder
+from app.jobs import JobUserError
 
 # ── Column aliasing / reading (verbatim from app/excel/excel_reader.py,
 #    minus the requirement that To/CC columns be present) ────────────────────
@@ -72,14 +73,14 @@ def _ensure_unique_names(df: pd.DataFrame, label: str) -> None:
     keys = df["Customer Name"].astype(str).str.strip().str.casefold()
     duplicates = df.loc[keys.duplicated(keep=False), "Customer Name"].astype(str).unique().tolist()
     if duplicates:
-        raise ValueError(f"Duplicate customer names in {label}: {', '.join(duplicates[:10])}")
+        raise JobUserError(f"Duplicate customer names in {label}: {', '.join(duplicates[:10])}")
 
 
 def _read_excel(file_path: str) -> pd.DataFrame:
     try:
         return pd.read_excel(file_path, engine="openpyxl")
     except Exception as exc:
-        raise ValueError(f"Could not read the Excel file: {exc}") from exc
+        raise JobUserError(f"Could not read the Excel file: {exc}") from exc
 
 
 def read_input_excel(file_path: str) -> pd.DataFrame:
@@ -90,7 +91,7 @@ def read_input_excel(file_path: str) -> pd.DataFrame:
     df = _rename_aliases(_read_excel(file_path), INPUT_ALIASES)
     missing = [column for column in REQUIRED_COLUMNS if column not in df.columns]
     if missing:
-        raise ValueError(f"Missing columns in Input file: {', '.join(missing)}")
+        raise JobUserError(f"Missing columns in Input file: {', '.join(missing)}")
     for column in OPTIONAL_COLUMNS:
         if column not in df.columns:
             df[column] = ""
@@ -99,12 +100,12 @@ def read_input_excel(file_path: str) -> pd.DataFrame:
     df["Customer Name"] = df["Customer Name"].fillna("").astype(str).str.strip()
     df = df[df["Customer Name"] != ""].copy()
     if df.empty:
-        raise ValueError("The Balance Data file contains no customer rows.")
+        raise JobUserError("The Balance Data file contains no customer rows.")
     cleaned = df["Net O/s"].astype(str).str.replace(r"[₹,\s]", "", regex=True).str.replace("Rs.", "", regex=False)
     df["Net O/s"] = pd.to_numeric(cleaned, errors="coerce")
     bad = df[df["Net O/s"].isna()]["Customer Name"].tolist()
     if bad:
-        raise ValueError(f"Invalid Net O/s amount for: {', '.join(bad[:10])}")
+        raise JobUserError(f"Invalid Net O/s amount for: {', '.join(bad[:10])}")
     for column in OPTIONAL_COLUMNS:
         df[column] = df[column].fillna("").astype(str).str.strip()
     _ensure_unique_names(df, "Input file")

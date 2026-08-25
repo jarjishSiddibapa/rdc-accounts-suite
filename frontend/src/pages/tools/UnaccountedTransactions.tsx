@@ -325,6 +325,7 @@ function UnaccountedTab({ knownLocations }: { knownLocations: string[] }) {
             setError(e)
             setSubmitting(false)
           }}
+          onCancel={() => post(`${BASE}/jobs/${jobId}/cancel`)}
         />
       )}
       {result && (
@@ -472,6 +473,7 @@ function MrnTab({ knownLocations }: { knownLocations: string[] }) {
             setError(e)
             setSubmitting(false)
           }}
+          onCancel={() => post(`${BASE}/jobs/${jobId}/cancel`)}
         />
       )}
       {result && (
@@ -627,6 +629,7 @@ function PoTab({ knownLocations }: { knownLocations: string[] }) {
             setError(e)
             setSubmitting(false)
           }}
+          onCancel={() => post(`${BASE}/jobs/${jobId}/cancel`)}
         />
       )}
       {result && (
@@ -1494,6 +1497,7 @@ function MailTab({
             setError(e)
             setSubmitting(false)
           }}
+          onCancel={() => post(`${BASE}/jobs/${jobId}/cancel`)}
         />
       )}
 

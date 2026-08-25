@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Archive, Building2, KeyRound, Plus, Power, RotateCcw, Search, ShieldCheck, UserRoundPen } from 'lucide-react'
+import { Archive, Building2, KeyRound, Plus, Power, RotateCcw, ShieldCheck, UserRoundPen } from 'lucide-react'
 import { AppShell } from '@/components/AppShell'
 import { Button } from '@/components/Button'
 import { Modal } from '@/components/Modal'
 import { Pagination } from '@/components/Pagination'
 import { PasswordInput } from '@/components/PasswordInput'
 import { PasswordStrengthMeter } from '@/components/PasswordStrengthMeter'
+import { SearchBox } from '@/components/SearchBox'
 import { usePagination } from '@/hooks/usePagination'
 import { formatIndianDate, formatIndianNumber } from '@/lib/regional'
 import { generateStrongPassword, scorePasswordStrength } from '@/lib/passwordStrength'
@@ -667,17 +668,12 @@ export default function Users() {
           </div>
 
           <div className="grid gap-3 sm:grid-cols-[1fr_11rem]">
-            <label className="relative">
-              <Search className="pointer-events-none absolute top-1/2 left-3.5 h-4 w-4 -translate-y-1/2 text-ink-faint" />
-              <input
-                type="search"
-                value={permsSearch}
-                onChange={(event) => setPermsSearch(event.target.value)}
-                placeholder="Search applications…"
-                aria-label="Search applications"
-                className="field-control pl-10"
-              />
-            </label>
+            <SearchBox
+              value={permsSearch}
+              onChange={setPermsSearch}
+              placeholder="Search applications…"
+              aria-label="Search applications"
+            />
             <select
               value={permsCompany}
               onChange={(event) => setPermsCompany(event.target.value as CompanyFilter)}
@@ -803,17 +799,12 @@ export default function Users() {
           </div>
 
           <div className="grid gap-3 sm:grid-cols-[1fr_11rem]">
-            <label className="relative">
-              <Search className="pointer-events-none absolute top-1/2 left-3.5 h-4 w-4 -translate-y-1/2 text-ink-faint" />
-              <input
-                type="search"
-                value={catalogSearch}
-                onChange={(event) => setCatalogSearch(event.target.value)}
-                placeholder="Search by name or key…"
-                aria-label="Search application catalogue"
-                className="field-control pl-10"
-              />
-            </label>
+            <SearchBox
+              value={catalogSearch}
+              onChange={setCatalogSearch}
+              placeholder="Search by name or key…"
+              aria-label="Search application catalogue"
+            />
             <select
               value={catalogCompany}
               onChange={(event) => setCatalogCompany(event.target.value as CompanyFilter)}
