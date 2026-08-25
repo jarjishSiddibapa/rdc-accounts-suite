@@ -2,14 +2,14 @@ import { useEffect, useRef, useState } from 'react'
 import { Ban, CheckCircle2, XCircle, Loader2 } from 'lucide-react'
 import { cn } from '@/utils/cn'
 import { ApiError } from '@/lib/api'
+import { registerTabOwnedJob, settleTabOwnedJob } from '@/lib/job-lifecycle'
 import { Button } from '@/components/Button'
 
 // How long to keep retrying a poll that's failing for a transient reason
 // (a dropped connection, or the server being briefly slow to respond) before
-// finally reporting the job as failed. The job itself keeps running
-// server-side regardless of whether this one browser tab can currently
-// reach it, so a momentary network hiccup must never be reported as "job
-// failed" for work that's still very much in progress.
+// finally reporting the job as failed. A momentary network hiccup must not
+// manufacture a failure while the server is still inside the tab lease's
+// fallback window.
 const TRANSIENT_RETRY_BUDGET_MS = 2 * 60_000
 
 export type JobStatus = 'queued' | 'running' | 'done' | 'error' | 'cancelled'
@@ -32,6 +32,8 @@ interface ProgressPanelProps<TResult = unknown> {
   /** Called when the user clicks Cancel. Omit to not show a Cancel button
    * at all (e.g. a send/dispatch job that shouldn't be interrupted mid-way). */
   onCancel?: () => void | Promise<void>
+  /** Irreversible dispatch jobs continue server-side if their tab closes. */
+  cancelOnTabClose?: boolean
   className?: string
 }
 
@@ -49,6 +51,7 @@ export function ProgressPanel<TResult = unknown>({
   onError,
   onStatusChange,
   onCancel,
+  cancelOnTabClose = true,
   className,
 }: ProgressPanelProps<TResult>) {
   const [job, setJob] = useState<JobState<TResult> | null>(null)
@@ -64,6 +67,7 @@ export function ProgressPanel<TResult = unknown>({
     let cancelled = false
     let timer: ReturnType<typeof setTimeout> | undefined
     let firstTransientFailureAt: number | null = null
+    const unregisterJob = cancelOnTabClose ? registerTabOwnedJob(jobId) : undefined
 
     const tick = async () => {
       try {
@@ -75,23 +79,29 @@ export function ProgressPanel<TResult = unknown>({
 
         if (next.status === 'done' && !settledRef.current) {
           settledRef.current = true
+          settleTabOwnedJob(jobId)
           onDone?.(next.result)
           return
         }
         if (next.status === 'error' && !settledRef.current) {
           settledRef.current = true
+          settleTabOwnedJob(jobId)
           onError?.(next.error ?? 'Job failed')
           return
         }
-        if (next.status === 'cancelled') return
+        if (next.status === 'cancelled') {
+          settleTabOwnedJob(jobId)
+          return
+        }
         timer = setTimeout(tick, intervalMs)
       } catch (err) {
         if (cancelled) return
         // A dropped connection or a slow-to-respond server (status 0 or a
         // client-side abort/timeout) says nothing about whether the job
-        // itself is still running - keep polling instead of reporting a
-        // false failure. A real application error (e.g. 404 - the job
-        // genuinely isn't there) fails immediately since retrying can't fix it.
+        // itself is still running while this tab remains leased. Keep polling
+        // instead of reporting a false failure. A real application error (for
+        // example, a 404 because the job does not exist) fails immediately
+        // because retrying cannot fix it.
         const isTransient = err instanceof ApiError && (err.status === 0 || err.status === 408)
         if (isTransient) {
           const now = Date.now()
@@ -113,9 +123,10 @@ export function ProgressPanel<TResult = unknown>({
     return () => {
       cancelled = true
       if (timer) clearTimeout(timer)
+      unregisterJob?.()
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [jobId, intervalMs])
+  }, [jobId, intervalMs, cancelOnTabClose])
 
   if (!jobId || !job) return null
 

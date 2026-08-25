@@ -173,6 +173,11 @@ export function prepareTabSession(): Promise<boolean> {
   return preparePromise
 }
 
+/** Stable identity for this physical browser tab (never shared via localStorage). */
+export function getCurrentTabId(): string {
+  return tabId || safeGet(window.sessionStorage, TAB_ID_KEY) || ''
+}
+
 export function announceLogout() {
   channel?.postMessage({ type: 'logout' } satisfies ChannelMessage)
   safeSet(window.localStorage, LOGOUT_SYNC_KEY, String(Date.now()))

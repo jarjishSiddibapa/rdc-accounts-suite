@@ -13,6 +13,7 @@ import { Button } from '@/components/Button'
 import { FileDropzone } from '@/components/FileDropzone'
 import { ProgressPanel, type JobState, type JobStatus } from '@/components/ProgressPanel'
 import { MappingTable, type MappingColumn, type MappingRow } from '@/components/MappingTable'
+import { CreatableCombobox } from '@/components/CreatableCombobox'
 import { DatePicker } from '@/components/TemporalPicker'
 import { Pagination } from '@/components/Pagination'
 import { usePagination } from '@/hooks/usePagination'
@@ -146,13 +147,13 @@ const WARNING_FIX_CONFIGS: Record<string, WarningFixConfig> = {
 function WarningCategoryFix({
   category,
   items,
-  knownLocations,
+  suggestions,
   fixed,
   onFixed,
 }: {
   category: string
   items: string[]
-  knownLocations: string[]
+  suggestions: Record<string, string[]>
   fixed: Record<string, boolean>
   onFixed: (key: string) => void
 }) {
@@ -161,7 +162,6 @@ function WarningCategoryFix({
   const [fixing, setFixing] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const pagination = usePagination(items, 10)
-  const datalistId = `unapplied-receipts-fix-${config?.mappingKey ?? 'unknown'}`
 
   async function handleFix(item: string) {
     if (!config) return
@@ -207,11 +207,6 @@ function WarningCategoryFix({
         {category} ({formatIndianNumber(items.length)})
       </span>
       {error && <p className="text-sm text-red-500">{error}</p>}
-      <datalist id={datalistId}>
-        {knownLocations.map((l) => (
-          <option key={l} value={l} />
-        ))}
-      </datalist>
       <div className="flex flex-col gap-2">
         {pagination.pagedItems.map((item) => {
           const key = `${category}::${item}`
@@ -224,13 +219,15 @@ function WarningCategoryFix({
               <span className="min-w-0 flex-1 truncate text-sm font-medium text-ink sm:min-w-[10rem]">
                 {item}
               </span>
-              <input
-                list={config.mappingKey === 'supplier-sites' ? datalistId : undefined}
+              <CreatableCombobox
                 placeholder={config.fieldLabel}
                 value={forms[item] ?? ''}
+                options={suggestions[config.mappingKey] ?? []}
                 disabled={isFixed}
-                onChange={(e) => setForms((prev) => ({ ...prev, [item]: e.target.value }))}
-                className="field-control w-full py-1.5 text-sm disabled:opacity-50 sm:min-h-9 sm:w-48"
+                onChange={(value) => setForms((prev) => ({ ...prev, [item]: value }))}
+                ariaLabel={`${config.fieldLabel} for ${item}`}
+                suggestionLabel={`Existing ${config.fieldLabel.toLocaleLowerCase()} values`}
+                className="w-full sm:w-64"
               />
               {isFixed ? (
                 <span className="inline-flex items-center gap-1 text-sm text-emerald-500">
@@ -265,12 +262,12 @@ function WarningCategoryFix({
 
 function ValidationWarnings({
   warnings,
-  knownLocations,
+  suggestions,
   onRegenerate,
   regenerating,
 }: {
   warnings: ValidationWarning[]
-  knownLocations: string[]
+  suggestions: Record<string, string[]>
   onRegenerate: () => void
   regenerating: boolean
 }) {
@@ -296,7 +293,7 @@ function ValidationWarnings({
           key={warning.category}
           category={warning.category}
           items={warning.items}
-          knownLocations={knownLocations}
+          suggestions={suggestions}
           fixed={fixed}
           onFixed={(key) => setFixed((prev) => ({ ...prev, [key]: true }))}
         />
@@ -434,13 +431,27 @@ export default function UnappliedReceipts() {
   const [activityLog, setActivityLog] = useState<[string, string][]>([])
 
   const [activeMappingTab, setActiveMappingTab] = useState(0)
-  const [knownLocations, setKnownLocations] = useState<string[]>([])
+  const [mappingSuggestions, setMappingSuggestions] = useState<Record<string, string[]>>({})
 
   useEffect(() => {
-    void get<MappingRow[]>(`${BASE}/mappings/accounts-incharge`)
-      .then((rows) => setKnownLocations([...new Set(rows.map((r) => r.location).filter(Boolean))]))
+    void Promise.all([
+      get<MappingRow[]>(`${BASE}/mappings/accounts-incharge`),
+      get<MappingRow[]>(`${BASE}/mappings/supplier-sites`),
+    ])
+      .then(([inchargeRows, supplierRows]) => {
+        setMappingSuggestions({
+          'accounts-incharge': [
+            ...new Set(inchargeRows.map((row) => row.accounts_incharge).filter(Boolean)),
+          ],
+          'supplier-sites': [
+            ...new Set(
+              [...inchargeRows, ...supplierRows].map((row) => row.location).filter(Boolean),
+            ),
+          ],
+        })
+      })
       .catch(() => {
-        // Non-critical: the location input just falls back to free text.
+        // Non-critical: the mapping inputs still accept new free-text values.
       })
   }, [])
 
@@ -617,7 +628,7 @@ export default function UnappliedReceipts() {
 
               <ValidationWarnings
                 warnings={validationWarnings}
-                knownLocations={knownLocations}
+                suggestions={mappingSuggestions}
                 regenerating={submitting}
                 onRegenerate={() => void handleProcess()}
               />

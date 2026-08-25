@@ -6,6 +6,7 @@ import { Button } from '@/components/Button'
 import { FileDropzone } from '@/components/FileDropzone'
 import { ProgressPanel, type JobState, type JobStatus } from '@/components/ProgressPanel'
 import { MappingTable, type MappingColumn, type MappingRow } from '@/components/MappingTable'
+import { CreatableCombobox } from '@/components/CreatableCombobox'
 import { ApiError, apiUrl, del, get, post, postForm, put } from '@/lib/api'
 import { formatIndianNumber } from '@/lib/regional'
 import { cn } from '@/utils/cn'
@@ -86,11 +87,6 @@ function UnresolvedStateCodesFix({
         each, then combine again.
       </p>
       {error && <p className="text-sm text-red-500">{error}</p>}
-      <datalist id="gstr2b-known-state-names">
-        {knownStateNames.map((name) => (
-          <option key={name} value={name} />
-        ))}
-      </datalist>
       <div className="flex flex-col gap-2">
         {codes.map((code) => (
           <div
@@ -100,13 +96,15 @@ function UnresolvedStateCodesFix({
             <span className="min-w-0 flex-1 truncate text-sm font-medium text-ink sm:min-w-[6rem]">
               Code {code}
             </span>
-            <input
-              list="gstr2b-known-state-names"
+            <CreatableCombobox
               placeholder="State Name"
               value={forms[code] ?? ''}
+              options={knownStateNames}
               disabled={fixed[code]}
-              onChange={(e) => setForms((prev) => ({ ...prev, [code]: e.target.value }))}
-              className="field-control w-full py-1.5 text-sm disabled:opacity-50 sm:min-h-9 sm:w-56"
+              onChange={(value) => setForms((prev) => ({ ...prev, [code]: value }))}
+              ariaLabel={`State name for code ${code}`}
+              suggestionLabel="Existing state names"
+              className="w-full sm:w-64"
             />
             {fixed[code] ? (
               <span className="inline-flex items-center gap-1 text-sm text-emerald-500">

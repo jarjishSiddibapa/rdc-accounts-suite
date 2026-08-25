@@ -14,6 +14,7 @@ import { Button } from '@/components/Button'
 import { FileDropzone } from '@/components/FileDropzone'
 import { ProgressPanel, type JobState, type JobStatus } from '@/components/ProgressPanel'
 import { MappingTable, type MappingColumn, type MappingRow } from '@/components/MappingTable'
+import { CreatableCombobox } from '@/components/CreatableCombobox'
 import { Pagination } from '@/components/Pagination'
 import { usePagination } from '@/hooks/usePagination'
 import { ApiError, apiUrl, del, get, post, postForm, put } from '@/lib/api'
@@ -70,11 +71,13 @@ async function pollProcessJob(jobId: string): Promise<JobState<ProcessResult>> {
 
 function MissingCodesFix({
   codes,
+  knownLocationNames,
   knownRegions,
   onRegenerate,
   regenerating,
 }: {
   codes: string[]
+  knownLocationNames: string[]
   knownRegions: string[]
   onRegenerate: () => void
   regenerating: boolean
@@ -118,11 +121,6 @@ function MissingCodesFix({
         Incharge table.
       </p>
       {error && <p className="text-sm text-red-500">{error}</p>}
-      <datalist id="trial-balance-known-regions">
-        {knownRegions.map((r) => (
-          <option key={r} value={r} />
-        ))}
-      </datalist>
       <div className="flex flex-col gap-2">
         {pagination.pagedItems.map((code) => {
           const form = forms[code] ?? { location_name: '', region: '' }
@@ -135,30 +133,35 @@ function MissingCodesFix({
               <span className="min-w-0 flex-1 truncate text-sm font-medium text-ink sm:min-w-[8rem]">
                 {code}
               </span>
-              <input
+              <CreatableCombobox
                 placeholder="Location Name"
                 value={form.location_name}
+                options={knownLocationNames}
                 disabled={isFixed}
-                onChange={(e) =>
+                onChange={(value) =>
                   setForms((prev) => ({
                     ...prev,
-                    [code]: { ...form, location_name: e.target.value },
+                    [code]: { ...form, location_name: value },
                   }))
                 }
-                className="field-control w-full py-1.5 text-sm disabled:opacity-50 sm:min-h-9 sm:w-48"
+                ariaLabel={`Location name for code ${code}`}
+                suggestionLabel="Existing location names"
+                className="w-full sm:w-56"
               />
-              <input
-                list="trial-balance-known-regions"
+              <CreatableCombobox
                 placeholder="Region"
                 value={form.region}
+                options={knownRegions}
                 disabled={isFixed}
-                onChange={(e) =>
+                onChange={(value) =>
                   setForms((prev) => ({
                     ...prev,
-                    [code]: { ...form, region: e.target.value },
+                    [code]: { ...form, region: value },
                   }))
                 }
-                className="field-control w-full py-1.5 text-sm disabled:opacity-50 sm:min-h-9 sm:w-36"
+                ariaLabel={`Region for location code ${code}`}
+                suggestionLabel="Existing regions"
+                className="w-full sm:w-48"
               />
               {isFixed ? (
                 <span className="inline-flex items-center gap-1 text-sm text-emerald-500">
@@ -251,11 +254,6 @@ function MissingAccountHoFix({
         blank in the output. Enter a name for each, then regenerate the report.
       </p>
       {error && <p className="text-sm text-red-500">{error}</p>}
-      <datalist id="trial-balance-known-ho-persons">
-        {knownHoPersons.map((p) => (
-          <option key={p} value={p} />
-        ))}
-      </datalist>
       <div className="flex flex-col gap-2">
         {pagination.pagedItems.map((code) => (
           <div
@@ -265,13 +263,15 @@ function MissingAccountHoFix({
             <span className="min-w-0 flex-1 truncate text-sm font-medium text-ink sm:min-w-[8rem]">
               {code}
             </span>
-            <input
-              list="trial-balance-known-ho-persons"
+            <CreatableCombobox
               placeholder="Head Office Assigned Person"
               value={forms[code] ?? ''}
+              options={knownHoPersons}
               disabled={fixed[code]}
-              onChange={(e) => setForms((prev) => ({ ...prev, [code]: e.target.value }))}
-              className="field-control w-full py-1.5 text-sm disabled:opacity-50 sm:min-h-9 sm:w-56"
+              onChange={(value) => setForms((prev) => ({ ...prev, [code]: value }))}
+              ariaLabel={`Head Office assigned person for account ${code}`}
+              suggestionLabel="Existing assigned people"
+              className="w-full sm:w-72"
             />
             {fixed[code] ? (
               <span className="inline-flex items-center gap-1 text-sm text-emerald-500">
@@ -465,6 +465,7 @@ export default function TrialBalance() {
   const [processError, setProcessError] = useState<string | null>(null)
   const [activityLog, setActivityLog] = useState<string[]>([])
 
+  const [knownLocationNames, setKnownLocationNames] = useState<string[]>([])
   const [knownRegions, setKnownRegions] = useState<string[]>([])
   const [knownHoPersons, setKnownHoPersons] = useState<string[]>([])
 
@@ -474,10 +475,29 @@ export default function TrialBalance() {
   const selectedCount = Object.values(selected).filter(Boolean).length
 
   useEffect(() => {
-    void get<MappingRow[]>(`${BASE}/mappings/region-incharge`)
-      .then((rows) => setKnownRegions(rows.map((r) => r.region).filter(Boolean)))
+    void Promise.all([
+      get<MappingRow[]>(`${BASE}/mappings/location-codes`),
+      get<MappingRow[]>(`${BASE}/mappings/location-region`),
+      get<MappingRow[]>(`${BASE}/mappings/region-incharge`),
+    ])
+      .then(([locationCodeRows, locationRegionRows, regionInchargeRows]) => {
+        setKnownLocationNames([
+          ...new Set(
+            [...locationCodeRows, ...locationRegionRows]
+              .map((row) => row.location_name)
+              .filter(Boolean),
+          ),
+        ])
+        setKnownRegions([
+          ...new Set(
+            [...locationRegionRows, ...regionInchargeRows]
+              .map((row) => row.region)
+              .filter(Boolean),
+          ),
+        ])
+      })
       .catch(() => {
-        // Non-critical: the region input just falls back to free text.
+        // Non-critical: the mapping inputs still accept new free-text values.
       })
     void get<MappingRow[]>(`${BASE}/mappings/account-ho`)
       .then((rows) => setKnownHoPersons([...new Set(rows.map((r) => r.ho_person).filter(Boolean))]))
@@ -733,6 +753,7 @@ export default function TrialBalance() {
               {missingCodes.length > 0 && (
                 <MissingCodesFix
                   codes={missingCodes}
+                  knownLocationNames={knownLocationNames}
                   knownRegions={knownRegions}
                   regenerating={submitting}
                   onRegenerate={() => void handleProcess()}

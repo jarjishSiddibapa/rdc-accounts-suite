@@ -33,6 +33,10 @@ and deployment workflow.
   multiple API and job-worker processes.
 - A job/status/action lookup must be owner-scoped. One user or browser tab must
   never see, cancel, download, or send another user's result.
+- Browser-submitted processing jobs are also tab-owned through
+  `X-Client-Tab-ID` and a MySQL heartbeat lease. Closing or navigating away
+  from that tab abandons its cancellable work; irreversible email dispatch
+  jobs are deliberately detached and must continue safely server-side.
 - Oracle work must honor the shared `oracle-gst` resource slots and must not
   multiply Oracle connection pools merely because API/worker counts increase.
 - The DMS Downloader is retired. Do not re-add its routes or navigation unless
@@ -41,6 +45,10 @@ and deployment workflow.
   labels, responsive/collapsible navigation, accessible controls, temporal
   pickers for date/month/year input, and list/table presentation for mappings
   such as excluded POs. Avoid dense pill clouds and blanket uppercase styling.
+- Every mapping editor and missing-mapping remediation field must expose
+  searchable existing-value suggestions while still allowing a new value.
+  High-growth lists (especially users, mappings, exclusions, and audit logs)
+  require search plus pagination; user and audit searches run server-side.
 
 ## Required verification
 

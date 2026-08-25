@@ -2,6 +2,7 @@ import time
 import unittest
 import uuid
 from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime, timedelta
 from threading import Event
 from http.cookies import SimpleCookie
 from types import SimpleNamespace
@@ -11,16 +12,21 @@ from fastapi import HTTPException
 from fastapi import Request
 from fastapi.responses import Response
 
-from app import auth, jobs as jobs_module
+from app import auth, database, jobs as jobs_module
 from app.jobs import (
+    abandon_job,
     cancel_job,
     claim_job_action,
     finish_job_action,
     get_job,
     submit_inline_job,
+    JobCancelled,
 )
+from app.database import SessionLocal
+from app.models import BackgroundJob, BackgroundResourceSlot
 from app.oracle_runtime import initialize_oracle_client
 from app.routers import unaccounted_txn
+from app.services.gst_invoice_adder import processor as gst_processor
 from app.rate_limit import SlidingWindowLimiter
 from app.validation import normalize_email, normalize_optional_name, validate_password
 
@@ -145,6 +151,65 @@ class OracleRuntimeTests(unittest.TestCase):
 
         self.assertEqual(driver.calls, 1)
 
+    def test_gst_oracle_query_is_interrupted_when_client_cancels(self):
+        query_started = Event()
+        query_cancelled = Event()
+        cancel_event = Event()
+
+        class FakeCursor:
+            prefetchrows = 0
+
+            def execute(self, *_args, **_kwargs):
+                query_started.set()
+                query_cancelled.wait(timeout=3)
+                raise RuntimeError("query interrupted")
+
+            def fetchone(self):
+                return None
+
+            def close(self):
+                pass
+
+        class FakeConnection:
+            def cursor(self):
+                return FakeCursor()
+
+            def cancel(self):
+                query_cancelled.set()
+
+        connection = FakeConnection()
+
+        class Acquisition:
+            def __enter__(self):
+                return connection
+
+            def __exit__(self, *_args):
+                return False
+
+        class FakePool:
+            def acquire(self):
+                return Acquisition()
+
+        class FakeLog:
+            def put(self, _item):
+                pass
+
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            future = executor.submit(
+                gst_processor._fetch_all_parallel,
+                [("INV-1", "2026-08-25")],
+                FakePool(),
+                FakeLog(),
+                None,
+                cancel_event,
+            )
+            self.assertTrue(query_started.wait(timeout=2))
+            cancel_event.set()
+            with self.assertRaises(JobCancelled):
+                future.result(timeout=3)
+
+        self.assertTrue(query_cancelled.is_set())
+
 
 class JobIsolationTests(unittest.TestCase):
     @staticmethod
@@ -224,6 +289,195 @@ class JobIsolationTests(unittest.TestCase):
         self.assertIsNotNone(owned_job)
         self.assertEqual(owned_job["status"], "cancelled")
         self.assertIsNone(owned_job["result"])
+
+    def test_tab_owned_job_is_renewed_and_abandoned_only_by_its_own_tab(self):
+        database.init_db()
+        job_id = str(uuid.uuid4())
+        owner_id = 304
+        now = datetime.now(UTC).replace(tzinfo=None, microsecond=0)
+        old_heartbeat = now - timedelta(minutes=10)
+        db = SessionLocal()
+        try:
+            db.add(
+                BackgroundJob(
+                    id=job_id,
+                    owner_id=owner_id,
+                    task_name="test:tab-owned",
+                    args_json="[]",
+                    kwargs_json="{}",
+                    client_tab_id="tab-a",
+                    client_heartbeat_at=old_heartbeat,
+                    cancel_on_disconnect=True,
+                    status="queued",
+                    progress=0,
+                    phase="Queued",
+                    cancel_requested=False,
+                    priority=999,
+                    attempts=0,
+                    not_before=now + timedelta(hours=1),
+                    created_at=now,
+                    updated_at=now,
+                    is_deleted=False,
+                )
+            )
+            db.commit()
+
+            self.assertIsNotNone(
+                get_job(job_id, owner_id=owner_id, client_tab_id="tab-b")
+            )
+            db.rollback()
+            db.refresh(db.get(BackgroundJob, job_id))
+            self.assertEqual(db.get(BackgroundJob, job_id).client_heartbeat_at, old_heartbeat)
+
+            self.assertIsNotNone(
+                get_job(job_id, owner_id=owner_id, client_tab_id="tab-a")
+            )
+            db.rollback()
+            db.expire_all()
+            self.assertGreater(
+                db.get(BackgroundJob, job_id).client_heartbeat_at,
+                old_heartbeat,
+            )
+
+            self.assertIsNone(
+                abandon_job(job_id, owner_id=owner_id, client_tab_id="tab-b")
+            )
+            cancelled = abandon_job(
+                job_id, owner_id=owner_id, client_tab_id="tab-a"
+            )
+            self.assertEqual(cancelled["status"], "cancelled")
+            self.assertIn("browser tab closed", cancelled["phase"])
+        finally:
+            db.rollback()
+            row = db.get(BackgroundJob, job_id)
+            if row is not None:
+                row.is_deleted = True
+                row.updated_at = datetime.now(UTC).replace(tzinfo=None)
+                db.commit()
+            db.close()
+
+    def test_abandoned_running_job_releases_its_resource_slot(self):
+        database.init_db()
+        job_id = str(uuid.uuid4())
+        resource_key = f"test-tab-resource-{uuid.uuid4().hex}"
+        worker_id = "test-tab-worker"
+        now = datetime.now(UTC).replace(tzinfo=None, microsecond=0)
+        db = SessionLocal()
+        try:
+            db.add(
+                BackgroundJob(
+                    id=job_id,
+                    owner_id=305,
+                    task_name="test:tab-resource",
+                    args_json="[]",
+                    kwargs_json="{}",
+                    resource_key=resource_key,
+                    client_tab_id="tab-resource",
+                    client_heartbeat_at=now,
+                    cancel_on_disconnect=True,
+                    status="running",
+                    progress=0,
+                    phase="Processing",
+                    cancel_requested=False,
+                    priority=999,
+                    attempts=1,
+                    lease_owner=worker_id,
+                    lease_expires_at=now + timedelta(minutes=2),
+                    heartbeat_at=now,
+                    created_at=now,
+                    started_at=now,
+                    updated_at=now,
+                    is_deleted=False,
+                )
+            )
+            slot = BackgroundResourceSlot(
+                resource_key=resource_key,
+                slot_number=1,
+                job_id=job_id,
+                lease_owner=worker_id,
+                lease_expires_at=now + timedelta(minutes=2),
+                updated_at=now,
+                is_deleted=False,
+            )
+            db.add(slot)
+            db.commit()
+
+            abandoned = abandon_job(
+                job_id, owner_id=305, client_tab_id="tab-resource"
+            )
+            self.assertIn("browser tab closed", abandoned["phase"])
+            self.assertFalse(jobs_module._job_should_continue(job_id, worker_id))
+            jobs_module._finish_job(
+                job_id,
+                worker_id,
+                status="cancelled",
+                phase="Cancelled",
+            )
+
+            db.rollback()
+            db.expire_all()
+            self.assertEqual(db.get(BackgroundJob, job_id).status, "cancelled")
+            self.assertIsNone(db.get(BackgroundResourceSlot, slot.id).job_id)
+        finally:
+            db.rollback()
+            job = db.get(BackgroundJob, job_id)
+            if job is not None:
+                job.is_deleted = True
+                job.updated_at = datetime.now(UTC).replace(tzinfo=None)
+            slot_row = (
+                db.query(BackgroundResourceSlot)
+                .filter(BackgroundResourceSlot.resource_key == resource_key)
+                .first()
+            )
+            if slot_row is not None:
+                slot_row.is_deleted = True
+                slot_row.updated_at = datetime.now(UTC).replace(tzinfo=None)
+            db.commit()
+            db.close()
+
+    def test_disconnected_queued_job_expires_without_a_close_request(self):
+        database.init_db()
+        job_id = str(uuid.uuid4())
+        now = datetime.now(UTC).replace(tzinfo=None, microsecond=0)
+        db = SessionLocal()
+        try:
+            db.add(
+                BackgroundJob(
+                    id=job_id,
+                    owner_id=306,
+                    task_name="test:expired-tab",
+                    args_json="[]",
+                    kwargs_json="{}",
+                    client_tab_id="expired-tab",
+                    client_heartbeat_at=now - timedelta(minutes=10),
+                    cancel_on_disconnect=True,
+                    status="queued",
+                    progress=0,
+                    phase="Queued",
+                    cancel_requested=False,
+                    priority=999,
+                    attempts=0,
+                    created_at=now,
+                    updated_at=now,
+                    is_deleted=False,
+                )
+            )
+            db.commit()
+            jobs_module._cancel_expired_queued_jobs(db, now)
+            db.commit()
+            db.expire_all()
+            job = db.get(BackgroundJob, job_id)
+            self.assertEqual(job.status, "cancelled")
+            self.assertTrue(job.cancel_requested)
+            self.assertIn("disconnected", job.phase)
+        finally:
+            db.rollback()
+            job = db.get(BackgroundJob, job_id)
+            if job is not None:
+                job.is_deleted = True
+                job.updated_at = datetime.now(UTC).replace(tzinfo=None)
+                db.commit()
+            db.close()
 
     def test_one_shot_action_can_be_claimed_by_only_one_tab(self):
         job_id = self._completed_job(owner_id=505)

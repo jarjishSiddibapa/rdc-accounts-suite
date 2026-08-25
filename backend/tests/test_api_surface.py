@@ -1,7 +1,7 @@
 import unittest
 
 from app.main import app
-from app.routers import auth_routes, erp_converter, unaccounted_txn
+from app.routers import auth_routes, erp_converter, job_control, unaccounted_txn
 
 
 class RemovedApiSurfaceTests(unittest.TestCase):
@@ -68,6 +68,14 @@ class RemovedApiSurfaceTests(unittest.TestCase):
             if getattr(route, "path", None) is not None
         }
         self.assertIn("/api/auth/activity", route_paths)
+
+    def test_tab_owned_job_abandon_route_is_available(self):
+        route_paths = {
+            route.path
+            for route in job_control.router.routes
+            if getattr(route, "path", None) is not None
+        }
+        self.assertIn("/api/jobs/{job_id}/abandon", route_paths)
 
     def test_retired_dms_routes_are_absent(self):
         route_paths = {

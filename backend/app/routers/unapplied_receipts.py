@@ -143,7 +143,8 @@ def _cpu_phase_finish_report(df, ageing_path, incharge_map, supplier_site_map,
 # ── /process job pipeline ───────────────────────────────────────────────────
 
 def _run_process_job(input_path: str, ageing_path: str, output_path: str,
-                      as_on_date_str: Optional[str], progress_cb=None) -> dict:
+                      as_on_date_str: Optional[str], progress_cb=None,
+                      cancel_event=None) -> dict:
     """Runs in the background job pool (a plain thread, not tied to any
     request) — opens its own short-lived DB session via SessionLocal()
     rather than reusing a request-scoped one, since by the time this runs
@@ -166,6 +167,7 @@ def _run_process_job(input_path: str, ageing_path: str, output_path: str,
         df, total_input_rows, unidentified_removed_count, df_unidentified, erp_ok = processor.process_report(
             input_path, log_q, as_on_date,
             oracle_cfg=_ORACLE_CFG, supplier_site_map=supplier_site_map,
+            cancel_event=cancel_event,
         )
 
         if progress_cb:

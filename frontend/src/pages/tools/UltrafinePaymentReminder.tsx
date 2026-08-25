@@ -18,6 +18,7 @@ import { Button } from '@/components/Button'
 import { FileDropzone } from '@/components/FileDropzone'
 import { ProgressPanel, type JobState, type JobStatus } from '@/components/ProgressPanel'
 import { MappingTable, type MappingColumn, type MappingRow } from '@/components/MappingTable'
+import { CreatableCombobox } from '@/components/CreatableCombobox'
 import { Pagination } from '@/components/Pagination'
 import { DatePicker } from '@/components/TemporalPicker'
 import { usePagination } from '@/hooks/usePagination'
@@ -120,10 +121,14 @@ function currency(value: number): string {
 
 function MissingRecipientsPanel({
   rows,
+  toSuggestions,
+  ccSuggestions,
   onRegenerate,
   regenerating,
 }: {
   rows: PlanRow[]
+  toSuggestions: string[]
+  ccSuggestions: string[]
   onRegenerate: () => void | Promise<void>
   regenerating: boolean
 }) {
@@ -179,29 +184,35 @@ function MissingRecipientsPanel({
             <span className="min-w-0 flex-1 truncate text-sm font-medium text-ink sm:min-w-[10rem]">
               {row.group_name}
             </span>
-            <input
+            <CreatableCombobox
               placeholder="To email(s)"
               value={forms[row.group_name]?.to ?? ''}
+              options={toSuggestions}
               disabled={fixed[row.group_name]}
-              onChange={(e) =>
+              onChange={(value) =>
                 setForms((prev) => ({
                   ...prev,
-                  [row.group_name]: { ...prev[row.group_name], to: e.target.value },
+                  [row.group_name]: { ...prev[row.group_name], to: value },
                 }))
               }
-              className="field-control w-full py-1.5 text-sm disabled:opacity-50 sm:min-h-9 sm:w-48"
+              ariaLabel={`To email recipients for ${row.group_name}`}
+              suggestionLabel="Existing To recipient sets"
+              className="w-full sm:w-64"
             />
-            <input
+            <CreatableCombobox
               placeholder="Cc email(s) (optional)"
               value={forms[row.group_name]?.cc ?? ''}
+              options={ccSuggestions}
               disabled={fixed[row.group_name]}
-              onChange={(e) =>
+              onChange={(value) =>
                 setForms((prev) => ({
                   ...prev,
-                  [row.group_name]: { ...prev[row.group_name], cc: e.target.value },
+                  [row.group_name]: { ...prev[row.group_name], cc: value },
                 }))
               }
-              className="field-control w-full py-1.5 text-sm disabled:opacity-50 sm:min-h-9 sm:w-48"
+              ariaLabel={`Cc email recipients for ${row.group_name}`}
+              suggestionLabel="Existing Cc recipient sets"
+              className="w-full sm:w-64"
             />
             {fixed[row.group_name] ? (
               <span className="inline-flex items-center gap-1 text-sm text-emerald-500">
@@ -473,6 +484,20 @@ export default function UltrafinePaymentReminder() {
   const [sendJobId, setSendJobId] = useState<string | null>(null)
   const [sendResult, setSendResult] = useState<SendResult | null>(null)
   const [sendError, setSendError] = useState<string | null>(null)
+  const [recipientSuggestions, setRecipientSuggestions] = useState({ to: [] as string[], cc: [] as string[] })
+
+  useEffect(() => {
+    void get<MappingRow[]>(`${BASE}/mappings`)
+      .then((rows) => {
+        setRecipientSuggestions({
+          to: [...new Set(rows.map((row) => row.to_emails).filter(Boolean))],
+          cc: [...new Set(rows.map((row) => row.cc_emails).filter(Boolean))],
+        })
+      })
+      .catch(() => {
+        // Non-critical: recipient inputs still accept new free-text values.
+      })
+  }, [])
 
   async function handlePreview() {
     if (!dataFile) return
@@ -682,6 +707,8 @@ export default function UltrafinePaymentReminder() {
 
               <MissingRecipientsPanel
                 rows={previewResult.customers}
+                toSuggestions={recipientSuggestions.to}
+                ccSuggestions={recipientSuggestions.cc}
                 onRegenerate={handlePreview}
                 regenerating={submitting}
               />
@@ -714,6 +741,7 @@ export default function UltrafinePaymentReminder() {
                 <ProgressPanel
                   jobId={sendJobId}
                   poller={pollSendJob}
+                  cancelOnTabClose={false}
                   onDone={(r) => {
                     setSendResult(r ?? null)
                     setConfirmSending(false)

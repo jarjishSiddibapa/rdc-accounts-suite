@@ -5,6 +5,7 @@ from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator
+from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -233,12 +234,54 @@ def list_application_credits(
 
 
 @router.get("/users", dependencies=[Depends(auth.require_admin)])
-def list_users(include_archived: bool = False, db: Session = Depends(get_db)):
+def list_users(
+    include_archived: bool = False,
+    search: str | None = None,
+    role: Literal["admin", "user"] | None = None,
+    status: Literal["active", "inactive", "archived"] | None = None,
+    paginated: bool = False,
+    limit: int = 25,
+    offset: int = 0,
+    db: Session = Depends(get_db),
+):
     query = db.query(User)
-    if not include_archived:
+
+    if status == "archived":
+        query = query.filter(User.is_deleted == True)  # noqa: E712
+    elif status in {"active", "inactive"}:
+        query = query.filter(
+            User.is_deleted == False,  # noqa: E712
+            User.is_active == (status == "active"),
+        )
+    elif not include_archived:
         query = query.filter(User.is_deleted == False)  # noqa: E712
-    users = query.order_by(User.id).all()
-    return [_user_dict(u) for u in users]
+
+    if role:
+        query = query.filter(User.role == role)
+
+    if search:
+        # Apply each word independently so searches such as "Sneha Raman"
+        # match first + last name without database-specific CONCAT syntax.
+        for term in search.strip().split():
+            pattern = f"%{term}%"
+            conditions = [
+                User.email.ilike(pattern),
+                User.first_name.ilike(pattern),
+                User.last_name.ilike(pattern),
+            ]
+            if term.isdigit():
+                conditions.append(User.id == int(term))
+            query = query.filter(or_(*conditions))
+
+    query = query.order_by(User.id)
+    if not paginated:
+        return [_user_dict(user) for user in query.all()]
+
+    limit = max(1, min(limit, 250))
+    offset = max(0, offset)
+    total = query.count()
+    users = query.offset(offset).limit(limit).all()
+    return {"total": total, "items": [_user_dict(user) for user in users]}
 
 
 @router.post("/users", dependencies=[Depends(auth.require_admin)])

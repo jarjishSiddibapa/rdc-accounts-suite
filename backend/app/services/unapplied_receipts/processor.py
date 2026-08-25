@@ -59,6 +59,7 @@ import datetime as _dt
 import os
 from dataclasses import dataclass
 from html.parser import HTMLParser as _HTMLParser
+from threading import Event, Thread
 
 import oracledb
 import pandas as pd
@@ -67,7 +68,7 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
-from app.jobs import JobUserError
+from app.jobs import JobCancelled, JobUserError
 from app.oracle_runtime import initialize_oracle_client
 
 
@@ -293,14 +294,34 @@ def _read_ageing(path: str) -> pd.DataFrame:
     return pd.read_excel(path, engine="xlrd", header=13)
 
 
+def _start_cancel_watcher(conn, cancel_event):
+    stop_event = Event()
+    if cancel_event is None:
+        return stop_event, None
+
+    def watch() -> None:
+        while not stop_event.wait(0.25):
+            if cancel_event.is_set():
+                try:
+                    conn.cancel()
+                except Exception:
+                    pass
+                return
+
+    thread = Thread(target=watch, daemon=True, name="oracle-cancel-watcher")
+    thread.start()
+    return stop_event, thread
+
+
 def _fetch_locations(receipts: list, log_q, oracle_cfg: OracleConfig,
-                      location_map: dict) -> dict:
+                      location_map: dict, cancel_event=None) -> dict:
     _init_oracle_client(oracle_cfg.instant_client_dir)
 
     log_q.put(("info", f"Sample receipts sent to ERP: {receipts[:3]}"))
 
     conn    = _connect_oracle(oracle_cfg)
     loc_map = {}   # receipt_number → mapped location string
+    stop_watcher, watcher = _start_cancel_watcher(conn, cancel_event)
     try:
         cur       = conn.cursor()
         col_names = None
@@ -309,6 +330,8 @@ def _fetch_locations(receipts: list, log_q, oracle_cfg: OracleConfig,
         log_q.put(("info", f"Querying ERP in {len(batches)} batch(es) of ≤{_BATCH_SIZE}"))
 
         for batch in batches:
+            if cancel_event is not None and cancel_event.is_set():
+                raise JobCancelled("Oracle lookup cancelled")
             escaped = [r.replace("'", "''") for r in batch]
             sql     = _ERP_SQL.format(placeholders=",".join(f"'{r}'" for r in escaped))
             cur.execute(sql)
@@ -328,18 +351,23 @@ def _fetch_locations(receipts: list, log_q, oracle_cfg: OracleConfig,
             sample_key = next(iter(loc_map))
             log_q.put(("info", f"Sample ERP key: '{sample_key}' → '{loc_map[sample_key]}'"))
     finally:
+        stop_watcher.set()
+        if watcher is not None:
+            watcher.join(timeout=1)
         conn.close()
 
     return loc_map
 
 
-def _fetch_comments(receipts: list, log_q, oracle_cfg: OracleConfig) -> dict:
+def _fetch_comments(receipts: list, log_q, oracle_cfg: OracleConfig,
+                    cancel_event=None) -> dict:
     """Fetch the Comments field from ar_cash_receipts_all for a list of receipt numbers.
     Returns {receipt_number: comments_string}."""
     _init_oracle_client(oracle_cfg.instant_client_dir)
 
     conn         = _connect_oracle(oracle_cfg)
     comments_map = {}
+    stop_watcher, watcher = _start_cancel_watcher(conn, cancel_event)
     try:
         cur     = conn.cursor()
         batches = [receipts[i:i + _BATCH_SIZE]
@@ -348,6 +376,8 @@ def _fetch_comments(receipts: list, log_q, oracle_cfg: OracleConfig) -> dict:
 
         col_names = None
         for batch in batches:
+            if cancel_event is not None and cancel_event.is_set():
+                raise JobCancelled("Oracle lookup cancelled")
             escaped = [r.replace("'", "''") for r in batch]
             sql     = _COMMENTS_SQL.format(
                 placeholders=",".join(f"'{r}'" for r in escaped))
@@ -364,13 +394,17 @@ def _fetch_comments(receipts: list, log_q, oracle_cfg: OracleConfig) -> dict:
         cur.close()
         log_q.put(("ok", f"ERP Comments fetched for {len(comments_map)} receipts"))
     finally:
+        stop_watcher.set()
+        if watcher is not None:
+            watcher.join(timeout=1)
         conn.close()
 
     return comments_map
 
 
 def process_report(input_path: str, log_q, as_on_date: _dt.date = None, *,
-                    oracle_cfg: OracleConfig, supplier_site_map: dict) -> tuple:
+                    oracle_cfg: OracleConfig, supplier_site_map: dict,
+                    cancel_event=None) -> tuple:
     """
     Returns (df, total_input_rows, unidentified_removed_count, df_unidentified, erp_ok).
 
@@ -437,9 +471,13 @@ def process_report(input_path: str, log_q, as_on_date: _dt.date = None, *,
         ]
         if unid_receipts:
             try:
-                comments_map = _fetch_comments(unid_receipts, log_q, oracle_cfg)
+                comments_map = _fetch_comments(
+                    unid_receipts, log_q, oracle_cfg, cancel_event=cancel_event
+                )
                 df_unidentified["Bank Description"] = df_unidentified[pay_num_col].apply(
                     lambda x: comments_map.get(str(x).strip(), ""))
+            except JobCancelled:
+                raise
             except Exception as exc:
                 log_q.put(("warn", f"Could not fetch ERP Comments for Unidentified rows: {exc}"))
                 df_unidentified["Bank Description"] = ""
@@ -458,8 +496,16 @@ def process_report(input_path: str, log_q, as_on_date: _dt.date = None, *,
     erp_ok  = True
     loc_map = {}
     try:
-        loc_map = _fetch_locations(receipts, log_q, oracle_cfg, supplier_site_map)
+        loc_map = _fetch_locations(
+            receipts,
+            log_q,
+            oracle_cfg,
+            supplier_site_map,
+            cancel_event=cancel_event,
+        )
         log_q.put(("ok", f"ERP returned data for {len(loc_map)} receipts"))
+    except JobCancelled:
+        raise
     except Exception as exc:
         erp_ok = False
         log_q.put(("warn", f"ERP connection failed — Location will be blank  ({exc})"))

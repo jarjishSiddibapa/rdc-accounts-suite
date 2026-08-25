@@ -7,6 +7,7 @@ two can be edited independently without colliding.
 import re
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
@@ -106,6 +107,9 @@ def get_audit_log(
     user_id: int | None = None,
     action_contains: str | None = None,
     actor_contains: str | None = None,
+    search: str | None = None,
+    method: Literal["GET", "POST", "PUT", "PATCH", "DELETE"] | None = None,
+    status_group: Literal["success", "client_error", "server_error", "no_status"] | None = None,
     start_date: str | None = None,
     end_date: str | None = None,
     db: Session = Depends(get_db),
@@ -114,20 +118,45 @@ def get_audit_log(
     offset = max(0, offset)
 
     query = db.query(AuditLog).filter(AuditLog.is_deleted == False)  # noqa: E712
+    if actor_contains or search:
+        query = query.outerjoin(User, AuditLog.user_id == User.id)
     if user_id is not None:
         query = query.filter(AuditLog.user_id == user_id)
     if action_contains:
-        query = query.filter(AuditLog.action.contains(action_contains))
+        query = query.filter(AuditLog.action.ilike(f"%{action_contains.strip()}%"))
     if actor_contains:
         # Also matches by first/last name, not just the stored actor_email,
         # since that's what an admin is more likely to search by.
-        query = query.outerjoin(User, AuditLog.user_id == User.id).filter(
+        pattern = f"%{actor_contains.strip()}%"
+        query = query.filter(
             or_(
-                AuditLog.actor_email.contains(actor_contains),
-                User.first_name.contains(actor_contains),
-                User.last_name.contains(actor_contains),
+                AuditLog.actor_email.ilike(pattern),
+                User.first_name.ilike(pattern),
+                User.last_name.ilike(pattern),
             )
         )
+    if search:
+        pattern = f"%{search.strip()}%"
+        query = query.filter(
+            or_(
+                AuditLog.actor_email.ilike(pattern),
+                AuditLog.action.ilike(pattern),
+                AuditLog.ip_address.ilike(pattern),
+                AuditLog.details.ilike(pattern),
+                User.first_name.ilike(pattern),
+                User.last_name.ilike(pattern),
+            )
+        )
+    if method:
+        query = query.filter(AuditLog.action.like(f"{method} %"))
+    if status_group == "success":
+        query = query.filter(AuditLog.status_code >= 200, AuditLog.status_code < 400)
+    elif status_group == "client_error":
+        query = query.filter(AuditLog.status_code >= 400, AuditLog.status_code < 500)
+    elif status_group == "server_error":
+        query = query.filter(AuditLog.status_code >= 500)
+    elif status_group == "no_status":
+        query = query.filter(AuditLog.status_code.is_(None))
     if start_date:
         try:
             query = query.filter(AuditLog.timestamp >= _ist_date_to_utc_naive(date.fromisoformat(start_date)))

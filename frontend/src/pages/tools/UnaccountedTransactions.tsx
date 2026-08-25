@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   Archive,
@@ -25,6 +25,8 @@ import { Button } from '@/components/Button'
 import { FileDropzone } from '@/components/FileDropzone'
 import { ProgressPanel, type JobState, type JobStatus } from '@/components/ProgressPanel'
 import { MappingTable, type MappingColumn, type MappingRow } from '@/components/MappingTable'
+import { CreatableCombobox } from '@/components/CreatableCombobox'
+import { SearchBox } from '@/components/SearchBox'
 import { Pagination } from '@/components/Pagination'
 import { DatePicker, MonthYearPicker } from '@/components/TemporalPicker'
 import { usePagination } from '@/hooks/usePagination'
@@ -149,13 +151,11 @@ function UnmappedSitesFix({
   knownLocations,
   onRegenerate,
   regenerating,
-  datalistId,
 }: {
   sites: string[]
   knownLocations: string[]
   onRegenerate: () => void
   regenerating: boolean
-  datalistId: string
 }) {
   const [forms, setForms] = useState<Record<string, string>>({})
   const [fixed, setFixed] = useState<Record<string, boolean>>({})
@@ -193,11 +193,6 @@ function UnmappedSitesFix({
         automatically from the Location table.
       </p>
       {error && <p className="text-sm text-red-500">{error}</p>}
-      <datalist id={datalistId}>
-        {knownLocations.map((l) => (
-          <option key={l} value={l} />
-        ))}
-      </datalist>
       <div className="flex flex-col gap-2">
         {pagination.pagedItems.map((site) => (
           <div
@@ -205,13 +200,15 @@ function UnmappedSitesFix({
             className="subpanel flex flex-col items-stretch gap-2 px-3 py-3 sm:flex-row sm:flex-wrap sm:items-center sm:py-2"
           >
             <span className="min-w-0 flex-1 truncate text-sm font-medium text-ink sm:min-w-[10rem]">{site}</span>
-            <input
-              list={datalistId}
+            <CreatableCombobox
               placeholder="Location"
               value={forms[site] ?? ''}
+              options={knownLocations}
               disabled={fixed[site]}
-              onChange={(e) => setForms((prev) => ({ ...prev, [site]: e.target.value }))}
-              className="field-control w-full py-1.5 text-sm disabled:opacity-50 sm:min-h-9 sm:w-56"
+              onChange={(value) => setForms((prev) => ({ ...prev, [site]: value }))}
+              ariaLabel={`Location for supplier site ${site}`}
+              suggestionLabel="Existing locations"
+              className="w-full sm:w-64"
             />
             {fixed[site] ? (
               <span className="inline-flex items-center gap-1 text-sm text-emerald-500">
@@ -334,7 +331,6 @@ function UnaccountedTab({ knownLocations }: { knownLocations: string[] }) {
           <LogPanel log={result.log} />
           {result.unmapped_sites.length > 0 && (
             <UnmappedSitesFix
-              datalistId="unaccounted-known-locations"
               sites={result.unmapped_sites}
               knownLocations={knownLocations}
               regenerating={submitting}
@@ -482,7 +478,6 @@ function MrnTab({ knownLocations }: { knownLocations: string[] }) {
           <LogPanel log={result.log} />
           {result.unmapped_sites.length > 0 && (
             <UnmappedSitesFix
-              datalistId="mrn-known-locations"
               sites={result.unmapped_sites}
               knownLocations={knownLocations}
               regenerating={submitting}
@@ -638,7 +633,6 @@ function PoTab({ knownLocations }: { knownLocations: string[] }) {
           <LogPanel log={result.log} />
           {result.unmapped_sites.length > 0 && (
             <UnmappedSitesFix
-              datalistId="po-known-locations"
               sites={result.unmapped_sites}
               knownLocations={knownLocations}
               regenerating={submitting}
@@ -785,16 +779,16 @@ function MailUnmappedGroup({
   reportKey,
   label,
   sites,
+  knownLocations,
   fixedKeys,
   onFixed,
-  datalistId,
 }: {
   reportKey: string
   label: string
   sites: string[]
+  knownLocations: string[]
   fixedKeys: Record<string, boolean>
   onFixed: (reportKey: string, site: string, location: string) => Promise<void>
-  datalistId: string
 }) {
   const [forms, setForms] = useState<Record<string, string>>({})
   const [fixing, setFixing] = useState<string | null>(null)
@@ -814,13 +808,15 @@ function MailUnmappedGroup({
             className="subpanel flex flex-col items-stretch gap-2 px-3 py-3 sm:flex-row sm:flex-wrap sm:items-center sm:py-2"
           >
             <span className="min-w-0 flex-1 truncate text-sm font-medium text-ink sm:min-w-[10rem]">{site}</span>
-            <input
-              list={datalistId}
+            <CreatableCombobox
               placeholder="Location"
               value={forms[site] ?? ''}
+              options={knownLocations}
               disabled={fixed}
-              onChange={(e) => setForms((prev) => ({ ...prev, [site]: e.target.value }))}
-              className="field-control w-full py-1.5 text-sm disabled:opacity-50 sm:min-h-9 sm:w-56"
+              onChange={(value) => setForms((prev) => ({ ...prev, [site]: value }))}
+              ariaLabel={`Location for supplier site ${site}`}
+              suggestionLabel="Existing locations"
+              className="w-full sm:w-64"
             />
             {fixed ? (
               <span className="inline-flex items-center gap-1 text-sm text-emerald-500">
@@ -1489,6 +1485,7 @@ function MailTab({
         <ProgressPanel
           jobId={jobId}
           poller={pollMailJob}
+          cancelOnTabClose={false}
           onDone={(r) => {
             setJobResult(r ?? null)
             setSubmitting(false)
@@ -1620,20 +1617,15 @@ function MailTab({
               <p className="text-sm text-ink-dim">
                 Fix each unmapped supplier site below, then resend without re-uploading files.
               </p>
-              <datalist id="mail-known-locations">
-                {knownLocations.map((l) => (
-                  <option key={l} value={l} />
-                ))}
-              </datalist>
               {Object.entries(unmappedGroups).map(([key, sites]) => (
                 <MailUnmappedGroup
                   key={key}
                   reportKey={key}
                   label={REPORT_LABELS[key] ?? key}
                   sites={sites}
+                  knownLocations={knownLocations}
                   fixedKeys={fixedSites}
                   onFixed={handleFixSite}
-                  datalistId="mail-known-locations"
                 />
               ))}
               <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
@@ -1815,6 +1807,7 @@ function UnaccountedMappingSection({ config }: { config: UnaccountedMappingConfi
 
 function PoKeywordsPanel() {
   const [keywords, setKeywords] = useState<string[]>([])
+  const [search, setSearch] = useState('')
   const [keywordInput, setKeywordInput] = useState('')
   const [threshold, setThreshold] = useState(0.82)
   const [loading, setLoading] = useState(true)
@@ -1822,7 +1815,11 @@ function PoKeywordsPanel() {
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null)
   const [editingKeyword, setEditingKeyword] = useState<string | null>(null)
   const [editingValue, setEditingValue] = useState('')
-  const pagination = usePagination(keywords, 10)
+  const filteredKeywords = useMemo(() => {
+    const query = search.trim().toLocaleLowerCase()
+    return query ? keywords.filter((keyword) => keyword.toLocaleLowerCase().includes(query)) : keywords
+  }, [keywords, search])
+  const pagination = usePagination(filteredKeywords, 10, search)
 
   useEffect(() => {
     void (async () => {
@@ -1892,6 +1889,13 @@ function PoKeywordsPanel() {
 
   return (
     <div className="flex flex-col gap-4">
+      <SearchBox
+        value={search}
+        onChange={setSearch}
+        placeholder="Search PO keywords"
+        aria-label="Search PO keywords"
+        className="w-full sm:max-w-sm"
+      />
       <div className="segmented-control">
         {pagination.pagedItems.map((k) => (
           <span
@@ -1945,17 +1949,14 @@ function PoKeywordsPanel() {
         onPageSizeChange={pagination.setPageSize}
       />
       <div className="flex flex-col gap-2 sm:flex-row">
-        <input
+        <CreatableCombobox
           value={keywordInput}
-          onChange={(e) => setKeywordInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              e.preventDefault()
-              addKeyword()
-            }
-          }}
-          placeholder="Add a keyword and press Enter"
-          className="field-control min-h-9 flex-1 py-1.5 text-sm"
+          options={keywords}
+          onChange={setKeywordInput}
+          placeholder="Choose a similar keyword or type a new one"
+          ariaLabel="Add a PO keyword"
+          suggestionLabel="Existing PO keywords"
+          className="flex-1"
         />
         <Button variant="secondary" onClick={addKeyword}>
           Add
@@ -1995,6 +1996,7 @@ function PoKeywordsPanel() {
 
 function PoExcludedPanel() {
   const [excluded, setExcluded] = useState<string[]>([])
+  const [search, setSearch] = useState('')
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(true)
   const [adding, setAdding] = useState(false)
@@ -2004,7 +2006,11 @@ function PoExcludedPanel() {
   const [savingPo, setSavingPo] = useState<string | null>(null)
   const [clearing, setClearing] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const pagination = usePagination(excluded, 10)
+  const filteredExcluded = useMemo(() => {
+    const query = search.trim().toLocaleLowerCase()
+    return query ? excluded.filter((po) => po.toLocaleLowerCase().includes(query)) : excluded
+  }, [excluded, search])
+  const pagination = usePagination(filteredExcluded, 10, search)
   const busy = adding || archivingPo !== null || savingPo !== null || clearing
 
   const load = useCallback(async () => {
@@ -2132,6 +2138,16 @@ function PoExcludedPanel() {
           </div>
         </div>
 
+        <div className="border-b border-border px-4 py-3 sm:px-5">
+          <SearchBox
+            value={search}
+            onChange={setSearch}
+            placeholder="Search excluded PO numbers"
+            aria-label="Search excluded PO numbers"
+            className="w-full sm:max-w-sm"
+          />
+        </div>
+
         <div className="overflow-x-auto">
           <table className="w-full table-fixed border-collapse">
             <caption className="sr-only">Active excluded purchase-order numbers</caption>
@@ -2224,12 +2240,18 @@ function PoExcludedPanel() {
                   </td>
                 </tr>
               ))}
-              {excluded.length === 0 && (
+              {filteredExcluded.length === 0 && (
                 <tr>
                   <td colSpan={4} className="px-5 py-10 text-center">
                     <ListChecks className="mx-auto h-6 w-6 text-ink-faint" aria-hidden="true" />
-                    <p className="mt-2 text-sm font-medium text-ink">No excluded PO numbers</p>
-                    <p className="mt-1 text-xs text-ink-dim">Add a PO number below when it should be omitted from the report.</p>
+                    <p className="mt-2 text-sm font-medium text-ink">
+                      {excluded.length === 0 ? 'No excluded PO numbers' : 'No matching PO numbers'}
+                    </p>
+                    <p className="mt-1 text-xs text-ink-dim">
+                      {excluded.length === 0
+                        ? 'Add a PO number below when it should be omitted from the report.'
+                        : 'Try a different search term.'}
+                    </p>
                   </td>
                 </tr>
               )}
@@ -2262,14 +2284,16 @@ function PoExcludedPanel() {
           Enter the complete PO number exactly as it appears in the source data.
         </p>
         <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-          <input
+          <CreatableCombobox
             id="excluded-po-number"
-            aria-describedby="excluded-po-help"
-            autoComplete="off"
             value={input}
-            onChange={(e) => setInput(e.target.value)}
-            placeholder="e.g. 611085"
-            className="field-control min-h-11 flex-1 text-sm"
+            options={excluded}
+            onChange={setInput}
+            placeholder="Choose a similar PO or type a new number"
+            ariaLabel="Add an excluded PO number"
+            ariaDescribedBy="excluded-po-help"
+            suggestionLabel="Existing excluded PO numbers"
+            className="flex-1"
           />
           <Button type="submit" variant="secondary" loading={adding} disabled={busy || !input.trim()}>
             Add exclusion

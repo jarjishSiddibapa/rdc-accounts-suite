@@ -1,5 +1,5 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
-import { AnimatePresence, motion } from 'motion/react'
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react'
 import { Check, ChevronDown, Plus, Search } from 'lucide-react'
 import { cn } from '@/utils/cn'
 
@@ -10,6 +10,10 @@ interface CreatableComboboxProps {
   placeholder?: string
   disabled?: boolean
   className?: string
+  id?: string
+  ariaLabel?: string
+  ariaDescribedBy?: string
+  suggestionLabel?: string
 }
 
 interface MenuItem {
@@ -30,12 +34,17 @@ export function CreatableCombobox({
   placeholder = 'Choose an existing value or type a new one',
   disabled = false,
   className,
+  id,
+  ariaLabel,
+  ariaDescribedBy,
+  suggestionLabel = 'Existing values',
 }: CreatableComboboxProps) {
   const rootRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const listboxId = useId()
   const [open, setOpen] = useState(false)
   const [highlightedIndex, setHighlightedIndex] = useState(0)
+  const reduceMotion = useReducedMotion()
 
   const normalizedOptions = useMemo(() => {
     const seen = new Set<string>()
@@ -92,8 +101,11 @@ export function CreatableCombobox({
     <div ref={rootRef} className={cn('relative', className)}>
       <Search className="pointer-events-none absolute top-1/2 left-3.5 z-10 h-4 w-4 -translate-y-1/2 text-ink-faint" />
       <input
+        id={id}
         ref={inputRef}
         role="combobox"
+        aria-label={ariaLabel}
+        aria-describedby={ariaDescribedBy}
         aria-autocomplete="list"
         aria-expanded={open}
         aria-controls={listboxId}
@@ -146,14 +158,14 @@ export function CreatableCombobox({
           <motion.div
             id={listboxId}
             role="listbox"
-            initial={{ opacity: 0, y: -6, scale: 0.985 }}
+            initial={reduceMotion ? false : { opacity: 0, y: -6, scale: 0.985 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: -4, scale: 0.99 }}
-            transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+            exit={reduceMotion ? undefined : { opacity: 0, y: -4, scale: 0.99 }}
+            transition={reduceMotion ? { duration: 0 } : { duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
             className="glass absolute z-30 mt-2 max-h-64 w-full overflow-y-auto rounded-xl border-border p-1.5 shadow-[0_24px_55px_-22px_rgba(var(--shadow-rgb),0.65)]"
           >
             <div className="flex items-center justify-between px-2.5 py-2 text-[10px] font-bold tracking-[0.12em] text-ink-faint uppercase">
-              <span>{value.trim() ? 'Matching values' : 'Existing values'}</span>
+              <span>{value.trim() ? `Matching ${suggestionLabel.toLocaleLowerCase()}` : suggestionLabel}</span>
               <span>{Math.min(menuItems.filter((item) => !item.isNew).length, MAX_VISIBLE_OPTIONS)}</span>
             </div>
 

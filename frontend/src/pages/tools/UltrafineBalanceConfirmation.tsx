@@ -23,6 +23,7 @@ import { FileDropzone } from '@/components/FileDropzone'
 import { Modal } from '@/components/Modal'
 import { ProgressPanel, type JobState, type JobStatus } from '@/components/ProgressPanel'
 import { MappingTable, type MappingRow } from '@/components/MappingTable'
+import { CreatableCombobox } from '@/components/CreatableCombobox'
 import { Pagination } from '@/components/Pagination'
 import { DatePicker } from '@/components/TemporalPicker'
 import { usePagination } from '@/hooks/usePagination'
@@ -208,10 +209,14 @@ function CustomerDetailModal({
 
 function MissingRecipientsPanel({
   customers,
+  toSuggestions,
+  ccSuggestions,
   onRegenerate,
   regenerating,
 }: {
   customers: PreviewCustomer[]
+  toSuggestions: string[]
+  ccSuggestions: string[]
   onRegenerate: () => void | Promise<void>
   regenerating: boolean
 }) {
@@ -267,29 +272,35 @@ function MissingRecipientsPanel({
             <span className="min-w-0 flex-1 truncate text-sm font-medium text-ink sm:min-w-[10rem]">
               {customer.customer_name}
             </span>
-            <input
+            <CreatableCombobox
               placeholder="To email(s)"
               value={forms[customer.customer_name]?.to ?? ''}
+              options={toSuggestions}
               disabled={fixed[customer.customer_name]}
-              onChange={(e) =>
+              onChange={(value) =>
                 setForms((prev) => ({
                   ...prev,
-                  [customer.customer_name]: { ...prev[customer.customer_name], to: e.target.value },
+                  [customer.customer_name]: { ...prev[customer.customer_name], to: value },
                 }))
               }
-              className="field-control w-full py-1.5 text-sm disabled:opacity-50 sm:min-h-9 sm:w-48"
+              ariaLabel={`To email recipients for ${customer.customer_name}`}
+              suggestionLabel="Existing To recipient sets"
+              className="w-full sm:w-64"
             />
-            <input
+            <CreatableCombobox
               placeholder="Cc email(s) (optional)"
               value={forms[customer.customer_name]?.cc ?? ''}
+              options={ccSuggestions}
               disabled={fixed[customer.customer_name]}
-              onChange={(e) =>
+              onChange={(value) =>
                 setForms((prev) => ({
                   ...prev,
-                  [customer.customer_name]: { ...prev[customer.customer_name], cc: e.target.value },
+                  [customer.customer_name]: { ...prev[customer.customer_name], cc: value },
                 }))
               }
-              className="field-control w-full py-1.5 text-sm disabled:opacity-50 sm:min-h-9 sm:w-48"
+              ariaLabel={`Cc email recipients for ${customer.customer_name}`}
+              suggestionLabel="Existing Cc recipient sets"
+              className="w-full sm:w-64"
             />
             {fixed[customer.customer_name] ? (
               <span className="inline-flex items-center gap-1 text-sm text-emerald-500">
@@ -585,6 +596,20 @@ export default function UltrafineBalanceConfirmation() {
   const [sendError, setSendError] = useState<string | null>(null)
 
   const [mappingOpen, setMappingOpen] = useState(false)
+  const [recipientSuggestions, setRecipientSuggestions] = useState({ to: [] as string[], cc: [] as string[] })
+
+  useEffect(() => {
+    void get<MappingRow[]>(`${BASE}/mappings`)
+      .then((rows) => {
+        setRecipientSuggestions({
+          to: [...new Set(rows.map((row) => row.to_emails).filter(Boolean))],
+          cc: [...new Set(rows.map((row) => row.cc_emails).filter(Boolean))],
+        })
+      })
+      .catch(() => {
+        // Non-critical: recipient inputs still accept new free-text values.
+      })
+  }, [])
 
   async function handlePreview() {
     if (!workbook) return
@@ -766,6 +791,8 @@ export default function UltrafineBalanceConfirmation() {
 
               <MissingRecipientsPanel
                 customers={previewResult.customers}
+                toSuggestions={recipientSuggestions.to}
+                ccSuggestions={recipientSuggestions.cc}
                 onRegenerate={handlePreview}
                 regenerating={previewSubmitting}
               />
@@ -793,6 +820,7 @@ export default function UltrafineBalanceConfirmation() {
                 <ProgressPanel
                   jobId={sendJobId}
                   poller={pollSendJob}
+                  cancelOnTabClose={false}
                   onDone={(res) => {
                     setSendResult(res ?? null)
                     setSendSubmitting(false)

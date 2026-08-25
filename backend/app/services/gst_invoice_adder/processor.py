@@ -55,7 +55,7 @@ import copy
 import re as _re
 from dataclasses import dataclass
 from datetime import date as _date_type, datetime
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait
 from threading import Lock
 
 import oracledb
@@ -64,7 +64,7 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import column_index_from_string, get_column_letter
 
-from app.jobs import JobUserError
+from app.jobs import JobCancelled, JobUserError
 from app.oracle_runtime import initialize_oracle_client
 
 try:
@@ -523,26 +523,51 @@ def _make_pool(oracle_cfg: OracleConfig, log_q):
     return pool
 
 
-def _fetch_batch_pooled(pairs: list, pool, log_q) -> dict:
+def _fetch_batch_pooled(
+    pairs: list,
+    pool,
+    log_q,
+    cancel_event=None,
+    active_connections: set | None = None,
+    active_lock: Lock | None = None,
+) -> dict:
     """Fetch GST numbers for a batch of (inv_no, trx_date) pairs. gst_map
     key is (inv_no, trx_date) - the SAME strings used as SQL bind
     variables, so the lookup in insert_gst_column always hits."""
     results = {}
     try:
+        if cancel_event is not None and cancel_event.is_set():
+            raise JobCancelled("Oracle lookup cancelled")
         with pool.acquire() as conn:
-            cursor = conn.cursor()
-            cursor.prefetchrows = 2
-            for inv_no, trx_date in pairs:
-                key = (inv_no, trx_date)
-                try:
-                    cursor.execute(GST_QUERY, inv_no=inv_no, trx_date=trx_date)
-                    row = cursor.fetchone()
-                    gst = str(row[0]).strip() if (row and row[0] is not None) else ""
-                    results[key] = gst
-                except Exception as e:
-                    results[key] = ""
-                    log_q.put(("err", f"inv={inv_no!r} date={trx_date!r} -> {e}"))
-            cursor.close()
+            if active_connections is not None and active_lock is not None:
+                with active_lock:
+                    active_connections.add(conn)
+            try:
+                cursor = conn.cursor()
+                cursor.prefetchrows = 2
+                for inv_no, trx_date in pairs:
+                    if cancel_event is not None and cancel_event.is_set():
+                        raise JobCancelled("Oracle lookup cancelled")
+                    key = (inv_no, trx_date)
+                    try:
+                        cursor.execute(GST_QUERY, inv_no=inv_no, trx_date=trx_date)
+                        row = cursor.fetchone()
+                        gst = str(row[0]).strip() if (row and row[0] is not None) else ""
+                        results[key] = gst
+                    except JobCancelled:
+                        raise
+                    except Exception as e:
+                        if cancel_event is not None and cancel_event.is_set():
+                            raise JobCancelled("Oracle lookup cancelled") from e
+                        results[key] = ""
+                        log_q.put(("err", f"inv={inv_no!r} date={trx_date!r} -> {e}"))
+                cursor.close()
+            finally:
+                if active_connections is not None and active_lock is not None:
+                    with active_lock:
+                        active_connections.discard(conn)
+    except JobCancelled:
+        raise
     except Exception as conn_err:
         # pool.acquire() itself failed (ERP dropped mid-run, network blip,
         # DNS failure) - distinct from a single bad row above. Let this
@@ -555,7 +580,13 @@ def _fetch_batch_pooled(pairs: list, pool, log_q) -> dict:
     return results
 
 
-def _fetch_all_parallel(pairs_unique: list, pool, log_q, progress_cb) -> dict:
+def _fetch_all_parallel(
+    pairs_unique: list,
+    pool,
+    log_q,
+    progress_cb,
+    cancel_event=None,
+) -> dict:
     n = len(pairs_unique)
     batch_sz = max(20, min(50, max(1, n // (THREAD_WORKERS * 4))))
     batches = [pairs_unique[i:i + batch_sz] for i in range(0, n, batch_sz)]
@@ -566,25 +597,76 @@ def _fetch_all_parallel(pairs_unique: list, pool, log_q, progress_cb) -> dict:
     merged: dict = {}
     done = 0
     lock = Lock()
+    active_lock = Lock()
+    active_connections: set = set()
     conn_failures = 0
 
-    with ThreadPoolExecutor(max_workers=THREAD_WORKERS) as executor:
-        futures = {executor.submit(_fetch_batch_pooled, b, pool, log_q): b for b in batches}
-        for fut in as_completed(futures):
-            try:
-                res = fut.result()
-                with lock:
-                    merged.update(res)
-                    done += len(res)
-                if progress_cb:
-                    pct = 0.10 + 0.78 * (done / max(n, 1))
-                    progress_cb(min(pct, 0.88), f"Fetched {done:,} / {n:,} GST numbers")
-            except Exception as e:
-                # _fetch_batch_pooled only ever propagates here on a
-                # pool.acquire()-level failure - every per-row query error is
-                # already caught and blank-filled inside it.
-                conn_failures += 1
-                log_q.put(("err", f"Future error: {e}"))
+    executor = ThreadPoolExecutor(max_workers=THREAD_WORKERS)
+    futures = {
+        executor.submit(
+            _fetch_batch_pooled,
+            batch,
+            pool,
+            log_q,
+            cancel_event,
+            active_connections,
+            active_lock,
+        ): batch
+        for batch in batches
+    }
+    pending = set(futures)
+    cancelled = False
+    try:
+        while pending:
+            if cancel_event is not None and cancel_event.is_set():
+                cancelled = True
+                with active_lock:
+                    connections = list(active_connections)
+                for conn in connections:
+                    try:
+                        conn.cancel()
+                    except Exception:
+                        pass
+                for future in pending:
+                    future.cancel()
+                raise JobCancelled("Oracle lookup cancelled after browser tab closed")
+
+            completed, pending = wait(
+                pending,
+                timeout=0.25,
+                return_when=FIRST_COMPLETED,
+            )
+            for fut in completed:
+                if cancel_event is not None and cancel_event.is_set():
+                    cancelled = True
+                    raise JobCancelled("Oracle lookup cancelled after browser tab closed")
+                try:
+                    res = fut.result()
+                    with lock:
+                        merged.update(res)
+                        done += len(res)
+                    if progress_cb:
+                        pct = 0.10 + 0.78 * (done / max(n, 1))
+                        progress_cb(min(pct, 0.88), f"Fetched {done:,} / {n:,} GST numbers")
+                except JobCancelled:
+                    cancelled = True
+                    raise
+                except Exception as e:
+                    # _fetch_batch_pooled only ever propagates here on a
+                    # pool.acquire()-level failure - every per-row query error is
+                    # already caught and blank-filled inside it.
+                    conn_failures += 1
+                    log_q.put(("err", f"Future error: {e}"))
+    finally:
+        if cancelled:
+            with active_lock:
+                connections = list(active_connections)
+            for conn in connections:
+                try:
+                    conn.cancel()
+                except Exception:
+                    pass
+        executor.shutdown(wait=not cancelled, cancel_futures=cancelled)
 
     # Every batch failed to even acquire a connection - Oracle went
     # unreachable mid-run. Raise instead of returning a "successful" job
@@ -600,7 +682,7 @@ def _fetch_all_parallel(pairs_unique: list, pool, log_q, progress_cb) -> dict:
 # ── Orchestrator ───────────────────────────────────────────────────────────────
 
 def process_report(input_path: str, output_path: str, oracle_cfg: OracleConfig,
-                    log_q, progress_cb=None) -> dict:
+                    log_q, progress_cb=None, cancel_event=None) -> dict:
     """Enrich the uploaded RDC Receivable Aging Report with a GST Invoice
     Number column, querying Oracle for each unique (invoice no, invoice
     date) pair. Returns {"total", "found", "blank"}."""
@@ -622,9 +704,13 @@ def process_report(input_path: str, output_path: str, oracle_cfg: OracleConfig,
     pool = _make_pool(oracle_cfg, log_q)
 
     try:
-        gst_map = _fetch_all_parallel(pairs_unique, pool, log_q, progress_cb)
+        gst_map = _fetch_all_parallel(
+            pairs_unique, pool, log_q, progress_cb, cancel_event=cancel_event
+        )
     finally:
         try:
+            pool.close(force=bool(cancel_event is not None and cancel_event.is_set()))
+        except TypeError:
             pool.close()
         except Exception:
             pass

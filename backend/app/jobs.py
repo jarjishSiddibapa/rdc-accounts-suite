@@ -18,7 +18,11 @@ import os
 import threading
 import time
 import uuid
-from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
+from concurrent.futures import (
+    ProcessPoolExecutor,
+    ThreadPoolExecutor,
+    TimeoutError as FutureTimeoutError,
+)
 from dataclasses import asdict, is_dataclass
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
@@ -29,6 +33,7 @@ from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError, OperationalError
 
 from app import config
+from app.client_context import current_tab_id, normalize_tab_id
 from app.database import SessionLocal
 from app.models import BackgroundJob, BackgroundJobAction, BackgroundResourceSlot
 
@@ -66,6 +71,16 @@ _RESOURCE_BY_TASK = {
     "app.routers.gst_invoice_adder:_job_enrich": "oracle-gst",
 }
 
+# Dispatch jobs are intentionally server-owned once accepted. Cancelling one
+# because a browser vanished could send only part of a customer email batch.
+_DETACHED_TASKS = frozenset(
+    {
+        "app.routers.unaccounted_txn:_job_mail_send",
+        "app.routers.ultrafine_balance_confirmation:_job_send",
+        "app.routers.ultrafine_payment_reminder:_job_send",
+    }
+)
+
 
 class _NoopLogQueue:
     def put(self, item) -> None:
@@ -102,6 +117,7 @@ _CPU_POOL_WORKERS = int(
 )
 _cpu_executor: ProcessPoolExecutor | None = None
 _cpu_executor_lock = threading.Lock()
+_execution_context = threading.local()
 
 
 def _get_cpu_executor() -> ProcessPoolExecutor:
@@ -118,12 +134,69 @@ def _get_cpu_executor() -> ProcessPoolExecutor:
     return _cpu_executor
 
 
+def _abort_cpu_executor() -> None:
+    """Terminate the current worker's CPU children after client cancellation.
+
+    ``Future.cancel()`` cannot stop work already executing in another process.
+    Each durable worker runs only one background job at a time, so terminating
+    that worker's private CPU pool cannot affect another user's job. A fresh
+    pool is created lazily for the next claimed job.
+    """
+    global _cpu_executor
+    with _cpu_executor_lock:
+        executor = _cpu_executor
+        _cpu_executor = None
+        if executor is None:
+            return
+        processes = list((getattr(executor, "_processes", None) or {}).values())
+        executor.shutdown(wait=False, cancel_futures=True)
+        for process in processes:
+            if process.is_alive():
+                process.terminate()
+        for process in processes:
+            process.join(timeout=1)
+
+
+def _current_cancel_event() -> threading.Event | None:
+    return getattr(_execution_context, "cancel_event", None)
+
+
 def run_cpu_phase(fn, *args, **kwargs):
-    return _get_cpu_executor().submit(fn, *args, **kwargs).result()
+    future = _get_cpu_executor().submit(fn, *args, **kwargs)
+    while True:
+        try:
+            return future.result(timeout=0.25)
+        except FutureTimeoutError:
+            cancel_event = _current_cancel_event()
+            if cancel_event is not None and cancel_event.is_set():
+                _abort_cpu_executor()
+                raise JobCancelled("Job cancelled after browser tab closed")
+        except Exception as exc:
+            cancel_event = _current_cancel_event()
+            if cancel_event is not None and cancel_event.is_set():
+                _abort_cpu_executor()
+                raise JobCancelled("Job cancelled after browser tab closed") from exc
+            raise
 
 
 async def run_cpu_phase_async(fn, *args, **kwargs):
-    return await asyncio.wrap_future(_get_cpu_executor().submit(fn, *args, **kwargs))
+    future = _get_cpu_executor().submit(fn, *args, **kwargs)
+    wrapped = asyncio.wrap_future(future)
+    while True:
+        done, _pending = await asyncio.wait({wrapped}, timeout=0.25)
+        if done:
+            try:
+                return next(iter(done)).result()
+            except Exception as exc:
+                cancel_event = _current_cancel_event()
+                if cancel_event is not None and cancel_event.is_set():
+                    _abort_cpu_executor()
+                    raise JobCancelled("Job cancelled after browser tab closed") from exc
+                raise
+        cancel_event = _current_cancel_event()
+        if cancel_event is not None and cancel_event.is_set():
+            _abort_cpu_executor()
+            raise JobCancelled("Job cancelled after browser tab closed")
 
 
 def _encode_value(value: Any) -> Any:
@@ -221,10 +294,26 @@ def _public_job(job: BackgroundJob) -> dict:
     }
 
 
-def submit_job(fn, *args, owner_id: int, **kwargs) -> str:
+def submit_job(
+    fn,
+    *args,
+    owner_id: int,
+    client_tab_id: str | None = None,
+    cancel_on_disconnect: bool | None = None,
+    **kwargs,
+) -> str:
     task_name = _task_name(fn)
     job_id = str(uuid.uuid4())
     now = _utcnow()
+    tab_id = normalize_tab_id(client_tab_id) or current_tab_id()
+    should_cancel_on_disconnect = (
+        task_name not in _DETACHED_TASKS
+        if cancel_on_disconnect is None
+        else bool(cancel_on_disconnect)
+    )
+    # Calls outside an HTTP request (tests, scheduler-owned work, maintenance)
+    # deliberately remain detached rather than expiring without a browser.
+    should_cancel_on_disconnect = bool(should_cancel_on_disconnect and tab_id)
     db = SessionLocal()
     try:
         db.add(
@@ -235,6 +324,9 @@ def submit_job(fn, *args, owner_id: int, **kwargs) -> str:
                 args_json=dumps_value(list(args)),
                 kwargs_json=dumps_value(kwargs),
                 resource_key=_RESOURCE_BY_TASK.get(task_name),
+                client_tab_id=tab_id,
+                client_heartbeat_at=now if should_cancel_on_disconnect else None,
+                cancel_on_disconnect=should_cancel_on_disconnect,
                 status="queued",
                 progress=0.0,
                 phase="Queued",
@@ -251,7 +343,13 @@ def submit_job(fn, *args, owner_id: int, **kwargs) -> str:
         db.close()
 
 
-def get_job(job_id: str, *, owner_id: int) -> dict | None:
+def get_job(
+    job_id: str,
+    *,
+    owner_id: int,
+    client_tab_id: str | None = None,
+) -> dict | None:
+    tab_id = normalize_tab_id(client_tab_id) or current_tab_id()
     db = SessionLocal()
     try:
         job = (
@@ -263,6 +361,16 @@ def get_job(job_id: str, *, owner_id: int) -> dict | None:
             )
             .first()
         )
+        if (
+            job is not None
+            and job.cancel_on_disconnect
+            and tab_id
+            and job.client_tab_id == tab_id
+            and job.status in {"queued", "running"}
+            and not job.cancel_requested
+        ):
+            job.client_heartbeat_at = _utcnow()
+            db.commit()
         return None if job is None else _public_job(job)
     finally:
         db.close()
@@ -294,6 +402,53 @@ def cancel_job(job_id: str, *, owner_id: int) -> dict | None:
             job.cancel_requested = True
             job.phase = "Cancelling..."
             job.updated_at = _utcnow()
+        db.commit()
+        return _public_job(job)
+    finally:
+        db.close()
+
+
+def abandon_job(
+    job_id: str,
+    *,
+    owner_id: int,
+    client_tab_id: str,
+) -> dict | None:
+    """Cancel only work owned by the closing browser tab.
+
+    Owner scoping protects users from one another; the tab match additionally
+    prevents one of the same user's tabs from abandoning a sibling tab's job.
+    Detached dispatch jobs acknowledge the lifecycle request but continue.
+    """
+    tab_id = normalize_tab_id(client_tab_id)
+    if tab_id is None:
+        return None
+    db = SessionLocal()
+    try:
+        job = (
+            db.query(BackgroundJob)
+            .filter(
+                BackgroundJob.id == job_id,
+                BackgroundJob.owner_id == owner_id,
+                BackgroundJob.client_tab_id == tab_id,
+                BackgroundJob.is_deleted.is_(False),
+            )
+            .with_for_update()
+            .first()
+        )
+        if job is None:
+            return None
+        if not job.cancel_on_disconnect or job.status not in {"queued", "running"}:
+            return _public_job(job)
+        now = _utcnow()
+        job.cancel_requested = True
+        job.updated_at = now
+        if job.status == "queued":
+            job.status = "cancelled"
+            job.phase = "Cancelled because the browser tab closed"
+            job.finished_at = now
+        else:
+            job.phase = "Stopping because the browser tab closed..."
         db.commit()
         return _public_job(job)
     finally:
@@ -387,6 +542,42 @@ def finish_job_action(
         db.close()
 
 
+def _client_lease_expired(job: BackgroundJob, now: datetime) -> bool:
+    if not job.cancel_on_disconnect or not job.client_tab_id:
+        return False
+    if job.client_heartbeat_at is None:
+        return True
+    cutoff = now - timedelta(seconds=config.JOB_CLIENT_HEARTBEAT_TIMEOUT_SECONDS)
+    return job.client_heartbeat_at < cutoff
+
+
+def _cancel_expired_queued_jobs(db, now: datetime) -> None:
+    cutoff = now - timedelta(seconds=config.JOB_CLIENT_HEARTBEAT_TIMEOUT_SECONDS)
+    stale = (
+        db.query(BackgroundJob)
+        .filter(
+            BackgroundJob.status == "queued",
+            BackgroundJob.cancel_requested.is_(False),
+            BackgroundJob.cancel_on_disconnect.is_(True),
+            BackgroundJob.client_tab_id.isnot(None),
+            or_(
+                BackgroundJob.client_heartbeat_at.is_(None),
+                BackgroundJob.client_heartbeat_at < cutoff,
+            ),
+            BackgroundJob.is_deleted.is_(False),
+        )
+        .with_for_update(skip_locked=True)
+        .limit(100)
+        .all()
+    )
+    for job in stale:
+        job.status = "cancelled"
+        job.cancel_requested = True
+        job.phase = "Cancelled after the browser tab disconnected"
+        job.finished_at = now
+        job.updated_at = now
+
+
 def _recover_stale_jobs(db, now: datetime) -> None:
     stale = (
         db.query(BackgroundJob)
@@ -439,6 +630,7 @@ def _claim_next_job_once(worker_id: str) -> str | None:
     now = _utcnow()
     db = SessionLocal()
     try:
+        _cancel_expired_queued_jobs(db, now)
         _recover_stale_jobs(db, now)
         job = (
             db.query(BackgroundJob)
@@ -537,6 +729,9 @@ def _heartbeat(job_id: str, worker_id: str) -> bool:
         )
         if job is None:
             return False
+        if _client_lease_expired(job, now):
+            job.cancel_requested = True
+            job.phase = "Stopping after the browser tab disconnected..."
         job.heartbeat_at = now
         job.lease_expires_at = lease_until
         job.updated_at = now
@@ -558,6 +753,34 @@ def _heartbeat(job_id: str, worker_id: str) -> bool:
         cancelled = bool(job.cancel_requested)
         db.commit()
         return not cancelled
+    finally:
+        db.close()
+
+
+def _job_should_continue(job_id: str, worker_id: str) -> bool:
+    """Fast cancellation check used between durable lease heartbeats."""
+    now = _utcnow()
+    db = SessionLocal()
+    try:
+        job = (
+            db.query(BackgroundJob)
+            .filter(
+                BackgroundJob.id == job_id,
+                BackgroundJob.status == "running",
+                BackgroundJob.lease_owner == worker_id,
+                BackgroundJob.is_deleted.is_(False),
+            )
+            .first()
+        )
+        if job is None:
+            return False
+        if _client_lease_expired(job, now):
+            job.cancel_requested = True
+            job.phase = "Stopping after the browser tab disconnected..."
+            job.updated_at = now
+        should_continue = not bool(job.cancel_requested)
+        db.commit()
+        return should_continue
     finally:
         db.close()
 
@@ -667,14 +890,25 @@ def execute_job(job_id: str, worker_id: str) -> None:
         db.close()
 
     stop_heartbeat = threading.Event()
+    cancel_event = threading.Event()
 
     def heartbeat_loop() -> None:
         while not stop_heartbeat.wait(config.JOB_HEARTBEAT_SECONDS):
             try:
                 if not _heartbeat(job_id, worker_id):
+                    cancel_event.set()
                     return
             except Exception:
                 logger.exception("Heartbeat failed for job %s", job_id)
+
+    def client_monitor_loop() -> None:
+        while not stop_heartbeat.wait(config.JOB_CLIENT_MONITOR_SECONDS):
+            try:
+                if not _job_should_continue(job_id, worker_id):
+                    cancel_event.set()
+                    return
+            except Exception:
+                logger.exception("Client lease monitor failed for job %s", job_id)
 
     heartbeat_thread = threading.Thread(
         target=heartbeat_loop,
@@ -682,18 +916,26 @@ def execute_job(job_id: str, worker_id: str) -> None:
         name=f"heartbeat-{job_id[:8]}",
     )
     heartbeat_thread.start()
+    client_monitor_thread = threading.Thread(
+        target=client_monitor_loop,
+        daemon=True,
+        name=f"client-monitor-{job_id[:8]}",
+    )
+    client_monitor_thread.start()
+    _execution_context.cancel_event = cancel_event
     try:
         fn = _resolve_task(task_name)
-        if "progress_cb" in inspect.signature(fn).parameters:
-            result = fn(
-                *args,
-                progress_cb=lambda frac, phase: _update_progress(
-                    job_id, worker_id, frac, phase
-                ),
-                **kwargs,
+        parameters = inspect.signature(fn).parameters
+        runtime_kwargs = dict(kwargs)
+        if "progress_cb" in parameters:
+            runtime_kwargs["progress_cb"] = lambda frac, phase: _update_progress(
+                job_id, worker_id, frac, phase
             )
-        else:
-            result = fn(*args, **kwargs)
+        if "cancel_event" in parameters:
+            runtime_kwargs["cancel_event"] = cancel_event
+        result = fn(*args, **runtime_kwargs)
+        if cancel_event.is_set():
+            raise JobCancelled("Job cancelled after browser tab closed")
         _finish_job(job_id, worker_id, status="done", result=result)
     except JobCancelled:
         _finish_job(job_id, worker_id, status="cancelled", phase="Cancelled")
@@ -708,8 +950,10 @@ def execute_job(job_id: str, worker_id: str) -> None:
             error="An internal error occurred. Check the server logs or contact support.",
         )
     finally:
+        _execution_context.cancel_event = None
         stop_heartbeat.set()
         heartbeat_thread.join(timeout=2)
+        client_monitor_thread.join(timeout=2)
 
 
 def prune_expired_jobs() -> int:

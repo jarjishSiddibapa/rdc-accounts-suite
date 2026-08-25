@@ -13,6 +13,7 @@ import { Button } from '@/components/Button'
 import { FileDropzone } from '@/components/FileDropzone'
 import { ProgressPanel, type JobState, type JobStatus } from '@/components/ProgressPanel'
 import { MappingTable, type MappingColumn, type MappingRow } from '@/components/MappingTable'
+import { CreatableCombobox } from '@/components/CreatableCombobox'
 import { Pagination } from '@/components/Pagination'
 import { MonthYearPicker } from '@/components/TemporalPicker'
 import { usePagination } from '@/hooks/usePagination'
@@ -248,14 +249,24 @@ export default function RdcPayables() {
   const [fixingSite, setFixingSite] = useState<string | null>(null)
 
   const [knownRegions, setKnownRegions] = useState<string[]>([])
+  const [knownIncharges, setKnownIncharges] = useState<string[]>([])
 
   const [activeMappingTab, setActiveMappingTab] = useState(0)
 
   useEffect(() => {
-    void get<MappingRow[]>(`${BASE}/region-incharge`)
-      .then((rows) => setKnownRegions(rows.map((r) => r.region).filter(Boolean)))
+    void Promise.all([
+      get<MappingRow[]>(`${BASE}/region-incharge`),
+      get<MappingRow[]>(`${BASE}/vendor-site-codes`),
+      get<MappingRow[]>(`${BASE}/location-codes`),
+      get<MappingRow[]>(`${BASE}/invoice-overrides`),
+    ])
+      .then((tables) => {
+        const rows = tables.flat()
+        setKnownRegions([...new Set(rows.map((row) => row.region).filter(Boolean))])
+        setKnownIncharges([...new Set(rows.map((row) => row.accounts_incharge).filter(Boolean))])
+      })
       .catch(() => {
-        // Non-critical: the region input just falls back to free text.
+        // Non-critical: the mapping inputs still accept new free-text values.
       })
   }, [])
 
@@ -438,11 +449,6 @@ export default function RdcPayables() {
                     These Vendor Site Codes had no Region mapped. Assign a Region (and optionally
                     an Accounts Incharge) for each, then regenerate the report.
                   </p>
-                  <datalist id="rdc-known-regions">
-                    {knownRegions.map((r) => (
-                      <option key={r} value={r} />
-                    ))}
-                  </datalist>
                   <div className="flex flex-col gap-2">
                     {unmappedPagination.pagedItems.map((site) => {
                       const form = fixForms[site] ?? { region: '', accounts_incharge: '' }
@@ -455,30 +461,35 @@ export default function RdcPayables() {
                           <span className="min-w-0 flex-1 truncate text-sm font-medium text-ink sm:min-w-[10rem]">
                             {site}
                           </span>
-                          <input
-                            list="rdc-known-regions"
+                          <CreatableCombobox
                             placeholder="Region"
                             value={form.region}
+                            options={knownRegions}
                             disabled={fixed}
-                            onChange={(e) =>
+                            onChange={(value) =>
                               setFixForms((prev) => ({
                                 ...prev,
-                                [site]: { ...form, region: e.target.value },
+                                [site]: { ...form, region: value },
                               }))
                             }
-                            className="field-control w-full py-1.5 text-sm disabled:opacity-50 sm:min-h-9 sm:w-36"
+                            ariaLabel={`Region for vendor site ${site}`}
+                            suggestionLabel="Existing regions"
+                            className="w-full sm:w-48"
                           />
-                          <input
+                          <CreatableCombobox
                             placeholder="Accounts Incharge (optional)"
                             value={form.accounts_incharge}
+                            options={knownIncharges}
                             disabled={fixed}
-                            onChange={(e) =>
+                            onChange={(value) =>
                               setFixForms((prev) => ({
                                 ...prev,
-                                [site]: { ...form, accounts_incharge: e.target.value },
+                                [site]: { ...form, accounts_incharge: value },
                               }))
                             }
-                            className="field-control w-full py-1.5 text-sm disabled:opacity-50 sm:min-h-9 sm:w-56"
+                            ariaLabel={`Accounts Incharge for vendor site ${site}`}
+                            suggestionLabel="Existing incharges"
+                            className="w-full sm:w-64"
                           />
                           {fixed ? (
                             <span className="inline-flex items-center gap-1 text-sm text-emerald-500">

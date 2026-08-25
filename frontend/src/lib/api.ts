@@ -8,6 +8,8 @@
  * - Throws an ApiError with a parsed message on any non-2xx response.
  */
 
+import { getCurrentTabId } from '@/lib/tab-session'
+
 const BASE_PATH = '/api'
 const REQUEST_TIMEOUT_MS = 30_000
 const UPLOAD_TIMEOUT_MS = 10 * 60_000
@@ -25,6 +27,11 @@ export class ApiError extends Error {
     this.status = status
     this.body = body
   }
+}
+
+function clientTabHeaders(): Record<string, string> {
+  const tabId = getCurrentTabId()
+  return tabId ? { 'X-Client-Tab-ID': tabId } : {}
 }
 
 async function parseErrorMessage(res: Response): Promise<{ message: string; body: unknown }> {
@@ -62,6 +69,7 @@ async function request<T>(path: string, init?: RequestInit, timeoutMs = REQUEST_
       headers: {
         ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
         ...(init?.method && init.method !== 'GET' ? { 'X-Requested-With': REQUESTED_WITH } : {}),
+        ...clientTabHeaders(),
         ...init?.headers,
       },
     })
@@ -120,6 +128,7 @@ export async function postBlob(path: string, data?: unknown): Promise<Blob> {
       headers: {
         'Content-Type': 'application/json',
         'X-Requested-With': REQUESTED_WITH,
+        ...clientTabHeaders(),
       },
       body: data !== undefined ? JSON.stringify(data) : undefined,
       signal: controller.signal,
@@ -164,7 +173,7 @@ export async function postForm<T>(path: string, formData: FormData): Promise<T> 
     res = await fetch(`${BASE_PATH}${path}`, {
       method: 'POST',
       credentials: 'include',
-      headers: { 'X-Requested-With': REQUESTED_WITH },
+      headers: { 'X-Requested-With': REQUESTED_WITH, ...clientTabHeaders() },
       body: formData,
       signal: controller.signal,
     })

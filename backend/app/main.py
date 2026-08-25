@@ -10,13 +10,14 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from app import audit_middleware, config, database, http_middleware
+from app import audit_middleware, client_context, config, database, http_middleware
 from app.routers import (
     admin_routes,
     auth_routes,
     erp_converter,
     gst_invoice_adder,
     gstr2b,
+    job_control,
     rdc_payables,
     settings_routes,
     system_admin_routes,
@@ -87,6 +88,7 @@ app = FastAPI(
 
 app.middleware("http")(audit_middleware.audit_middleware)
 app.middleware("http")(http_middleware.security_and_performance_middleware)
+app.middleware("http")(client_context.client_tab_context_middleware)
 app.add_middleware(GZipMiddleware, minimum_size=1_024, compresslevel=5)
 
 
@@ -123,6 +125,7 @@ app.include_router(auth_routes.router)
 app.include_router(admin_routes.router)
 app.include_router(system_admin_routes.router)
 app.include_router(settings_routes.router)
+app.include_router(job_control.router)
 app.include_router(erp_converter.router)
 app.include_router(rdc_payables.router)
 app.include_router(unaccounted_txn.router)

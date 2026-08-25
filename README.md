@@ -19,7 +19,8 @@ office PC and shared over the local network via a browser.
 
 Plus shared admin features: user management, per-app access control, email
 sender settings, database backup scheduling, and a file-based + database
-audit log.
+audit log. Mapping inputs show searchable existing-value suggestions, and the
+admin Users/Audit Log screens use server-side search and pagination.
 
 ## Stack
 
@@ -97,6 +98,10 @@ environment and reinstalls dependencies automatically if `requirements.txt`
 changed). If only backend files changed, a restart is enough; if frontend
 files changed, make sure the build in `backend/app/static/` was committed
 before pulling (see above).
+
+For the 25 August 2026 concurrency release, existing production databases must
+run `deployment/mysql/20260825_tab_owned_jobs.sql` in MySQL Workbench after the
+original durable-concurrency migration. It is safe to run more than once.
 
 ## What's not in this repo
 

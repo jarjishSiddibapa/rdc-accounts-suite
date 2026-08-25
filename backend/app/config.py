@@ -95,4 +95,10 @@ JOB_POLL_SECONDS = max(0.1, float(os.environ.get("JOB_POLL_SECONDS", "0.75")))
 JOB_LEASE_SECONDS = max(30, int(os.environ.get("JOB_LEASE_SECONDS", "120")))
 JOB_HEARTBEAT_SECONDS = max(5, int(os.environ.get("JOB_HEARTBEAT_SECONDS", "15")))
 JOB_MAX_ATTEMPTS = max(1, int(os.environ.get("JOB_MAX_ATTEMPTS", "2")))
+JOB_CLIENT_MONITOR_SECONDS = max(
+    0.5, float(os.environ.get("JOB_CLIENT_MONITOR_SECONDS", "2"))
+)
+JOB_CLIENT_HEARTBEAT_TIMEOUT_SECONDS = max(
+    30, int(os.environ.get("JOB_CLIENT_HEARTBEAT_TIMEOUT_SECONDS", "120"))
+)
 ORACLE_GST_JOB_CONCURRENCY = max(1, int(os.environ.get("ORACLE_GST_JOB_CONCURRENCY", "1")))

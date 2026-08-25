@@ -183,6 +183,9 @@ class BackgroundJob(Base):
     args_json = Column(LONGTEXT, nullable=False)
     kwargs_json = Column(LONGTEXT, nullable=False)
     resource_key = Column(String(64), nullable=True, index=True)
+    client_tab_id = Column(String(64), nullable=True, index=True)
+    client_heartbeat_at = Column(DateTime, nullable=True, index=True)
+    cancel_on_disconnect = Column(Boolean, default=False, nullable=False)
     status = Column(String(20), nullable=False, index=True)  # queued/running/done/error/cancelled
     progress = Column(Float, default=0.0, nullable=False)
     phase = Column(String(255), default="Queued", nullable=False)

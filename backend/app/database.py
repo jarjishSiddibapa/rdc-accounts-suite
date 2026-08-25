@@ -163,6 +163,48 @@ def _apply_additive_schema_updates() -> None:
                     )
                 )
 
+    # Browser-tab ownership was added after the durable queue first shipped.
+    # Existing jobs remain detached (cancel_on_disconnect=FALSE); only newly
+    # submitted jobs carrying a valid tab identity opt into client leasing.
+    if "background_jobs" in existing_tables:
+        job_columns = {
+            column["name"] for column in inspector.get_columns("background_jobs")
+        }
+        with engine.begin() as connection:
+            if "client_tab_id" not in job_columns:
+                connection.execute(
+                    text(
+                        "ALTER TABLE `background_jobs` ADD COLUMN `client_tab_id` "
+                        "VARCHAR(64) NULL"
+                    )
+                )
+                connection.execute(
+                    text(
+                        "CREATE INDEX `ix_background_jobs_client_tab_id` "
+                        "ON `background_jobs` (`client_tab_id`)"
+                    )
+                )
+            if "client_heartbeat_at" not in job_columns:
+                connection.execute(
+                    text(
+                        "ALTER TABLE `background_jobs` ADD COLUMN `client_heartbeat_at` "
+                        "DATETIME NULL"
+                    )
+                )
+                connection.execute(
+                    text(
+                        "CREATE INDEX `ix_background_jobs_client_heartbeat_at` "
+                        "ON `background_jobs` (`client_heartbeat_at`)"
+                    )
+                )
+            if "cancel_on_disconnect" not in job_columns:
+                connection.execute(
+                    text(
+                        "ALTER TABLE `background_jobs` ADD COLUMN `cancel_on_disconnect` "
+                        "BOOLEAN NOT NULL DEFAULT FALSE"
+                    )
+                )
+
     if "users" not in existing_tables:
         return
 

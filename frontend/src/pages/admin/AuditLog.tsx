@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
-import { ClipboardList } from 'lucide-react'
+import { ClipboardList, Filter, RotateCcw } from 'lucide-react'
 import { AppShell } from '@/components/AppShell'
 import { GlassCard } from '@/components/GlassCard'
 import { Pagination } from '@/components/Pagination'
 import { SearchBox } from '@/components/SearchBox'
+import { Button } from '@/components/Button'
+import { useDebouncedValue } from '@/hooks/useDebouncedValue'
 import { ApiError, get } from '@/lib/api'
-import { formatIndianDateTime } from '@/lib/regional'
+import { formatIndianDateTime, formatIndianNumber } from '@/lib/regional'
 
 interface AuditRow {
   id: number
@@ -16,6 +18,9 @@ interface AuditRow {
   ip_address: string | null
   details: string | null
 }
+
+type HttpMethodFilter = '' | 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE'
+type StatusGroupFilter = '' | 'success' | 'client_error' | 'server_error' | 'no_status'
 
 function statusColor(code: number | null): string {
   if (code == null) return 'text-ink-faint'
@@ -31,10 +36,16 @@ export default function AuditLog() {
   const [pageSize, setPageSize] = useState(25)
   const [actionFilter, setActionFilter] = useState('')
   const [actorFilter, setActorFilter] = useState('')
+  const [searchFilter, setSearchFilter] = useState('')
+  const [methodFilter, setMethodFilter] = useState<HttpMethodFilter>('')
+  const [statusFilter, setStatusFilter] = useState<StatusGroupFilter>('')
   const [startDate, setStartDate] = useState('')
   const [endDate, setEndDate] = useState('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const debouncedSearch = useDebouncedValue(searchFilter)
+  const debouncedAction = useDebouncedValue(actionFilter)
+  const debouncedActor = useDebouncedValue(actorFilter)
 
   useEffect(() => {
     let cancelled = false
@@ -44,8 +55,11 @@ export default function AuditLog() {
       limit: String(pageSize),
       offset: String((page - 1) * pageSize),
     })
-    if (actionFilter.trim()) params.set('action_contains', actionFilter.trim())
-    if (actorFilter.trim()) params.set('actor_contains', actorFilter.trim())
+    if (debouncedSearch.trim()) params.set('search', debouncedSearch.trim())
+    if (debouncedAction.trim()) params.set('action_contains', debouncedAction.trim())
+    if (debouncedActor.trim()) params.set('actor_contains', debouncedActor.trim())
+    if (methodFilter) params.set('method', methodFilter)
+    if (statusFilter) params.set('status_group', statusFilter)
     if (startDate) params.set('start_date', startDate)
     if (endDate) params.set('end_date', endDate)
 
@@ -66,9 +80,23 @@ export default function AuditLog() {
     return () => {
       cancelled = true
     }
-  }, [page, pageSize, actionFilter, actorFilter, startDate, endDate])
+  }, [page, pageSize, debouncedAction, debouncedActor, debouncedSearch, endDate, methodFilter, startDate, statusFilter])
 
   const pageCount = Math.max(1, Math.ceil(total / pageSize))
+  const hasFilters = Boolean(
+    searchFilter || actionFilter || actorFilter || methodFilter || statusFilter || startDate || endDate,
+  )
+
+  function clearFilters() {
+    setSearchFilter('')
+    setActionFilter('')
+    setActorFilter('')
+    setMethodFilter('')
+    setStatusFilter('')
+    setStartDate('')
+    setEndDate('')
+    setPage(1)
+  }
 
   return (
     <AppShell title="Audit log">
@@ -93,14 +121,44 @@ export default function AuditLog() {
         </GlassCard>
 
         <GlassCard padding="lg">
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-sm font-semibold text-ink-dim">
+              <Filter className="h-4 w-4 text-accent" />
+              Search and filter activity
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="text-xs font-medium text-ink-faint">{formatIndianNumber(total)} found</span>
+              {hasFilters && (
+                <Button
+                  type="button"
+                  variant="secondary"
+                  icon={<RotateCcw className="h-4 w-4" />}
+                  onClick={clearFilters}
+                >
+                  Clear filters
+                </Button>
+              )}
+            </div>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+            <SearchBox
+              value={searchFilter}
+              onChange={(value) => {
+                setSearchFilter(value)
+                setPage(1)
+              }}
+              placeholder="Search user, API, IP, or details"
+              aria-label="Search all audit log fields"
+              className="md:col-span-2"
+            />
             <SearchBox
               value={actorFilter}
               onChange={(value) => {
                 setActorFilter(value)
                 setPage(1)
               }}
-              placeholder="Search by actor email or name"
+              placeholder="User email or name"
               aria-label="Filter audit log by actor email or name"
             />
             <SearchBox
@@ -109,11 +167,46 @@ export default function AuditLog() {
                 setActionFilter(value)
                 setPage(1)
               }}
-              placeholder="Filter by action (e.g. /api/admin/users)"
+              placeholder="API route or action"
               aria-label="Filter audit log by action"
             />
+            <label className="flex flex-col gap-1 text-xs font-medium text-ink-faint">
+              HTTP method
+              <select
+                value={methodFilter}
+                onChange={(event) => {
+                  setMethodFilter(event.target.value as HttpMethodFilter)
+                  setPage(1)
+                }}
+                className="field-control text-sm text-ink"
+              >
+                <option value="">All methods</option>
+                <option value="GET">GET</option>
+                <option value="POST">POST</option>
+                <option value="PUT">PUT</option>
+                <option value="PATCH">PATCH</option>
+                <option value="DELETE">DELETE</option>
+              </select>
+            </label>
+            <label className="flex flex-col gap-1 text-xs font-medium text-ink-faint">
+              Outcome
+              <select
+                value={statusFilter}
+                onChange={(event) => {
+                  setStatusFilter(event.target.value as StatusGroupFilter)
+                  setPage(1)
+                }}
+                className="field-control text-sm text-ink"
+              >
+                <option value="">All outcomes</option>
+                <option value="success">Successful (2xx-3xx)</option>
+                <option value="client_error">Client errors (4xx)</option>
+                <option value="server_error">Server errors (5xx)</option>
+                <option value="no_status">No HTTP status</option>
+              </select>
+            </label>
             <label className="flex flex-col gap-1.5 text-sm">
-              <span className="sr-only">From date</span>
+              <span className="text-xs font-medium text-ink-faint">From date</span>
               <input
                 type="date"
                 value={startDate}
@@ -126,7 +219,7 @@ export default function AuditLog() {
               />
             </label>
             <label className="flex flex-col gap-1.5 text-sm">
-              <span className="sr-only">To date</span>
+              <span className="text-xs font-medium text-ink-faint">To date</span>
               <input
                 type="date"
                 value={endDate}

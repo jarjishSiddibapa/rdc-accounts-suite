@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Archive, Building2, KeyRound, Plus, Power, RotateCcw, ShieldCheck, UserRoundPen } from 'lucide-react'
+import { Archive, Building2, Filter, KeyRound, Plus, Power, RotateCcw, ShieldCheck, UserRoundPen } from 'lucide-react'
 import { AppShell } from '@/components/AppShell'
 import { Button } from '@/components/Button'
 import { Modal } from '@/components/Modal'
@@ -7,7 +7,7 @@ import { Pagination } from '@/components/Pagination'
 import { PasswordInput } from '@/components/PasswordInput'
 import { PasswordStrengthMeter } from '@/components/PasswordStrengthMeter'
 import { SearchBox } from '@/components/SearchBox'
-import { usePagination } from '@/hooks/usePagination'
+import { useDebouncedValue } from '@/hooks/useDebouncedValue'
 import { formatIndianDate, formatIndianNumber } from '@/lib/regional'
 import { generateStrongPassword, scorePasswordStrength } from '@/lib/passwordStrength'
 import { cn } from '@/utils/cn'
@@ -34,13 +34,21 @@ interface AppInfo {
 }
 
 type CompanyFilter = 'all' | AppInfo['company']
+type UserRoleFilter = 'all' | AdminUser['role']
+type UserScopeFilter = 'current' | 'active' | 'inactive' | 'archived' | 'all'
 
 export default function Users() {
   const [users, setUsers] = useState<AdminUser[]>([])
+  const [userTotal, setUserTotal] = useState(0)
+  const [userPage, setUserPage] = useState(1)
+  const [userPageSize, setUserPageSize] = useState(25)
+  const [userSearch, setUserSearch] = useState('')
+  const [userRole, setUserRole] = useState<UserRoleFilter>('all')
+  const [userScope, setUserScope] = useState<UserScopeFilter>('current')
   const [apps, setApps] = useState<AppInfo[]>([])
   const [loading, setLoading] = useState(true)
-  const [showArchived, setShowArchived] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const debouncedUserSearch = useDebouncedValue(userSearch)
 
   const [addOpen, setAddOpen] = useState(false)
   const [newFirstName, setNewFirstName] = useState('')
@@ -76,12 +84,21 @@ export default function Users() {
     setLoading(true)
     setError(null)
     try {
-      const [userData, appData] = await Promise.all([
-        get<AdminUser[]>(`/admin/users${showArchived ? '?include_archived=true' : ''}`),
-        get<AppInfo[]>('/admin/apps'),
-      ])
-      setUsers(userData)
-      setApps(appData)
+      const params = new URLSearchParams({
+        paginated: 'true',
+        limit: String(userPageSize),
+        offset: String((userPage - 1) * userPageSize),
+      })
+      if (debouncedUserSearch.trim()) params.set('search', debouncedUserSearch.trim())
+      if (userRole !== 'all') params.set('role', userRole)
+      if (userScope === 'all') params.set('include_archived', 'true')
+      else if (userScope !== 'current') params.set('status', userScope)
+
+      const userData = await get<{ total: number; items: AdminUser[] }>(
+        `/admin/users?${params.toString()}`,
+      )
+      setUsers(userData.items)
+      setUserTotal(userData.total)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Failed to load users.')
     } finally {
@@ -91,7 +108,13 @@ export default function Users() {
 
   useEffect(() => {
     void loadUsers()
-  }, [showArchived])
+  }, [debouncedUserSearch, userPage, userPageSize, userRole, userScope])
+
+  useEffect(() => {
+    void get<AppInfo[]>('/admin/apps')
+      .then(setApps)
+      .catch((err) => setError(err instanceof ApiError ? err.message : 'Failed to load applications.'))
+  }, [])
 
   async function handleAdd() {
     if (!scorePasswordStrength(newPassword).isAcceptable) {
@@ -253,7 +276,7 @@ export default function Users() {
     }
   }
 
-  const userPagination = usePagination(users, 10, showArchived)
+  const userPageCount = Math.max(1, Math.ceil(userTotal / userPageSize))
 
   const visiblePermissionApps = useMemo(() => {
     const query = permsSearch.trim().toLocaleLowerCase()
@@ -286,15 +309,6 @@ export default function Users() {
               <p className="mt-1 text-sm text-ink-dim">Manage who can sign in and which applications they can use.</p>
             </div>
             <div className="flex flex-wrap items-center gap-3">
-              <label className="flex items-center gap-2 text-sm text-ink-dim">
-                <input
-                  type="checkbox"
-                  checked={showArchived}
-                  onChange={(event) => setShowArchived(event.target.checked)}
-                  className="h-4 w-4 rounded border-border accent-accent"
-                />
-                Show archived
-              </label>
               <Button
                 variant="secondary"
                 icon={<Building2 className="h-4 w-4" />}
@@ -313,6 +327,58 @@ export default function Users() {
               {error}
             </p>
           )}
+
+          <div className="subpanel flex flex-col gap-3 p-3 lg:flex-row lg:items-center">
+            <div className="flex items-center gap-2 text-sm font-semibold text-ink-dim lg:pr-2">
+              <Filter className="h-4 w-4 text-accent" />
+              Find users
+            </div>
+            <SearchBox
+              value={userSearch}
+              onChange={(value) => {
+                setUserSearch(value)
+                setUserPage(1)
+              }}
+              placeholder="Search name, email, or user ID"
+              aria-label="Search users by name, email, or user ID"
+              className="w-full lg:max-w-md lg:flex-1"
+            />
+            <label className="flex min-w-40 flex-col gap-1 text-xs font-medium text-ink-faint">
+              Role
+              <select
+                value={userRole}
+                onChange={(event) => {
+                  setUserRole(event.target.value as UserRoleFilter)
+                  setUserPage(1)
+                }}
+                className="field-control text-sm text-ink"
+              >
+                <option value="all">All roles</option>
+                <option value="admin">Administrators</option>
+                <option value="user">Users</option>
+              </select>
+            </label>
+            <label className="flex min-w-48 flex-col gap-1 text-xs font-medium text-ink-faint">
+              Account status
+              <select
+                value={userScope}
+                onChange={(event) => {
+                  setUserScope(event.target.value as UserScopeFilter)
+                  setUserPage(1)
+                }}
+                className="field-control text-sm text-ink"
+              >
+                <option value="current">All current users</option>
+                <option value="active">Active only</option>
+                <option value="inactive">Inactive only</option>
+                <option value="archived">Archived only</option>
+                <option value="all">Current and archived</option>
+              </select>
+            </label>
+            <span className="whitespace-nowrap text-xs font-medium text-ink-faint">
+              {formatIndianNumber(userTotal)} found
+            </span>
+          </div>
 
           <div className="table-shell">
             <table className="w-full min-w-[900px] border-collapse text-sm">
@@ -343,7 +409,7 @@ export default function Users() {
                     </td>
                   </tr>
                 )}
-                {!loading && userPagination.pagedItems.map((u) => (
+                {!loading && users.map((u) => (
                   <tr key={u.id} className="border-b border-border/80 transition-colors last:border-b-0 hover:bg-bg-soft/55">
                     <td className="px-4 py-3 text-ink-dim">{u.id}</td>
                     <td className="px-4 py-3 font-medium text-ink">
@@ -450,13 +516,17 @@ export default function Users() {
             </table>
           </div>
           <Pagination
-            page={userPagination.page}
-            pageCount={userPagination.pageCount}
-            pageSize={userPagination.pageSize}
-            totalItems={userPagination.totalItems}
+            page={userPage}
+            pageCount={userPageCount}
+            pageSize={userPageSize}
+            totalItems={userTotal}
             itemLabel="users"
-            onPageChange={userPagination.setPage}
-            onPageSizeChange={userPagination.setPageSize}
+            onPageChange={setUserPage}
+            onPageSizeChange={(size) => {
+              setUserPageSize(size)
+              setUserPage(1)
+            }}
+            pageSizeOptions={[10, 25, 50, 100]}
           />
         </div>
       </div>

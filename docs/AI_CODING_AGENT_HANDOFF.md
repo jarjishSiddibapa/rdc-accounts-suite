@@ -101,6 +101,23 @@ Every job lookup, cancel operation, download, and one-shot send action must
 verify `owner_id`. The database action table prevents duplicate sends when two
 tabs click the same action.
 
+Browser-started processing work is additionally leased to the physical tab
+that submitted it. `frontend/src/lib/api.ts` sends the per-tab
+`X-Client-Tab-ID`; `backend/app/client_context.py` keeps it request-local; and
+`background_jobs.client_tab_id`, `client_heartbeat_at`, and
+`cancel_on_disconnect` persist ownership across all API/worker processes.
+`ProgressPanel` renews the lease while polling and
+`frontend/src/lib/job-lifecycle.ts` sends a keepalive abandon request when its
+tab or workflow closes. Workers monitor the lease and cooperatively stop work;
+the GST Oracle processor also cancels active Oracle calls and CPU subprocess
+work is terminated through its worker-private pool when necessary.
+
+Email dispatch is the exception: once sending begins, it is irreversible and
+must not become a partial batch merely because a browser closes. Unaccounted,
+Ultrafine Balance Confirmation, and Ultrafine Payment Reminder send tasks are
+detached in `backend/app/jobs.py`, and their send `ProgressPanel` instances set
+`cancelOnTabClose={false}`. Preserve both halves of that safeguard.
+
 Trial Balance's two-step upload flow stores owner/expiry metadata in MySQL and
 parsed content in UUID-named gzip JSON under the scratch directory. Do not move
 its token state back into an API process.
@@ -224,6 +241,11 @@ Preserve these UX requirements:
 - visible keyboard focus, semantic labels, and reduced-motion support;
 - date/month/year/month-year controls use the appropriate temporal picker;
 - excluded POs and similar datasets use readable lists/tables, not pill clouds;
+- all mapping add/edit dialogs and missing-mapping fix panels use the shared
+  searchable creatable combobox, showing existing values as the user types;
+- mapping tables, PO keywords/exclusions, users, and audit logs have usable
+  search and pagination; Users and Audit Log perform filtering server-side so
+  search remains correct beyond the currently visible page;
 - optional first/last names are displayed when available, with email fallback;
 - loading, empty, success, error, and disabled states are explicit; and
 - UI polish must not weaken validation, permissions, owner isolation, or job
@@ -250,6 +272,15 @@ It is idempotent and creates the five shared runtime tables plus the initial
 `oracle-gst` slot. Production operators may paste the complete script into
 MySQL Workbench. If production uses a database name other than
 `rdc_accounts_suite`, change its `CREATE DATABASE` and `USE` statements first.
+
+For a production database where the original durable-concurrency migration was
+already applied before tab ownership was added, also run:
+
+`deployment/mysql/20260825_tab_owned_jobs.sql`
+
+It idempotently adds the three browser-tab lease columns and their indexes. A
+fresh environment can run the current full durable-concurrency script and then
+the tab-owned script safely; both are repeatable.
 
 Normal production update sequence:
 

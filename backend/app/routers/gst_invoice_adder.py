@@ -109,7 +109,7 @@ class _CollectingLogQueue:
 
 
 def _job_enrich(input_path: str, output_path: str, download_name: str,
-                 progress_cb=None) -> dict:
+                 progress_cb=None, cancel_event=None) -> dict:
     """Orchestrates process_report's 3 steps directly (rather than calling
     processor.process_report as one opaque call) so the CPU-bound read and
     write steps can each run on the CPU process pool, while the Oracle fetch
@@ -131,9 +131,17 @@ def _job_enrich(input_path: str, output_path: str, download_name: str,
         processor.init_oracle_client(_ORACLE_CFG.instant_client_dir)
         pool = processor._make_pool(_ORACLE_CFG, log_q)
         try:
-            gst_map = processor._fetch_all_parallel(pairs_unique, pool, log_q, progress_cb)
+            gst_map = processor._fetch_all_parallel(
+                pairs_unique,
+                pool,
+                log_q,
+                progress_cb,
+                cancel_event=cancel_event,
+            )
         finally:
             try:
+                pool.close(force=bool(cancel_event is not None and cancel_event.is_set()))
+            except TypeError:
                 pool.close()
             except Exception:
                 pass
