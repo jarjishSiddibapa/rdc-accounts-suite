@@ -1,5 +1,6 @@
 import time
 import unittest
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 from threading import Event
 from http.cookies import SimpleCookie
@@ -16,7 +17,7 @@ from app.jobs import (
     claim_job_action,
     finish_job_action,
     get_job,
-    submit_job,
+    submit_inline_job,
 )
 from app.oracle_runtime import initialize_oracle_client
 from app.routers import unaccounted_txn
@@ -97,11 +98,29 @@ class ValidationTests(unittest.TestCase):
 class RateLimitTests(unittest.TestCase):
     def test_limiter_blocks_after_limit(self):
         limiter = SlidingWindowLimiter()
-        limiter.enforce("login:client", limit=2, window_seconds=60)
-        limiter.enforce("login:client", limit=2, window_seconds=60)
+        key = f"login:test:{uuid.uuid4()}"
+        limiter.enforce(key, limit=2, window_seconds=60)
+        limiter.enforce(key, limit=2, window_seconds=60)
         with self.assertRaises(HTTPException) as raised:
-            limiter.enforce("login:client", limit=2, window_seconds=60)
+            limiter.enforce(key, limit=2, window_seconds=60)
         self.assertEqual(raised.exception.status_code, 429)
+
+    def test_shared_limiter_is_atomic_under_parallel_requests(self):
+        limiter = SlidingWindowLimiter()
+        key = f"login:parallel:{uuid.uuid4()}"
+
+        def attempt(_index):
+            try:
+                limiter.enforce(key, limit=5, window_seconds=60)
+                return "allowed"
+            except HTTPException as exc:
+                self.assertEqual(exc.status_code, 429)
+                return "blocked"
+
+        with ThreadPoolExecutor(max_workers=20) as pool:
+            outcomes = list(pool.map(attempt, range(20)))
+        self.assertEqual(outcomes.count("allowed"), 5)
+        self.assertEqual(outcomes.count("blocked"), 15)
 
 
 class OracleRuntimeTests(unittest.TestCase):
@@ -130,7 +149,7 @@ class OracleRuntimeTests(unittest.TestCase):
 class JobIsolationTests(unittest.TestCase):
     @staticmethod
     def _completed_job(owner_id: int) -> str:
-        job_id = submit_job(lambda: {"status": "preview"}, owner_id=owner_id)
+        job_id = submit_inline_job(lambda: {"status": "preview"}, owner_id=owner_id)
         deadline = time.monotonic() + 2
         job = get_job(job_id, owner_id=owner_id)
         while job and job["status"] == "running" and time.monotonic() < deadline:
@@ -141,7 +160,7 @@ class JobIsolationTests(unittest.TestCase):
         return job_id
 
     def test_jobs_are_visible_only_to_their_owner(self):
-        job_id = submit_job(lambda: {"ok": True}, owner_id=101)
+        job_id = submit_inline_job(lambda: {"ok": True}, owner_id=101)
         self.assertIsNone(get_job(job_id, owner_id=202))
 
         deadline = time.monotonic() + 2
@@ -159,7 +178,7 @@ class JobIsolationTests(unittest.TestCase):
         with ThreadPoolExecutor(max_workers=20) as pool:
             job_ids = list(
                 pool.map(
-                    lambda owner: submit_job(
+                    lambda owner: submit_inline_job(
                         lambda value=owner: {"owner_marker": value},
                         owner_id=owner,
                     ),
@@ -188,7 +207,7 @@ class JobIsolationTests(unittest.TestCase):
             progress_cb(0.5, "Halfway")
             return {"should_not": "complete"}
 
-        job_id = submit_job(cancellable_work, owner_id=303)
+        job_id = submit_inline_job(cancellable_work, owner_id=303)
         self.assertTrue(started.wait(timeout=2))
         self.assertIsNone(cancel_job(job_id, owner_id=404))
         cancellation = cancel_job(job_id, owner_id=303)
@@ -281,7 +300,7 @@ class JobIsolationTests(unittest.TestCase):
 
     def test_two_tabs_cannot_confirm_the_same_email_preview_twice(self):
         owner_id = 808
-        preview_job_id = submit_job(
+        preview_job_id = submit_inline_job(
             lambda: {
                 "status": "preview",
                 "to": ["recipient@example.com"],

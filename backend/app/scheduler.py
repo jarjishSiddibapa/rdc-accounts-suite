@@ -10,15 +10,22 @@ import logging
 import shutil
 import threading
 import time
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
 from filelock import FileLock, Timeout
 
 from app import audit_middleware, backup
+from app import jobs
 from app.config import DATA_DIR, SCRATCH_DIR
 from app.database import SessionLocal
-from app.models import BackupSettings
+from app.models import BackupSettings, RateLimitBucket, TrialBalanceUploadToken
 from app.regional import now_ist
 
 logger = logging.getLogger(__name__)
+
+
+def _utcnow() -> datetime:
+    return datetime.now(UTC).replace(tzinfo=None)
 
 _POLL_SECONDS = 45
 
@@ -121,6 +128,32 @@ def _tick() -> None:
         return
 
 
+def _sweep_database_runtime_state() -> None:
+    """Soft-delete expired runtime metadata; never hard-delete a DB row."""
+    now = _utcnow()
+    db = SessionLocal()
+    try:
+        db.query(RateLimitBucket).filter(
+            RateLimitBucket.updated_at < now - timedelta(days=1),
+            RateLimitBucket.is_deleted.is_(False),
+        ).update(
+            {RateLimitBucket.is_deleted: True},
+            synchronize_session=False,
+        )
+        expired_tokens = db.query(TrialBalanceUploadToken).filter(
+            TrialBalanceUploadToken.expires_at < now,
+            TrialBalanceUploadToken.is_deleted.is_(False),
+        ).all()
+        for token in expired_tokens:
+            token.is_deleted = True
+            Path(token.input_path).unlink(missing_ok=True)
+            Path(token.parsed_path).unlink(missing_ok=True)
+        db.commit()
+    finally:
+        db.close()
+    jobs.prune_expired_jobs()
+
+
 def _loop() -> None:
     while True:
         try:
@@ -131,7 +164,16 @@ def _loop() -> None:
             _sweep_scratch()
         except Exception:  # noqa: BLE001 - one bad tick must not kill the thread
             logger.exception("[scheduler] scratch sweep failed")
+        try:
+            _sweep_database_runtime_state()
+        except Exception:  # noqa: BLE001 - one bad sweep must not stop scheduling
+            logger.exception("[scheduler] runtime-state sweep failed")
         time.sleep(_POLL_SECONDS)
+
+
+def run_forever() -> None:
+    """Run the scheduler in its one dedicated supervised process."""
+    _loop()
 
 
 def start_scheduler() -> None:

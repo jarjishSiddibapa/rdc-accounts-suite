@@ -2,7 +2,19 @@
 
 from datetime import datetime
 
-from sqlalchemy import Boolean, Column, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    Column,
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
+from sqlalchemy.dialects.mysql import LONGTEXT
 from sqlalchemy.orm import relationship
 
 from app.database import Base
@@ -158,3 +170,95 @@ class BackupSettings(Base):
     # outlives a user's own session on disk.
     scratch_cleanup_minutes = Column(Integer, default=30, nullable=False)
     is_deleted = Column(Boolean, default=False, nullable=False)
+
+
+class BackgroundJob(Base):
+    """Durable work queue shared by every API and worker process."""
+
+    __tablename__ = "background_jobs"
+
+    id = Column(String(36), primary_key=True)
+    owner_id = Column(Integer, nullable=False, index=True)
+    task_name = Column(String(255), nullable=False)
+    args_json = Column(LONGTEXT, nullable=False)
+    kwargs_json = Column(LONGTEXT, nullable=False)
+    resource_key = Column(String(64), nullable=True, index=True)
+    status = Column(String(20), nullable=False, index=True)  # queued/running/done/error/cancelled
+    progress = Column(Float, default=0.0, nullable=False)
+    phase = Column(String(255), default="Queued", nullable=False)
+    result_json = Column(LONGTEXT, nullable=True)
+    error = Column(Text, nullable=True)
+    cancel_requested = Column(Boolean, default=False, nullable=False)
+    priority = Column(Integer, default=100, nullable=False, index=True)
+    not_before = Column(DateTime, nullable=True, index=True)
+    attempts = Column(Integer, default=0, nullable=False)
+    lease_owner = Column(String(128), nullable=True, index=True)
+    lease_expires_at = Column(DateTime, nullable=True, index=True)
+    heartbeat_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    started_at = Column(DateTime, nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    finished_at = Column(DateTime, nullable=True)
+    is_deleted = Column(Boolean, default=False, nullable=False, index=True)
+
+
+class BackgroundJobAction(Base):
+    """Database-backed idempotency claim for irreversible job actions."""
+
+    __tablename__ = "background_job_actions"
+    __table_args__ = (
+        UniqueConstraint("job_id", "action", name="uq_background_job_action"),
+    )
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    job_id = Column(String(36), ForeignKey("background_jobs.id"), nullable=False, index=True)
+    owner_id = Column(Integer, nullable=False, index=True)
+    action = Column(String(100), nullable=False)
+    status = Column(String(20), nullable=False)  # in_progress/completed/failed
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    is_deleted = Column(Boolean, default=False, nullable=False, index=True)
+
+
+class BackgroundResourceSlot(Base):
+    """A durable semaphore slot for globally constrained dependencies."""
+
+    __tablename__ = "background_resource_slots"
+    __table_args__ = (
+        UniqueConstraint("resource_key", "slot_number", name="uq_background_resource_slot"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    resource_key = Column(String(64), nullable=False, index=True)
+    slot_number = Column(Integer, nullable=False)
+    job_id = Column(String(36), nullable=True, index=True)
+    lease_owner = Column(String(128), nullable=True)
+    lease_expires_at = Column(DateTime, nullable=True, index=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    is_deleted = Column(Boolean, default=False, nullable=False, index=True)
+
+
+class RateLimitBucket(Base):
+    """One locked row per rate-limit key, shared across all API workers."""
+
+    __tablename__ = "rate_limit_buckets"
+
+    limiter_key = Column(String(255), primary_key=True)
+    events_json = Column(LONGTEXT, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    is_deleted = Column(Boolean, default=False, nullable=False, index=True)
+
+
+class TrialBalanceUploadToken(Base):
+    """Durable metadata for Trial Balance's upload -> selection workflow."""
+
+    __tablename__ = "trial_balance_upload_tokens"
+
+    token = Column(String(36), primary_key=True)
+    owner_id = Column(Integer, nullable=False, index=True)
+    input_path = Column(Text, nullable=False)
+    parsed_path = Column(Text, nullable=False)
+    download_filename = Column(String(255), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    expires_at = Column(DateTime, nullable=False, index=True)
+    is_deleted = Column(Boolean, default=False, nullable=False, index=True)

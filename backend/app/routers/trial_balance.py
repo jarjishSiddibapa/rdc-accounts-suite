@@ -10,7 +10,7 @@ processor.py / mapping_store.py) onto the shared FastAPI backend:
                                (mirrors the desktop app's blocking
                                _AccountPickerDialog, now a two-step API).
                                The parsed rows are stashed server-side keyed
-                               by a short-lived in-memory token so
+                               by a short-lived durable token so
                                /process doesn't need the file re-uploaded
                                or re-parsed.
   2. POST /process           – takes that token + the user's selected
@@ -39,9 +39,9 @@ This tool has no email feature in the original desktop app, so none is
 added here.
 """
 
-import threading
-import time
+import gzip
 import uuid
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
@@ -53,8 +53,8 @@ from app.auth import get_current_user
 from app.config import SCRATCH_DIR
 from app.database import SessionLocal, get_db
 from app import jobs
-from app.jobs import cancel_job, get_job, run_cpu_phase, submit_job
-from app.models import User
+from app.jobs import cancel_job, get_job, loads_value, run_cpu_phase, submit_job, dumps_value
+from app.models import TrialBalanceUploadToken, User
 from app.permissions import require_app_access
 from app.regional import format_indian_number, now_ist
 from app.services.trial_balance import mapping_store, processor
@@ -67,21 +67,33 @@ router = APIRouter(
 
 _XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
-# ── in-memory token stash for the upload -> account-picker -> process flow ──
-# token -> {"path": str, "columns": list, "rows": list, "ts": float, "owner_id": int}
-# Short-lived, in-process, pruned on access, scoped to the owning user.
+# ── durable token stash for the upload -> account-picker -> process flow ──
+# Metadata is stored in MySQL. Parsed rows live in a gzip-compressed, UUID
+# scratch file shared by every process on this server, avoiding an enormous
+# database payload while remaining safe across API workers and restarts.
 _ACCOUNTS_TTL_SECONDS = 30 * 60
-_stashed: dict[str, dict] = {}
-_stash_lock = threading.Lock()
 
 
-def _prune_stash() -> None:
-    now = time.time()
-    expired = [token for token, entry in _stashed.items() if now - entry["ts"] > _ACCOUNTS_TTL_SECONDS]
-    for token in expired:
-        entry = _stashed.pop(token, None)
-        if entry:
-            Path(entry["path"]).unlink(missing_ok=True)
+def _utcnow() -> datetime:
+    return datetime.now(UTC).replace(tzinfo=None)
+
+
+def _prune_stash(db: Session) -> None:
+    now = _utcnow()
+    expired = (
+        db.query(TrialBalanceUploadToken)
+        .filter(
+            TrialBalanceUploadToken.expires_at < now,
+            TrialBalanceUploadToken.is_deleted.is_(False),
+        )
+        .all()
+    )
+    for entry in expired:
+        entry.is_deleted = True
+        Path(entry.input_path).unlink(missing_ok=True)
+        Path(entry.parsed_path).unlink(missing_ok=True)
+    if expired:
+        db.commit()
 
 
 # ── request bodies ─────────────────────────────────────────────────────────
@@ -120,7 +132,11 @@ class AccountHoBody(BaseModel):
 # ── 1. Upload + account picker (POST /accounts) ─────────────────────────────
 
 @router.post("/accounts")
-async def parse_accounts(file: UploadFile = File(...), user: User = Depends(get_current_user)):
+async def parse_accounts(
+    file: UploadFile = File(...),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     """Parse the uploaded Detail Trial Balance export and return every
     distinct (Account Code, Description) pair found, for the frontend's
     account-picker step. The parsed rows are kept server-side under a
@@ -138,18 +154,30 @@ async def parse_accounts(file: UploadFile = File(...), user: User = Depends(get_
 
     pairs = processor.distinct_account_descriptions(columns, rows)
     token = str(uuid.uuid4())
-    with _stash_lock:
-        _prune_stash()
-        _stashed[token] = {
-            "path": str(input_path),
-            "columns": columns,
-            "rows": rows,
-            "ts": time.time(),
-            "owner_id": user.id,
-            "download_filename": (
-                f"{Path(file.filename or 'Trial_Balance').stem}_Location_Report.xlsx"
-            ),
-        }
+    parsed_path = SCRATCH_DIR / f"{token}_trial_balance_rows.json.gz"
+    try:
+        with gzip.open(parsed_path, "wt", encoding="utf-8") as output:
+            output.write(dumps_value({"columns": columns, "rows": rows}))
+        _prune_stash(db)
+        db.add(
+            TrialBalanceUploadToken(
+                token=token,
+                owner_id=user.id,
+                input_path=str(input_path),
+                parsed_path=str(parsed_path),
+                download_filename=(
+                    f"{Path(file.filename or 'Trial_Balance').stem}_Location_Report.xlsx"
+                ),
+                created_at=_utcnow(),
+                expires_at=_utcnow() + timedelta(seconds=_ACCOUNTS_TTL_SECONDS),
+                is_deleted=False,
+            )
+        )
+        db.commit()
+    except Exception:
+        input_path.unlink(missing_ok=True)
+        parsed_path.unlink(missing_ok=True)
+        raise
 
     return {
         "token": token,
@@ -238,31 +266,68 @@ def _run_process_job(input_path: str, columns: list, rows: list,
     }
 
 
+def _run_process_job_from_stash(
+    input_path: str,
+    parsed_path: str,
+    pivot_accounts: list,
+    output_path: str,
+    download_filename: str,
+    progress_cb=None,
+) -> dict:
+    """Worker entry point that rehydrates the durable parsed-row scratch file."""
+    with gzip.open(parsed_path, "rt", encoding="utf-8") as source:
+        parsed = loads_value(source.read())
+    return _run_process_job(
+        input_path,
+        parsed["columns"],
+        parsed["rows"],
+        pivot_accounts,
+        output_path,
+        download_filename,
+        progress_cb=progress_cb,
+    )
+
+
 @router.post("/process")
-def submit_process(body: ProcessRequest, user: User = Depends(get_current_user)):
-    with _stash_lock:
-        _prune_stash()
-        entry = _stashed.get(body.token)
-        if entry is not None and entry["owner_id"] != user.id:
-            entry = None
+def submit_process(
+    body: ProcessRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    _prune_stash(db)
+    entry = (
+        db.query(TrialBalanceUploadToken)
+        .filter(
+            TrialBalanceUploadToken.token == body.token,
+            TrialBalanceUploadToken.owner_id == user.id,
+            TrialBalanceUploadToken.expires_at >= _utcnow(),
+            TrialBalanceUploadToken.is_deleted.is_(False),
+        )
+        .first()
+    )
     if entry is None:
         raise HTTPException(status_code=404, detail="Upload token not found or expired — please re-upload the file")
 
+    parsed_path = Path(entry.parsed_path)
+    if not parsed_path.is_file():
+        entry.is_deleted = True
+        db.commit()
+        raise HTTPException(status_code=404, detail="Upload token not found or expired — please re-upload the file")
+    with gzip.open(parsed_path, "rt", encoding="utf-8") as source:
+        parsed = loads_value(source.read())
     selected = set(body.account_codes or [])
-    pairs = processor.distinct_account_descriptions(entry["columns"], entry["rows"])
+    pairs = processor.distinct_account_descriptions(parsed["columns"], parsed["rows"])
     pivot_accounts = [(code, desc) for code, desc in pairs if code in selected]
 
-    input_path = entry["path"]
     output_path = SCRATCH_DIR / f"{uuid.uuid4()}_Location_Report.xlsx"
 
     job_id = submit_job(
-        _run_process_job,
-        input_path,
-        entry["columns"],
-        entry["rows"],
+        _run_process_job_from_stash,
+        entry.input_path,
+        entry.parsed_path,
         pivot_accounts,
         str(output_path),
-        entry["download_filename"],
+        entry.download_filename,
         owner_id=user.id,
     )
 

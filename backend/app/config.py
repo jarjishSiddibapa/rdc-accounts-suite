@@ -71,8 +71,28 @@ ENABLE_API_DOCS = _env_bool("ENABLE_API_DOCS")
 INITIAL_ADMIN_EMAIL = os.environ.get("INITIAL_ADMIN_EMAIL", "").strip().lower()
 INITIAL_ADMIN_PASSWORD = os.environ.get("INITIAL_ADMIN_PASSWORD", "")
 
-DB_POOL_SIZE = int(os.environ.get("DB_POOL_SIZE", "5"))
-DB_MAX_OVERFLOW = int(os.environ.get("DB_MAX_OVERFLOW", "10"))
+PROCESS_ROLE = os.environ.get("APP_PROCESS_ROLE", "api").strip().lower() or "api"
+_ROLE_DB_DEFAULTS = {
+    "api": (3, 2),
+    "worker": (2, 1),
+    # Schema inspection occasionally needs a second short-lived connection;
+    # steady-state scheduler/initializer usage remains one connection.
+    "scheduler": (1, 1),
+    "initializer": (1, 1),
+}
+_default_pool_size, _default_pool_overflow = _ROLE_DB_DEFAULTS.get(PROCESS_ROLE, (2, 1))
+DB_POOL_SIZE = int(os.environ.get("DB_POOL_SIZE", str(_default_pool_size)))
+DB_MAX_OVERFLOW = int(os.environ.get("DB_MAX_OVERFLOW", str(_default_pool_overflow)))
 DB_POOL_TIMEOUT_SECONDS = int(os.environ.get("DB_POOL_TIMEOUT_SECONDS", "30"))
 
 MAX_UPLOAD_BYTES = int(os.environ.get("MAX_UPLOAD_BYTES", str(600 * 1024 * 1024)))
+
+# Multi-process runtime. API processes stay responsive while dedicated job
+# workers execute the memory/CPU/Oracle-heavy report pipelines.
+API_WORKERS = max(1, int(os.environ.get("API_WORKERS", "2")))
+JOB_WORKER_PROCESSES = max(1, int(os.environ.get("JOB_WORKER_PROCESSES", "2")))
+JOB_POLL_SECONDS = max(0.1, float(os.environ.get("JOB_POLL_SECONDS", "0.75")))
+JOB_LEASE_SECONDS = max(30, int(os.environ.get("JOB_LEASE_SECONDS", "120")))
+JOB_HEARTBEAT_SECONDS = max(5, int(os.environ.get("JOB_HEARTBEAT_SECONDS", "15")))
+JOB_MAX_ATTEMPTS = max(1, int(os.environ.get("JOB_MAX_ATTEMPTS", "2")))
+ORACLE_GST_JOB_CONCURRENCY = max(1, int(os.environ.get("ORACLE_GST_JOB_CONCURRENCY", "1")))

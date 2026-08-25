@@ -1,6 +1,7 @@
 """FastAPI application entry point for the RDC Accounts Suite."""
 
 import logging
+import os
 from contextlib import asynccontextmanager
 from logging.handlers import RotatingFileHandler
 
@@ -9,7 +10,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from app import audit_middleware, config, database, http_middleware, scheduler
+from app import audit_middleware, config, database, http_middleware
 from app.routers import (
     admin_routes,
     auth_routes,
@@ -35,7 +36,10 @@ from app.routers import (
 # also mirrors to logs/audit.log.
 _LOG_FORMAT = "%(asctime)s %(levelname)s %(name)s %(message)s"
 _file_handler = RotatingFileHandler(
-    config.LOGS_DIR / "app.log", maxBytes=10_000_000, backupCount=10, encoding="utf-8",
+    config.LOGS_DIR / f"app-api-{os.getpid()}.log",
+    maxBytes=10_000_000,
+    backupCount=10,
+    encoding="utf-8",
 )
 _file_handler.setFormatter(logging.Formatter(_LOG_FORMAT))
 
@@ -61,7 +65,6 @@ async def lifespan(_app: FastAPI):
     _attach_file_logging_to_uvicorn()
     database.init_db()
     audit_middleware.log_event("server.start")
-    scheduler.start_scheduler()
     try:
         yield
     finally:

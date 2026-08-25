@@ -31,6 +31,7 @@ from app.auth import get_current_user
 from app.config import SCRATCH_DIR, SEED_DIR
 from app.database import get_db
 from app.jobs import (
+    JobUserError,
     cancel_job,
     claim_job_action,
     finish_job_action,
@@ -120,9 +121,14 @@ def _job_preview(
     }
 
 
-def _job_send(from_email: str, app_password: str, customers: list, progress_cb=None) -> dict:
+def _job_send(user_id: int, customers: list, progress_cb=None) -> dict:
+    settings = mailer_shared.get_email_settings(user_id)
+    if not settings.get("configured"):
+        raise JobUserError("Your email sender is no longer configured. Update Settings and try again.")
     try:
-        report = processor.send_bulk_mails(from_email, app_password, customers, progress_cb=progress_cb)
+        report = processor.send_bulk_mails(
+            settings["email"], settings["app_password"], customers, progress_cb=progress_cb
+        )
         return {
             "status": "sent",
             "report": report,
@@ -230,8 +236,7 @@ def confirm_send(body: ConfirmSendBody, user=Depends(get_current_user)):
     try:
         send_job_id = submit_job(
             _job_send,
-            settings["email"],
-            settings["app_password"],
+            user.id,
             result["customers"],
             owner_id=user.id,
         )

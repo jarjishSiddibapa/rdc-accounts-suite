@@ -192,7 +192,7 @@ def _apply_additive_schema_updates() -> None:
         )
 
 
-def init_db():
+def _init_db_unlocked():
     """Create all tables (if missing) and seed initial data.
 
     `auth`/`system_mailer` are imported lazily here (rather than at module
@@ -216,6 +216,7 @@ def init_db():
     _apply_additive_schema_updates()
 
     from app import auth, system_mailer  # lazy import to avoid circular import
+    from app.models import BackgroundResourceSlot
     from app.permissions import seed_applications
     from app.services.rdc_payables import mapping_store as payables_mappings
     from app.services.unaccounted import mappings as unaccounted_mappings
@@ -232,5 +233,61 @@ def init_db():
         payables_mappings.seed_missing_from_excel(db)
         unaccounted_mappings.seed_missing_from_json(db)
         trial_balance_mappings.seed_missing_from_excel(db)
+        # A database-backed semaphore prevents separate worker processes from
+        # multiplying the GST tool's own eight-connection Oracle pool. Slots
+        # are never deleted; reducing the configured limit soft-deletes only
+        # currently-free excess rows.
+        for slot_number in range(1, config.ORACLE_GST_JOB_CONCURRENCY + 1):
+            slot = db.query(BackgroundResourceSlot).filter(
+                BackgroundResourceSlot.resource_key == "oracle-gst",
+                BackgroundResourceSlot.slot_number == slot_number,
+            ).first()
+            if slot is None:
+                db.add(
+                    BackgroundResourceSlot(
+                        resource_key="oracle-gst",
+                        slot_number=slot_number,
+                        is_deleted=False,
+                    )
+                )
+            else:
+                slot.is_deleted = False
+        db.query(BackgroundResourceSlot).filter(
+            BackgroundResourceSlot.resource_key == "oracle-gst",
+            BackgroundResourceSlot.slot_number > config.ORACLE_GST_JOB_CONCURRENCY,
+            BackgroundResourceSlot.job_id.is_(None),
+            BackgroundResourceSlot.is_deleted.is_(False),
+        ).update(
+            {BackgroundResourceSlot.is_deleted: True},
+            synchronize_session=False,
+        )
+        db.commit()
     finally:
         db.close()
+
+
+def init_db():
+    """Initialize/upgrade once, serialized across all server processes."""
+    lock_name = f"{config.MYSQL_DATABASE}:schema-init"
+    # Use a raw connection outside SQLAlchemy's deliberately-small role pool
+    # so the named lock never consumes application query capacity.
+    lock_connection = pymysql.connect(
+        host=config.MYSQL_HOST,
+        port=config.MYSQL_PORT,
+        user=config.MYSQL_USER,
+        password=config.MYSQL_PASSWORD,
+        database=config.MYSQL_DATABASE,
+    )
+    try:
+        with lock_connection.cursor() as cursor:
+            cursor.execute("SELECT GET_LOCK(%s, 60)", (lock_name,))
+            acquired = cursor.fetchone()[0]
+        if acquired != 1:
+            raise RuntimeError("Could not acquire the MySQL schema-initialization lock")
+        try:
+            _init_db_unlocked()
+        finally:
+            with lock_connection.cursor() as cursor:
+                cursor.execute("SELECT RELEASE_LOCK(%s)", (lock_name,))
+    finally:
+        lock_connection.close()

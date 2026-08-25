@@ -2,8 +2,8 @@
 
 A single LAN web application consolidating RDC Concrete and Ultrafine's Accounts
 Department tools — previously separate Windows desktop apps — into one FastAPI
-backend + React frontend, running as one Python process on one office PC and
-shared over the local network via a browser.
+backend + React frontend, running as supervised API/worker processes on one
+office PC and shared over the local network via a browser.
 
 ## Apps included
 
@@ -23,9 +23,9 @@ audit log.
 
 ## Stack
 
-- **Backend:** FastAPI (Python), SQLAlchemy, MySQL, a small in-process
-  `ThreadPoolExecutor` job queue (no Celery/Redis) — sized for a modest office
-  PC, not a cloud server.
+- **Backend:** FastAPI (Python), SQLAlchemy, and a durable MySQL job queue.
+  Two API workers, two bounded report-processing workers, and one scheduler
+  are supervised independently without requiring Celery or Redis.
 - **Frontend:** React + Vite + TypeScript + Tailwind, built to static files
   and served directly by FastAPI. No Node process at runtime.
 - Windows-only integrations used by a few tools: `win32com` (Excel COM
@@ -48,16 +48,18 @@ audit log.
    Oracle's site and extract it to `backend/instantclient/`. It's excluded
    from git because its DLLs are hundreds of MB (over GitHub's 100MB
    per-file limit), so this is a one-time manual step per machine.
-4. **Run it** — double-click `start_server.bat`. First run creates a Python
+4. **Run it** — double-click `start_all.bat` (`start_server.bat` remains a
+   backward-compatible alias). First run creates a Python
    virtual environment; every run (including the first) checks
    `requirements.txt` against what's installed and installs anything
-   missing before starting the server at `http://<this-pc's-LAN-IP>:2805` —
+   missing before initializing MySQL and starting the server at
+   `http://<this-pc's-LAN-IP>:2805` —
    so a `git pull` that adds a new dependency is picked up automatically on
    the next restart, no manual `pip install` needed. Logs go to
    `backend/logs/`.
 
 The frontend is pre-built and committed under `backend/app/static/`, so
-`start_server.bat` needs only Python at runtime — no Node/npm install on the
+`start_all.bat` needs only Python at runtime — no Node/npm install on the
 production machine.
 
 ## Making a frontend change
@@ -81,7 +83,8 @@ This repo uses **manual deploys** — no CI/CD. On the production machine:
 git pull
 ```
 
-then stop and restart `start_server.bat` (it re-checks its virtual
+apply any new SQL file documented under `deployment/`, then stop and restart
+`start_all.bat` (it re-checks its virtual
 environment and reinstalls dependencies automatically if `requirements.txt`
 changed). If only backend files changed, a restart is enough; if frontend
 files changed, make sure the build in `backend/app/static/` was committed
