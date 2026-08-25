@@ -65,4 +65,3 @@ bundle together. Before handoff, run `git diff --check` and verify the intended
 branch and remote SHA. Do not claim full desktop parity solely because the test
 suite passes; the current automated parity coverage is intentionally narrower
 than a complete live Oracle/SMTP/end-to-end comparison.
-
