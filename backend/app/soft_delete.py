@@ -132,9 +132,7 @@ def delete_keyed_row(db, model: type, key_fields: tuple[str, ...], key: Hashable
 
 
 def list_archived_rows(db, model: type):
-    """Return every archived (soft-deleted) row for `model` - the "Archived"
-    view that makes archiving actually mean something: a place to see what
-    was archived and, from there, restore it or purge it for good."""
+    """Return every archived (soft-deleted) row for the restorable archive."""
     return db.query(model).filter(model.is_deleted == True).all()  # noqa: E712
 
 
@@ -151,23 +149,4 @@ def restore_keyed_row(db, model: type, key_fields: tuple[str, ...], key: Hashabl
     if row is None or not row.is_deleted:
         return False
     row.is_deleted = False
-    return True
-
-
-def purge_keyed_row(db, model: type, key_fields: tuple[str, ...], key: Hashable) -> bool:
-    """Permanently remove exactly ONE row from the database. This is the
-    ONE genuine hard-delete path in the whole soft-delete system - reserved
-    for the explicit "delete forever" action a user takes on a row that is
-    already archived, never for the regular "delete" action on an active
-    row (that stays a soft delete). Returns False if no archived row exists
-    for that key, refusing to purge a still-active row outright.
-
-    Does not commit - caller is responsible for db.commit()/flush().
-    """
-    key_t = key if isinstance(key, tuple) else (key,)
-    filters = [getattr(model, f) == v for f, v in zip(key_fields, key_t)]
-    row = db.query(model).filter(*filters).first()
-    if row is None or not row.is_deleted:
-        return False
-    db.delete(row)
     return True

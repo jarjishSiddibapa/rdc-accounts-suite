@@ -1,3 +1,6 @@
+@import "@fontsource-variable/manrope";
+@import "@fontsource/ibm-plex-mono/latin-500.css";
+@import "@fontsource/ibm-plex-mono/latin-600.css";
 @import "tailwindcss";
 
 @custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
@@ -7,14 +10,14 @@
   --font-sans: "Manrope", "Segoe UI Variable Text", "Segoe UI", system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", "Cascadia Code", ui-monospace, monospace;
 
-  --color-bg: #f3f5f8;
-  --color-bg-soft: #e9edf3;
+  --color-bg: #f5f7fa;
+  --color-bg-soft: #edf1f6;
   --color-surface: #ffffff;
-  --color-border: #d8dee8;
+  --color-border: #d5dde8;
 
-  --color-ink: #111827;
-  --color-ink-dim: #556173;
-  --color-ink-faint: #8490a2;
+  --color-ink: #151a24;
+  --color-ink-dim: #4c596b;
+  --color-ink-faint: #68758a;
 
   --color-accent: #2458c6;
   --color-accent-2: #173d8f;
@@ -30,14 +33,14 @@
 }
 
 :root[data-theme="dark"] {
-  --color-bg: #0b0f17;
-  --color-bg-soft: #121826;
-  --color-surface: #171e2d;
-  --color-border: #2a3445;
+  --color-bg: #0d121b;
+  --color-bg-soft: #141b28;
+  --color-surface: #192231;
+  --color-border: #344052;
 
   --color-ink: #f5f7fa;
-  --color-ink-dim: #b1bac8;
-  --color-ink-faint: #79859a;
+  --color-ink-dim: #bdc6d3;
+  --color-ink-faint: #96a2b4;
 
   --color-accent: #8fb1ff;
   --color-accent-2: #315ba8;
@@ -70,10 +73,11 @@
     @apply bg-bg text-ink font-sans antialiased;
     min-height: 100vh;
     min-height: 100dvh;
-    background-image:
-      radial-gradient(circle at 88% -8%, color-mix(in oklab, var(--color-accent) 7%, transparent) 0, transparent 34rem),
-      linear-gradient(180deg, color-mix(in oklab, var(--color-surface) 44%, transparent), transparent 18rem);
-    background-attachment: fixed;
+    background-image: linear-gradient(
+      180deg,
+      color-mix(in oklab, var(--color-surface) 58%, var(--color-bg)) 0,
+      var(--color-bg) 22rem
+    );
     font-feature-settings: "kern" 1, "liga" 1, "calt" 1;
     font-variant: normal;
     font-synthesis: none;
@@ -84,16 +88,7 @@
   }
 
   body::before {
-    position: fixed;
-    inset: 0;
-    z-index: 0;
-    content: '';
-    pointer-events: none;
-    opacity: 0.22;
-    background-image:
-      linear-gradient(90deg, color-mix(in oklab, var(--color-ink) 3%, transparent) 1px, transparent 1px);
-    background-size: 80px 100%;
-    mask-image: linear-gradient(90deg, transparent, black 18%, black 82%, transparent);
+    content: none;
   }
 
   body::after {
@@ -186,6 +181,7 @@
 
   .field-control::placeholder {
     color: var(--color-ink-faint);
+    opacity: 1;
   }
 
   .field-control:focus {
@@ -278,7 +274,6 @@
   .status-banner {
     @apply flex items-start gap-3 rounded-xl border px-4 py-3 text-sm;
     box-shadow: inset 0 1px 0 color-mix(in oklab, white 22%, transparent);
-    animation: soft-rise 0.32s cubic-bezier(0.16, 1, 0.3, 1) both;
   }
 
   .segmented-control {
@@ -309,16 +304,6 @@
       inset 0 1px 0 var(--surface-highlight),
       0 16px 45px -34px rgba(var(--shadow-rgb), 0.55);
   }
-
-  .table-shell tbody tr {
-    animation: row-enter 0.34s cubic-bezier(0.16, 1, 0.3, 1) both;
-  }
-
-  .table-shell tbody tr:nth-child(2) { animation-delay: 0.025s; }
-  .table-shell tbody tr:nth-child(3) { animation-delay: 0.05s; }
-  .table-shell tbody tr:nth-child(4) { animation-delay: 0.075s; }
-  .table-shell tbody tr:nth-child(5) { animation-delay: 0.1s; }
-  .table-shell tbody tr:nth-child(n + 6) { animation-delay: 0.125s; }
 
   .app-shell-frame {
     --shell-inset: 0.75rem;
@@ -375,39 +360,15 @@
     overflow: hidden;
     border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: 1.75rem;
-    background:
-      linear-gradient(135deg, rgba(255, 255, 255, 0.045), transparent 42%),
-      linear-gradient(155deg, #101a32 0%, #172d5d 58%, #2458c6 130%);
+    background: linear-gradient(145deg, #101827 0%, #172a50 68%, #214fa5 145%);
     box-shadow:
       inset 0 1px 0 rgba(255, 255, 255, 0.12),
       0 30px 70px -44px rgba(18, 35, 75, 0.78);
   }
 
-  .auth-brand-surface::before {
-    position: absolute;
-    inset: 0;
-    content: '';
-    pointer-events: none;
-    background-image:
-      linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
-    background-size: 64px 64px;
-    mask-image: linear-gradient(135deg, black, transparent 78%);
-  }
-
+  .auth-brand-surface::before,
   .auth-brand-surface::after {
-    position: absolute;
-    width: 28rem;
-    height: 28rem;
-    right: -14rem;
-    bottom: -12rem;
-    content: '';
-    pointer-events: none;
-    border: 1px solid rgba(255, 255, 255, 0.12);
-    border-radius: 50%;
-    box-shadow:
-      0 0 0 5rem rgba(255, 255, 255, 0.018),
-      0 0 0 10rem rgba(255, 255, 255, 0.012);
+    content: none;
   }
 
   .auth-form-zone {
@@ -415,17 +376,7 @@
   }
 
   .auth-form-zone::before {
-    position: absolute;
-    z-index: -1;
-    width: 22rem;
-    height: 22rem;
-    top: 8%;
-    right: -10rem;
-    content: '';
-    pointer-events: none;
-    border-radius: 50%;
-    background: color-mix(in oklab, var(--color-accent) 8%, transparent);
-    filter: blur(64px);
+    content: none;
   }
 
   .auth-card {
@@ -484,16 +435,7 @@
   }
 
   .workspace-hero::after {
-    position: absolute;
-    width: 21rem;
-    height: 21rem;
-    right: -9rem;
-    bottom: -13rem;
-    content: '';
-    pointer-events: none;
-    border: 1px solid color-mix(in oklab, var(--color-accent) 16%, transparent);
-    border-radius: 50%;
-    box-shadow: 0 0 0 4rem color-mix(in oklab, var(--color-accent) 2%, transparent);
+    content: none;
   }
 
   .workspace-summary {
@@ -525,13 +467,7 @@
   }
 
   .tool-card::after {
-    position: absolute;
-    inset: auto -4rem -6rem auto;
-    width: 12rem;
-    height: 12rem;
-    content: '';
-    border: 1px solid color-mix(in oklab, var(--color-accent) 12%, transparent);
-    border-radius: 50%;
+    content: none;
   }
 
   .group:hover .tool-card {
@@ -550,9 +486,7 @@
   }
 
   .glass {
-    background: color-mix(in oklab, var(--color-surface) 96%, transparent);
-    backdrop-filter: blur(18px) saturate(120%);
-    -webkit-backdrop-filter: blur(18px) saturate(120%);
+    background: var(--color-surface);
     border: 1px solid var(--color-border);
     box-shadow:
       inset 0 1px 0 var(--surface-highlight),
@@ -570,58 +504,16 @@
   }
 
   .page-enter {
-    animation: page-enter 0.42s cubic-bezier(0.16, 1, 0.3, 1) both;
+    animation: none;
   }
 
   .ambient-orb {
-    animation: ambient-drift 12s ease-in-out infinite alternate;
+    animation: none;
   }
 
   .progress-shimmer {
     background-size: 200% 100%;
     animation: progress-shimmer 1.8s linear infinite;
-  }
-}
-
-@keyframes page-enter {
-  from {
-    opacity: 0;
-    transform: translateY(7px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes soft-rise {
-  from {
-    opacity: 0;
-    transform: translateY(6px) scale(0.992);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
-}
-
-@keyframes row-enter {
-  from {
-    opacity: 0;
-    transform: translateY(5px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-@keyframes ambient-drift {
-  from {
-    transform: translate3d(0, 0, 0) scale(1);
-  }
-  to {
-    transform: translate3d(-3rem, -2rem, 0) scale(1.12);
   }
 }
 
@@ -712,11 +604,8 @@
 }
 
 @media (prefers-reduced-transparency: reduce) {
-  .glass,
   .auth-card {
     background: var(--color-surface);
-    backdrop-filter: none;
-    -webkit-backdrop-filter: none;
   }
 }
 

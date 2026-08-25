@@ -22,7 +22,14 @@ from sqlalchemy.orm import Session
 from app.auth import get_current_user
 from app.config import SCRATCH_DIR
 from app.database import get_db
-from app.jobs import cancel_job, run_cpu_phase, submit_job, get_job
+from app.jobs import (
+    cancel_job,
+    claim_job_action,
+    finish_job_action,
+    get_job,
+    run_cpu_phase,
+    submit_job,
+)
 from app.permissions import require_app_access
 from app.regional import now_ist
 from app.services import mailer_shared
@@ -33,11 +40,6 @@ router = APIRouter(
     prefix="/api/tools/unaccounted", tags=["unaccounted"],
     dependencies=[Depends(require_app_access("unaccounted"))],
 )
-
-# job_id -> {"output_paths": [str, ...], "download_names": {path: filename}}
-# (mirrors the erp_converter router's _job_outputs pattern — jobs.py only
-# stores the raw job result, so file-download bookkeeping lives here.)
-_job_outputs: dict[str, dict] = {}
 
 # Upload size guard: refuse anything above this before it can fill up
 # SCRATCH_DIR or blow up memory while reading the request body.
@@ -121,7 +123,12 @@ def _cpu_phase_po(path: str, exclude_months: set, keywords: list, fuzzy_threshol
 # ── Job bodies (run in the background thread pool; CPU-heavy work above runs
 #    on the CPU process pool via run_cpu_phase for real multi-core throughput) ──
 
-def _job_unaccounted(paths: list, output_path: str, progress_cb=None) -> dict:
+def _job_unaccounted(
+    paths: list,
+    output_path: str,
+    download_name: str,
+    progress_cb=None,
+) -> dict:
     if progress_cb:
         progress_cb(0.05, "Processing report...")
     try:
@@ -144,11 +151,18 @@ def _job_unaccounted(paths: list, output_path: str, progress_cb=None) -> dict:
         "unmatched": total_rows - matched,
         "unmapped_sites": unmapped,
         "output_path": output_path,
+        "download_name": download_name,
         "log": log_messages,
     }
 
 
-def _job_mrn(path: str, exclude_periods: set, output_path: str, progress_cb=None) -> dict:
+def _job_mrn(
+    path: str,
+    exclude_periods: set,
+    output_path: str,
+    download_name: str,
+    progress_cb=None,
+) -> dict:
     if progress_cb:
         progress_cb(0.05, "Processing report...")
     try:
@@ -171,6 +185,7 @@ def _job_mrn(path: str, exclude_periods: set, output_path: str, progress_cb=None
         "unmatched": total_rows - matched,
         "unmapped_sites": unmapped,
         "output_path": output_path,
+        "download_name": download_name,
         "log": log_messages,
     }
 
@@ -181,6 +196,7 @@ def _job_po(
     keywords: list,
     fuzzy_threshold: float,
     output_path: str,
+    download_name: str,
     progress_cb=None,
 ) -> dict:
     if progress_cb:
@@ -205,6 +221,7 @@ def _job_po(
         "unmatched": total_rows - matched,
         "unmapped_sites": unmapped,
         "output_path": output_path,
+        "download_name": download_name,
         "log": log_messages,
     }
 
@@ -220,11 +237,13 @@ async def process_unaccounted(
     stem = Path(files[0].filename or "unaccounted").stem
     output_path = str(SCRATCH_DIR / f"{uuid.uuid4()}_{stem}_unaccounted.xlsx")
 
-    job_id = submit_job(_job_unaccounted, paths, output_path, owner_id=user.id)
-    _job_outputs[job_id] = {
-        "output_path": output_path,
-        "download_name": f"{stem}_Unaccounted_Transactions.xlsx",
-    }
+    job_id = submit_job(
+        _job_unaccounted,
+        paths,
+        output_path,
+        f"{stem}_Unaccounted_Transactions.xlsx",
+        owner_id=user.id,
+    )
     return {"job_id": job_id}
 
 
@@ -243,12 +262,9 @@ async def process_mrn(
         path,
         set(_split_csv(exclude_periods)),
         output_path,
+        f"{stem}_Pending_MRN.xlsx",
         owner_id=user.id,
     )
-    _job_outputs[job_id] = {
-        "output_path": output_path,
-        "download_name": f"{stem}_Pending_MRN.xlsx",
-    }
     return {"job_id": job_id}
 
 
@@ -275,12 +291,9 @@ async def process_po(
         kw_list,
         threshold,
         output_path,
+        f"{stem}_Uninvoiced_Expense_PO.xlsx",
         owner_id=user.id,
     )
-    _job_outputs[job_id] = {
-        "output_path": output_path,
-        "download_name": f"{stem}_Uninvoiced_Expense_PO.xlsx",
-    }
     return {"job_id": job_id}
 
 
@@ -334,12 +347,14 @@ def download(job_id: str, user=Depends(get_current_user)):
     if job["status"] != "done":
         raise HTTPException(status_code=409, detail="Job is not finished yet")
 
-    info = _job_outputs.get(job_id)
-    output_path = Path((info or {}).get("output_path") or (job["result"] or {}).get("output_path", ""))
-    if not output_path or not output_path.exists():
+    info = job.get("result") or {}
+    if not isinstance(info, dict):
+        raise HTTPException(status_code=404, detail="Output file not found")
+    output_path = Path(info.get("output_path", ""))
+    if not output_path.is_file():
         raise HTTPException(status_code=404, detail="Output file not found")
 
-    download_name = (info or {}).get("download_name") or output_path.name
+    download_name = info.get("download_name") or output_path.name
     return FileResponse(
         path=str(output_path),
         filename=download_name,
@@ -430,13 +445,6 @@ def restore_site_override(supplier_site: str, user=Depends(get_current_user), db
     return {"ok": True}
 
 
-@router.delete("/mappings/site-overrides/{supplier_site}/purge")
-def purge_site_override(supplier_site: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
-    if not mappings._purge_site_override(supplier_site, db):
-        raise HTTPException(status_code=404, detail="Archived site override not found")
-    return {"ok": True}
-
-
 # ── Mapping CRUD: Created-By mapping ────────────────────────────────────────────
 
 class CreatorMappingBody(BaseModel):
@@ -491,13 +499,6 @@ def restore_creator_mapping(created_by: str, user=Depends(get_current_user), db:
     return {"ok": True}
 
 
-@router.delete("/mappings/creator/{created_by}/purge")
-def purge_creator_mapping(created_by: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
-    if not mappings._purge_creator_mapping(created_by, db):
-        raise HTTPException(status_code=404, detail="Archived creator mapping not found")
-    return {"ok": True}
-
-
 # ── Mapping CRUD: Location <-> Accounts Incharge (one-time table) ─────────────
 
 class LocationInchargeBody(BaseModel):
@@ -547,13 +548,6 @@ def list_archived_location_incharge(user=Depends(get_current_user), db: Session 
 @router.post("/mappings/location-incharge/{location}/restore")
 def restore_location_incharge(location: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
     if not mappings._restore_location_incharge(location, db):
-        raise HTTPException(status_code=404, detail="Archived location not found")
-    return {"ok": True}
-
-
-@router.delete("/mappings/location-incharge/{location}/purge")
-def purge_location_incharge(location: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
-    if not mappings._purge_location_incharge(location, db):
         raise HTTPException(status_code=404, detail="Archived location not found")
     return {"ok": True}
 
@@ -880,14 +874,45 @@ def mail_confirm_send(
             detail="You haven't set up your email sender yet — go to Settings.",
         )
 
-    mailer_shared.send_mail(
-        from_email=settings["email"],
-        app_password=settings["app_password"],
-        to_addresses=result["to"],
-        cc_addresses=result["cc"],
-        subject=result["subject"],
-        html_body=result["html_body"],
-        attachments=result["attachments"],
+    claim_state, _ = claim_job_action(
+        body.job_id,
+        owner_id=user.id,
+        action="confirm-send",
+    )
+    if claim_state != "claimed":
+        detail = {
+            "in_progress": "This email is already being sent from another tab.",
+            "completed": "This preview has already been sent.",
+            "failed": (
+                "The previous send attempt did not complete safely. Generate a fresh "
+                "preview before trying again to avoid duplicate email."
+            ),
+        }.get(claim_state, "Job not found.")
+        raise HTTPException(status_code=404 if claim_state == "missing" else 409, detail=detail)
+
+    try:
+        mailer_shared.send_mail(
+            from_email=settings["email"],
+            app_password=settings["app_password"],
+            to_addresses=result["to"],
+            cc_addresses=result["cc"],
+            subject=result["subject"],
+            html_body=result["html_body"],
+            attachments=result["attachments"],
+        )
+    except Exception:
+        finish_job_action(
+            body.job_id,
+            owner_id=user.id,
+            action="confirm-send",
+            succeeded=False,
+        )
+        raise
+    finish_job_action(
+        body.job_id,
+        owner_id=user.id,
+        action="confirm-send",
+        succeeded=True,
     )
 
     return {

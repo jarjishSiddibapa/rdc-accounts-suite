@@ -29,6 +29,13 @@ _executor = ThreadPoolExecutor(max_workers=_JOB_POOL_WORKERS)
 _jobs: dict[str, dict] = {}
 _lock = threading.Lock()
 _JOB_TTL_SECONDS = 60 * 60
+_PRIVATE_JOB_KEYS = {
+    "owner_id",
+    "updated_at",
+    "cancel_requested",
+    "started_at",
+    "_actions",
+}
 
 # A job still marked "running" past this long is almost certainly hung
 # (crashed worker, stuck external call, a genuine bug) rather than legitimate
@@ -120,13 +127,16 @@ _CPU_POOL_WORKERS = int(os.environ.get("CPU_JOB_POOL_WORKERS", str(_default_cpu_
 # time a CPU-bound phase actually runs, not on every server start whether or
 # not any CPU-heavy tool is ever used in that run.
 _cpu_executor: ProcessPoolExecutor | None = None
+_cpu_executor_lock = threading.Lock()
 
 
 def _get_cpu_executor() -> ProcessPoolExecutor:
     global _cpu_executor
     if _cpu_executor is None:
-        _cpu_executor = ProcessPoolExecutor(max_workers=_CPU_POOL_WORKERS)
-        atexit.register(_cpu_executor.shutdown, wait=False, cancel_futures=True)
+        with _cpu_executor_lock:
+            if _cpu_executor is None:
+                _cpu_executor = ProcessPoolExecutor(max_workers=_CPU_POOL_WORKERS)
+                atexit.register(_cpu_executor.shutdown, wait=False, cancel_futures=True)
     return _cpu_executor
 
 
@@ -167,6 +177,15 @@ class JobUserError(Exception):
     only ever sees a generic message, never a raw Python exception string."""
 
 
+def _public_job(job: dict) -> dict:
+    """Return the client-safe portion of a job record.
+
+    Action claims are deliberately private: they coordinate irreversible
+    operations such as sending email, but are not part of the job-status API.
+    """
+    return {key: value for key, value in job.items() if key not in _PRIVATE_JOB_KEYS}
+
+
 def _update_progress(job_id: str, frac: float, phase: str) -> None:
     with _lock:
         job = _jobs.get(job_id)
@@ -191,6 +210,7 @@ def submit_job(fn, *args, owner_id: int, **kwargs) -> str:
             "result": None,
             "error": None,
             "cancel_requested": False,
+            "_actions": {},
             "updated_at": now,
             "started_at": now,
         }
@@ -256,11 +276,7 @@ def get_job(job_id: str, *, owner_id: int) -> dict | None:
         job = _jobs.get(job_id)
         if job is None or job["owner_id"] != owner_id:
             return None
-        return {
-            key: value
-            for key, value in job.items()
-            if key not in {"owner_id", "updated_at", "cancel_requested", "started_at"}
-        }
+        return _public_job(job)
 
 
 def cancel_job(job_id: str, *, owner_id: int) -> dict | None:
@@ -273,16 +289,60 @@ def cancel_job(job_id: str, *, owner_id: int) -> dict | None:
         if job is None or job["owner_id"] != owner_id:
             return None
         if job["status"] in {"done", "error", "cancelled"}:
-            return {
-                key: value
-                for key, value in job.items()
-                if key not in {"owner_id", "updated_at", "cancel_requested", "started_at"}
-            }
+            return _public_job(job)
         job["cancel_requested"] = True
         job["phase"] = "Cancelling..."
         job["updated_at"] = time.monotonic()
-        return {
-            key: value
-            for key, value in job.items()
-            if key not in {"owner_id", "updated_at", "cancel_requested", "started_at"}
-        }
+        return _public_job(job)
+
+
+def claim_job_action(job_id: str, *, owner_id: int, action: str) -> tuple[str, dict | None]:
+    """Atomically claim a one-shot action associated with an owned job.
+
+    This closes the same-user/multiple-tab race where both tabs can inspect
+    the same completed preview and then trigger the same irreversible action
+    (most importantly email delivery).  The returned state is one of:
+    ``claimed``, ``in_progress``, ``completed``, ``failed``, or ``missing``.
+    """
+    with _lock:
+        now = time.monotonic()
+        _prune_jobs(now)
+        _check_hung_jobs(now)
+        job = _jobs.get(job_id)
+        if job is None or job["owner_id"] != owner_id:
+            return "missing", None
+
+        actions = job.setdefault("_actions", {})
+        existing = actions.get(action)
+        if existing is not None:
+            return existing, _public_job(job)
+
+        actions[action] = "in_progress"
+        job["updated_at"] = now
+        return "claimed", _public_job(job)
+
+
+def finish_job_action(
+    job_id: str,
+    *,
+    owner_id: int,
+    action: str,
+    succeeded: bool,
+) -> bool:
+    """Finish an action claim without allowing it to be claimed again.
+
+    Failed email attempts remain failed rather than becoming retryable because
+    a transport failure can be ambiguous: the server may have accepted some
+    messages before the error reached us.  A fresh preview is therefore the
+    safe retry path.
+    """
+    with _lock:
+        job = _jobs.get(job_id)
+        if job is None or job["owner_id"] != owner_id:
+            return False
+        actions = job.setdefault("_actions", {})
+        if actions.get(action) != "in_progress":
+            return False
+        actions[action] = "completed" if succeeded else "failed"
+        job["updated_at"] = time.monotonic()
+        return True

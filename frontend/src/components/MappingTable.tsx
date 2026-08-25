@@ -8,7 +8,6 @@ import {
   Pencil,
   Plus,
   RotateCcw,
-  Trash2,
 } from 'lucide-react'
 import { cn } from '@/utils/cn'
 import { formatIndianNumber } from '@/lib/regional'
@@ -31,7 +30,6 @@ export interface MappingArchiveConfig {
   loading: boolean
   onOpen: () => void | Promise<void>
   onRestore: (index: number) => void | Promise<void>
-  onPurge: (index: number) => void | Promise<void>
 }
 
 interface MappingTableProps {
@@ -42,8 +40,8 @@ interface MappingTableProps {
   onDelete: (index: number) => void | Promise<void>
   title?: string
   addLabel?: string
-  /** When provided, adds a "View archived" toggle: archived (soft-deleted)
-   * rows can be restored back to active, or permanently deleted for good. */
+  /** When provided, adds a "View archived" toggle. Soft-deleted rows can
+   * be restored, but never permanently deleted. */
   archive?: MappingArchiveConfig
 }
 
@@ -73,7 +71,6 @@ export function MappingTable({
   const [busy, setBusy] = useState(false)
   const [view, setView] = useState<'active' | 'archived'>('active')
   const [restoreBusyIndex, setRestoreBusyIndex] = useState<number | null>(null)
-  const [purgeIndex, setPurgeIndex] = useState<number | null>(null)
 
   const sourceRows = view === 'archived' ? (archive?.rows ?? []) : rows
 
@@ -176,17 +173,6 @@ export function MappingTable({
     }
   }
 
-  async function confirmPurge() {
-    if (purgeIndex === null || !archive) return
-    setBusy(true)
-    try {
-      await archive.onPurge(purgeIndex)
-      setPurgeIndex(null)
-    } finally {
-      setBusy(false)
-    }
-  }
-
   const isArchivedView = view === 'archived'
 
   return (
@@ -277,23 +263,14 @@ export function MappingTable({
                 <td className="px-4 py-3">
                   <div className="flex items-center justify-end gap-2">
                     {isArchivedView ? (
-                      <>
-                        <button
-                          onClick={() => void handleRestore(index)}
-                          disabled={restoreBusyIndex === index}
-                          aria-label="Restore row"
-                          className="grid h-11 w-11 place-items-center rounded-full text-ink-dim transition hover:bg-bg-soft hover:text-emerald-500 disabled:opacity-50 sm:h-8 sm:w-8"
-                        >
-                          <RotateCcw className="h-4 w-4" />
-                        </button>
-                        <button
-                          onClick={() => setPurgeIndex(index)}
-                          aria-label="Delete forever"
-                          className="grid h-11 w-11 place-items-center rounded-full text-ink-dim transition hover:bg-bg-soft hover:text-red-500 sm:h-8 sm:w-8"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
-                      </>
+                      <button
+                        onClick={() => void handleRestore(index)}
+                        disabled={restoreBusyIndex === index}
+                        aria-label="Restore row"
+                        className="grid h-11 w-11 place-items-center rounded-full text-ink-dim transition hover:bg-bg-soft hover:text-emerald-500 disabled:opacity-50 sm:h-8 sm:w-8"
+                      >
+                        <RotateCcw className="h-4 w-4" />
+                      </button>
                     ) : (
                       <>
                         <button
@@ -366,7 +343,7 @@ export function MappingTable({
       <Modal open={deleteIndex !== null} onClose={() => setDeleteIndex(null)} title="Archive mapping row">
         <p className="mb-6 text-sm text-ink-dim">
           Archive this mapping row? It will be hidden from active mapping data
-          {archive ? ' — you can find it later under "View archived" to restore it or delete it for good.' : ', while its history remains preserved.'}
+          {archive ? ' — you can find it later under "View archived" and restore it.' : ', while its history remains preserved.'}
         </p>
         <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
           <Button variant="secondary" onClick={() => setDeleteIndex(null)}>
@@ -378,22 +355,6 @@ export function MappingTable({
         </div>
       </Modal>
 
-      {archive && (
-        <Modal open={purgeIndex !== null} onClose={() => setPurgeIndex(null)} title="Delete permanently">
-          <p className="mb-6 text-sm text-ink-dim">
-            This permanently deletes this row — unlike Archive, this cannot be undone and it will not appear
-            anywhere, including this Archived view. Only do this if you're certain it will never be needed again.
-          </p>
-          <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
-            <Button variant="secondary" onClick={() => setPurgeIndex(null)}>
-              Cancel
-            </Button>
-            <Button variant="danger" loading={busy} onClick={() => void confirmPurge()}>
-              Delete forever
-            </Button>
-          </div>
-        </Modal>
-      )}
     </div>
   )
 }

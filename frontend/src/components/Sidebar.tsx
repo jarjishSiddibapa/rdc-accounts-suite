@@ -70,7 +70,7 @@ interface SidebarProps {
 }
 
 /** True only at the desktop (xl) breakpoint, where the sidebar is a
- * persistent column rather than a mobile overlay drawer — resizing only
+ * persistent column rather than a mobile overlay drawer; resizing only
  * makes sense there. */
 function useIsDesktopSidebar() {
   const [isDesktop, setIsDesktop] = useState(
@@ -150,7 +150,7 @@ export function Sidebar({
             setResizing(true)
           }}
           onDoubleClick={() => onWidthChange?.(SIDEBAR_DEFAULT_WIDTH)}
-          title="Drag to resize · double-click to reset"
+          title="Drag to resize, double-click to reset"
           className="absolute top-0 right-0 z-10 hidden h-full w-2 -translate-x-1/2 cursor-col-resize touch-none xl:block hover:bg-accent/25"
         />
       )}

@@ -1783,13 +1783,6 @@ function UnaccountedMappingSection({ config }: { config: UnaccountedMappingConfi
     await Promise.all([loadArchived(), load()])
   }
 
-  async function handlePurge(index: number) {
-    const original = archivedRows[index]
-    const key = encodeURIComponent(original[config.idField] ?? '')
-    await del(`${BASE}/mappings/${config.key}/${key}/purge`)
-    await loadArchived()
-  }
-
   return (
     <div className="flex flex-col gap-3">
       {error && (
@@ -1813,7 +1806,6 @@ function UnaccountedMappingSection({ config }: { config: UnaccountedMappingConfi
             loading: archivedLoading,
             onOpen: loadArchived,
             onRestore: handleRestore,
-            onPurge: handlePurge,
           }}
         />
       )}

@@ -42,8 +42,10 @@ export function Footer() {
   const collaborator = appKey ? credits[appKey] : null
 
   return (
-    <footer className="px-4 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))] text-center text-[11px] font-medium tracking-wide text-ink-faint">
-      RDC Accounts Suite · {collaborator ? `Made by Jarjish & ${collaborator}` : 'Made with ❤️ by Jarjish'}
+    <footer className="px-4 pt-3 pb-[max(1rem,env(safe-area-inset-bottom))] text-center text-xs font-medium text-ink-faint">
+      <span>RDC Accounts Suite</span>
+      <span aria-hidden="true" className="mx-2 text-border">|</span>
+      <span>{collaborator ? `Made by Jarjish & ${collaborator}` : 'Made with ❤️ by Jarjish'}</span>
     </footer>
   )
 }

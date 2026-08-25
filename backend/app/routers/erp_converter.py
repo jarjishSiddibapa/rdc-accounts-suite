@@ -19,12 +19,13 @@ router = APIRouter(
     dependencies=[Depends(require_app_access("erp-to-excel"))],
 )
 
-# converter.convert_file returns a "kind" string (not the output path), so we
-# track job_id -> (original_filename, output_path) ourselves for downloads.
-_job_outputs: dict[str, dict] = {}
 
-
-def _job_convert(input_path: str, output_path: str, progress_cb=None):
+def _job_convert(
+    input_path: str,
+    output_path: str,
+    original_filename: str,
+    progress_cb=None,
+):
     """100% CPU work (HTML/xlrd parsing + openpyxl writing), so it runs on
     the CPU process pool for real multi-core throughput instead of a GIL-
     bound thread. Trade-off: convert_file's own progress_cb (which reports
@@ -37,7 +38,12 @@ def _job_convert(input_path: str, output_path: str, progress_cb=None):
     if progress_cb:
         progress_cb(0.02, "Converting...")
     try:
-        return jobs.run_cpu_phase(converter.convert_file, input_path, output_path)
+        kind = jobs.run_cpu_phase(converter.convert_file, input_path, output_path)
+        return {
+            "kind": kind,
+            "output_path": output_path,
+            "original_filename": original_filename,
+        }
     finally:
         Path(input_path).unlink(missing_ok=True)
 
@@ -63,12 +69,9 @@ async def convert(
             _job_convert,
             str(input_path),
             str(output_path),
+            original_name,
             owner_id=user.id,
         )
-        _job_outputs[job_id] = {
-            "original_filename": original_name,
-            "output_path": str(output_path),
-        }
         job_entries.append({"filename": original_name, "job_id": job_id})
 
     return {"jobs": job_entries}
@@ -98,15 +101,15 @@ def download(job_id: str, user: User = Depends(auth.get_current_user)):
     if job["status"] != "done":
         raise HTTPException(status_code=409, detail="Job is not finished yet")
 
-    info = _job_outputs.get(job_id)
-    if info is None:
+    info = job.get("result") or {}
+    if not isinstance(info, dict):
         raise HTTPException(status_code=404, detail="Output file not found")
 
-    output_path = Path(info["output_path"])
-    if not output_path.exists():
+    output_path = Path(info.get("output_path", ""))
+    if not output_path.is_file():
         raise HTTPException(status_code=404, detail="Output file not found")
 
-    original_stem = Path(info["original_filename"]).stem
+    original_stem = Path(info.get("original_filename") or output_path.stem).stem
     return FileResponse(
         path=str(output_path),
         filename=f"{original_stem}.xlsx",
@@ -131,14 +134,14 @@ def download_all(body: DownloadAllBody, user: User = Depends(auth.get_current_us
                 raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
             if job["status"] != "done":
                 raise HTTPException(status_code=409, detail="Every selected job must be finished")
-            info = _job_outputs.get(job_id)
-            if info is None:
+            info = job.get("result") or {}
+            if not isinstance(info, dict):
                 raise HTTPException(status_code=404, detail="Output file not found")
-            path = Path(info["output_path"])
-            if not path.exists():
+            path = Path(info.get("output_path", ""))
+            if not path.is_file():
                 raise HTTPException(status_code=404, detail="Output file not found")
 
-            base_name = f"{Path(info['original_filename']).stem}.xlsx"
+            base_name = f"{Path(info.get('original_filename') or path.stem).stem}.xlsx"
             name = base_name
             suffix = 2
             while name.lower() in used_names:

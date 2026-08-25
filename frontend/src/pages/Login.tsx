@@ -88,7 +88,7 @@ export default function Login() {
         </div>
 
         <div className="auth-brand-copy relative my-auto max-w-2xl py-8 xl:py-10">
-          <p className="mb-5 text-xs font-bold tracking-[0.14em] text-white/55 uppercase">
+          <p className="mb-5 text-sm font-semibold text-white/65">
             The central software suite for RDC's Accounts Department
           </p>
           <h1 className="auth-brand-title max-w-xl font-display text-5xl leading-[1.02] font-semibold tracking-[-0.055em] text-balance xl:text-6xl">
@@ -96,7 +96,7 @@ export default function Login() {
           </h1>
           <p className="mt-6 max-w-xl text-base leading-7 text-white/68 xl:text-lg">
             ERP conversion, payables and receivables reporting, trial balance, GSTR-2B, exception
-            handling, and Ultrafine customer communications — all in one place, for RDC and Ultrafine alike.
+            handling, and Ultrafine customer communications. All in one place, for RDC and Ultrafine alike.
           </p>
         </div>
 
@@ -132,7 +132,7 @@ export default function Login() {
               <p className="mt-0.5 text-xs text-ink-faint">Finance operations workspace</p>
             </div>
           </div>
-          <p className="text-xs font-bold tracking-[0.1em] text-accent uppercase">
+          <p className="text-sm font-semibold text-accent">
             {forgotOpen ? 'Account recovery' : 'Welcome back'}
           </p>
           <h1 className="mt-2 font-display text-3xl font-semibold tracking-[-0.04em] text-ink sm:text-[2rem]">

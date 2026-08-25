@@ -46,7 +46,7 @@ from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.auth import get_current_user
@@ -88,7 +88,7 @@ def _prune_stash() -> None:
 
 class ProcessRequest(BaseModel):
     token: str
-    account_codes: list[str] = []
+    account_codes: list[str] = Field(default_factory=list)
 
 
 class MappingFixRequest(BaseModel):
@@ -146,6 +146,9 @@ async def parse_accounts(file: UploadFile = File(...), user: User = Depends(get_
             "rows": rows,
             "ts": time.time(),
             "owner_id": user.id,
+            "download_filename": (
+                f"{Path(file.filename or 'Trial_Balance').stem}_Location_Report.xlsx"
+            ),
         }
 
     return {
@@ -159,6 +162,7 @@ async def parse_accounts(file: UploadFile = File(...), user: User = Depends(get_
 
 def _run_process_job(input_path: str, columns: list, rows: list,
                       pivot_accounts: list, output_path: str,
+                      download_filename: str,
                       progress_cb=None) -> dict:
     """Runs in the background job pool — mirrors the desktop app's
     _worker() in main.py, including how the "Mapping Not Found" /
@@ -214,14 +218,16 @@ def _run_process_job(input_path: str, columns: list, rows: list,
     finally:
         Path(input_path).unlink(missing_ok=True)
 
-    filename = f"{Path(input_path).stem}_Location_Report.xlsx"
-    add_log("OK", f"Done - {filename} ({format_indian_number(len(xlsx_bytes) // 1024)} KB)")
+    add_log(
+        "OK",
+        f"Done - {download_filename} ({format_indian_number(len(xlsx_bytes) // 1024)} KB)",
+    )
     if progress_cb:
         progress_cb(1.0, "Report ready")
 
     return {
         "output_path": str(output_path),
-        "download_filename": filename,
+        "download_filename": download_filename,
         "missing_codes": sorted(missing_codes, key=lambda c: (len(c), c)),
         "missing_account_ho": sorted(missing_account_ho, key=lambda c: (len(c), c)),
         "row_count": len(df),
@@ -247,7 +253,7 @@ def submit_process(body: ProcessRequest, user: User = Depends(get_current_user))
     pivot_accounts = [(code, desc) for code, desc in pairs if code in selected]
 
     input_path = entry["path"]
-    output_path = SCRATCH_DIR / f"{Path(input_path).stem}_Location_Report.xlsx"
+    output_path = SCRATCH_DIR / f"{uuid.uuid4()}_Location_Report.xlsx"
 
     job_id = submit_job(
         _run_process_job,
@@ -256,6 +262,7 @@ def submit_process(body: ProcessRequest, user: User = Depends(get_current_user))
         entry["rows"],
         pivot_accounts,
         str(output_path),
+        entry["download_filename"],
         owner_id=user.id,
     )
 

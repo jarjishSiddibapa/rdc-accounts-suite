@@ -68,6 +68,7 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
 from app.jobs import JobUserError
+from app.oracle_runtime import initialize_oracle_client
 
 
 # ── Oracle connection config ────────────────────────────────────────────────
@@ -115,14 +116,8 @@ def _connect_oracle(oracle_cfg: "OracleConfig"):
 
 
 def _init_oracle_client(instant_client_dir: str) -> None:
-    """Same best-effort init as the original: init_oracle_client() may only
-    be called once per process and raises on subsequent calls (or if thick
-    mode isn't needed) — both are safe to ignore, exactly like the original
-    ``try/except Exception: pass``."""
-    try:
-        oracledb.init_oracle_client(lib_dir=instant_client_dir)
-    except Exception:
-        pass
+    """Initialize thick mode once across every Oracle-backed application."""
+    initialize_oracle_client(oracledb, instant_client_dir)
 
 
 # ── ERP queries (verbatim from the original) ────────────────────────────────

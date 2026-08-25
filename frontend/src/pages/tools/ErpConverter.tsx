@@ -26,15 +26,21 @@ interface ConvertJobEntry {
   job_id: string
 }
 
+interface ConvertResult {
+  kind: 'html' | 'xlsx' | 'xls-binary'
+  output_path: string
+  original_filename: string
+}
+
 interface ConvertJobResponse {
   status: JobStatus
   progress: number
   phase: string
-  result: 'html' | 'xlsx' | 'xls-binary' | null
+  result: ConvertResult | null
   error: string | null
 }
 
-async function pollConvertJob(jobId: string): Promise<JobState<string | null>> {
+async function pollConvertJob(jobId: string): Promise<JobState<ConvertResult | null>> {
   const job = await get<ConvertJobResponse>(`/tools/erp-to-excel/jobs/${jobId}`)
   return {
     status: job.status,
@@ -56,7 +62,7 @@ function fileIdentity(file: File) {
 export default function ErpConverter() {
   const [files, setFiles] = useState<File[]>([])
   const [jobs, setJobs] = useState<ConvertJobEntry[]>([])
-  const [jobStates, setJobStates] = useState<Record<string, JobState<string | null>>>({})
+  const [jobStates, setJobStates] = useState<Record<string, JobState<ConvertResult | null>>>({})
   const [converting, setConverting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [logs, setLogs] = useState<string[]>([])
@@ -115,7 +121,7 @@ export default function ErpConverter() {
     }
   }
 
-  function handleStatusChange(job: ConvertJobEntry, state: JobState<string | null>) {
+  function handleStatusChange(job: ConvertJobEntry, state: JobState<ConvertResult | null>) {
     setJobStates((previous) => ({ ...previous, [job.job_id]: state }))
     const eventKey = `${state.status}|${state.phase || ''}|${state.error || ''}`
     if (lastEventRef.current[job.job_id] !== eventKey) {

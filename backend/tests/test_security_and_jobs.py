@@ -1,5 +1,6 @@
 import time
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from threading import Event
 from http.cookies import SimpleCookie
 from types import SimpleNamespace
@@ -9,8 +10,16 @@ from fastapi import HTTPException
 from fastapi import Request
 from fastapi.responses import Response
 
-from app import auth
-from app.jobs import cancel_job, get_job, submit_job
+from app import auth, jobs as jobs_module
+from app.jobs import (
+    cancel_job,
+    claim_job_action,
+    finish_job_action,
+    get_job,
+    submit_job,
+)
+from app.oracle_runtime import initialize_oracle_client
+from app.routers import unaccounted_txn
 from app.rate_limit import SlidingWindowLimiter
 from app.validation import normalize_email, normalize_optional_name, validate_password
 
@@ -41,8 +50,9 @@ class ValidationTests(unittest.TestCase):
             validate_password("é" * 37)  # 74 UTF-8 bytes, beyond bcrypt's safe limit
 
     def test_password_hash_round_trip(self):
-        hashed = auth.hash_password("a-secure-password")
-        self.assertTrue(auth.verify_password("a-secure-password", hashed))
+        password = "A-secure-password1!"
+        hashed = auth.hash_password(password)
+        self.assertTrue(auth.verify_password(password, hashed))
         self.assertFalse(auth.verify_password("not-the-password", hashed))
 
     def test_login_cookie_is_browser_session_only(self):
@@ -94,7 +104,42 @@ class RateLimitTests(unittest.TestCase):
         self.assertEqual(raised.exception.status_code, 429)
 
 
+class OracleRuntimeTests(unittest.TestCase):
+    def test_oracle_client_initialization_is_process_wide_and_thread_safe(self):
+        class FakeOracleDriver:
+            def __init__(self):
+                self.calls = 0
+
+            def init_oracle_client(self, *, lib_dir):
+                self.calls += 1
+                time.sleep(0.01)
+
+        driver = FakeOracleDriver()
+        with patch("app.oracle_runtime._oracle_init_attempted", False):
+            with ThreadPoolExecutor(max_workers=16) as pool:
+                list(
+                    pool.map(
+                        lambda _: initialize_oracle_client(driver, "C:/oracle/client"),
+                        range(32),
+                    )
+                )
+
+        self.assertEqual(driver.calls, 1)
+
+
 class JobIsolationTests(unittest.TestCase):
+    @staticmethod
+    def _completed_job(owner_id: int) -> str:
+        job_id = submit_job(lambda: {"status": "preview"}, owner_id=owner_id)
+        deadline = time.monotonic() + 2
+        job = get_job(job_id, owner_id=owner_id)
+        while job and job["status"] == "running" and time.monotonic() < deadline:
+            time.sleep(0.01)
+            job = get_job(job_id, owner_id=owner_id)
+        if not job or job["status"] != "done":
+            raise AssertionError("Test job did not finish")
+        return job_id
+
     def test_jobs_are_visible_only_to_their_owner(self):
         job_id = submit_job(lambda: {"ok": True}, owner_id=101)
         self.assertIsNone(get_job(job_id, owner_id=202))
@@ -108,6 +153,30 @@ class JobIsolationTests(unittest.TestCase):
         self.assertIsNotNone(owned_job)
         self.assertEqual(owned_job["status"], "done")
         self.assertEqual(owned_job["result"], {"ok": True})
+
+    def test_parallel_jobs_for_multiple_users_remain_owner_isolated(self):
+        owners = [901 + (index % 6) for index in range(30)]
+        with ThreadPoolExecutor(max_workers=20) as pool:
+            job_ids = list(
+                pool.map(
+                    lambda owner: submit_job(
+                        lambda value=owner: {"owner_marker": value},
+                        owner_id=owner,
+                    ),
+                    owners,
+                )
+            )
+
+        deadline = time.monotonic() + 3
+        for job_id, owner in zip(job_ids, owners):
+            job = get_job(job_id, owner_id=owner)
+            while job and job["status"] == "running" and time.monotonic() < deadline:
+                time.sleep(0.005)
+                job = get_job(job_id, owner_id=owner)
+            self.assertEqual(job["status"], "done")
+            self.assertEqual(job["result"], {"owner_marker": owner})
+            other_owner = 999 if owner != 999 else 998
+            self.assertIsNone(get_job(job_id, owner_id=other_owner))
 
     def test_running_job_can_be_cancelled_only_by_its_owner(self):
         started = Event()
@@ -136,6 +205,135 @@ class JobIsolationTests(unittest.TestCase):
         self.assertIsNotNone(owned_job)
         self.assertEqual(owned_job["status"], "cancelled")
         self.assertIsNone(owned_job["result"])
+
+    def test_one_shot_action_can_be_claimed_by_only_one_tab(self):
+        job_id = self._completed_job(owner_id=505)
+
+        with ThreadPoolExecutor(max_workers=12) as pool:
+            states = list(
+                pool.map(
+                    lambda _: claim_job_action(
+                        job_id,
+                        owner_id=505,
+                        action="confirm-send",
+                    )[0],
+                    range(12),
+                )
+            )
+
+        self.assertEqual(states.count("claimed"), 1)
+        self.assertEqual(states.count("in_progress"), 11)
+        self.assertTrue(
+            finish_job_action(
+                job_id,
+                owner_id=505,
+                action="confirm-send",
+                succeeded=True,
+            )
+        )
+        state, _ = claim_job_action(job_id, owner_id=505, action="confirm-send")
+        self.assertEqual(state, "completed")
+
+        public_job = get_job(job_id, owner_id=505)
+        self.assertNotIn("_actions", public_job)
+
+    def test_one_shot_action_claim_respects_owner_and_preserves_failed_state(self):
+        job_id = self._completed_job(owner_id=606)
+
+        state, job = claim_job_action(job_id, owner_id=707, action="confirm-send")
+        self.assertEqual(state, "missing")
+        self.assertIsNone(job)
+
+        state, _ = claim_job_action(job_id, owner_id=606, action="confirm-send")
+        self.assertEqual(state, "claimed")
+        self.assertTrue(
+            finish_job_action(
+                job_id,
+                owner_id=606,
+                action="confirm-send",
+                succeeded=False,
+            )
+        )
+        state, _ = claim_job_action(job_id, owner_id=606, action="confirm-send")
+        self.assertEqual(state, "failed")
+
+    def test_cpu_executor_is_created_once_under_concurrent_startup(self):
+        created = []
+
+        class FakeExecutor:
+            def __init__(self, *, max_workers):
+                self.max_workers = max_workers
+                created.append(self)
+
+            def shutdown(self, **_kwargs):
+                pass
+
+        with (
+            patch("app.jobs._cpu_executor", None),
+            patch("app.jobs.ProcessPoolExecutor", FakeExecutor),
+            patch("app.jobs.atexit.register"),
+        ):
+            with ThreadPoolExecutor(max_workers=16) as pool:
+                executors = list(pool.map(lambda _: jobs_module._get_cpu_executor(), range(32)))
+
+        self.assertEqual(len(created), 1)
+        self.assertTrue(all(executor is created[0] for executor in executors))
+
+    def test_two_tabs_cannot_confirm_the_same_email_preview_twice(self):
+        owner_id = 808
+        preview_job_id = submit_job(
+            lambda: {
+                "status": "preview",
+                "to": ["recipient@example.com"],
+                "cc": [],
+                "subject": "Concurrent preview",
+                "html_body": "<p>Test</p>",
+                "attachments": [],
+            },
+            owner_id=owner_id,
+        )
+        deadline = time.monotonic() + 2
+        preview_job = get_job(preview_job_id, owner_id=owner_id)
+        while (
+            preview_job
+            and preview_job["status"] == "running"
+            and time.monotonic() < deadline
+        ):
+            time.sleep(0.01)
+            preview_job = get_job(preview_job_id, owner_id=owner_id)
+
+        first_send_started = Event()
+        allow_first_send_to_finish = Event()
+        send_calls = []
+
+        def fake_send_mail(**kwargs):
+            send_calls.append(kwargs)
+            first_send_started.set()
+            allow_first_send_to_finish.wait(timeout=2)
+
+        body = unaccounted_txn.ConfirmSendBody(job_id=preview_job_id)
+        user = SimpleNamespace(id=owner_id)
+        settings = {
+            "configured": True,
+            "email": "sender@example.com",
+            "app_password": "secret",
+        }
+
+        with (
+            patch.object(unaccounted_txn.mailer_shared, "get_email_settings", return_value=settings),
+            patch.object(unaccounted_txn.mailer_shared, "send_mail", side_effect=fake_send_mail),
+            ThreadPoolExecutor(max_workers=2) as pool,
+        ):
+            first = pool.submit(unaccounted_txn.mail_confirm_send, body, user)
+            self.assertTrue(first_send_started.wait(timeout=2))
+            second = pool.submit(unaccounted_txn.mail_confirm_send, body, user)
+            with self.assertRaises(HTTPException) as raised:
+                second.result(timeout=2)
+            self.assertEqual(raised.exception.status_code, 409)
+            allow_first_send_to_finish.set()
+            self.assertEqual(first.result(timeout=2)["status"], "sent")
+
+        self.assertEqual(len(send_calls), 1)
 
 
 if __name__ == "__main__":

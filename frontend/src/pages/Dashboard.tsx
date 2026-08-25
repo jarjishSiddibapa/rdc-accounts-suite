@@ -72,7 +72,7 @@ const tools = [
     description: 'Send per-customer balance confirmation emails in bulk, with PDF attachments.',
     icon: ShieldCheck,
     appKey: 'ultrafine-balance-confirmation',
-    category: 'Ultrafine · Customer communication',
+    category: 'Ultrafine customer communication',
   },
   {
     to: '/tools/ultrafine-payment-reminder',
@@ -80,7 +80,7 @@ const tools = [
     description: 'Send per-customer aging/dunning payment reminder emails in bulk.',
     icon: BellRing,
     appKey: 'ultrafine-payment-reminder',
-    category: 'Ultrafine · Customer communication',
+    category: 'Ultrafine customer communication',
   },
 ]
 
@@ -101,7 +101,7 @@ export default function Dashboard() {
         <section className="workspace-hero px-6 py-7 sm:px-8 sm:py-9">
           <div className="relative z-10 flex flex-col justify-between gap-7 md:flex-row md:items-end">
             <div className="max-w-2xl">
-              <p className="text-xs font-bold tracking-[0.12em] text-accent uppercase">
+              <p className="text-sm font-semibold text-accent">
                 Accounts workspace
               </p>
               <h2 className="mt-3 font-display text-[clamp(1.875rem,5vw,2.7rem)] leading-[1.08] font-semibold tracking-[-0.045em] text-ink text-balance">
@@ -130,26 +130,25 @@ export default function Dashboard() {
 
       <div className="mt-8 flex flex-col justify-between gap-2 sm:flex-row sm:items-end">
         <div>
-          <p className="text-xs font-bold tracking-[0.12em] text-accent uppercase">Applications</p>
+          <p className="text-sm font-semibold text-accent">Applications</p>
           <h2 className="mt-1.5 font-display text-2xl font-semibold tracking-[-0.035em] text-ink">Choose what you want to do</h2>
         </div>
         <p className="text-sm text-ink-faint">Select an application to begin</p>
       </div>
 
       <RevealGroup className="dashboard-tools-grid mt-5">
-        {visibleTools.map((tool, index) => (
+        {visibleTools.map((tool) => (
           <Reveal key={tool.to}>
             <Link to={tool.to} className="group block h-full rounded-[1.25rem] focus-visible:outline-none">
             <article className="tool-card h-full">
               <div className="relative flex w-full flex-col">
-                <div className="flex items-start justify-between gap-4">
+                <div className="flex items-start gap-4">
                   <span className="grid h-12 w-12 place-items-center rounded-xl bg-accent/10 text-accent">
                     <tool.icon className="h-5 w-5" strokeWidth={1.9} />
                   </span>
-                  <span data-numeric className="font-mono text-xs font-semibold tracking-[0.08em] text-ink-faint">0{index + 1}</span>
                 </div>
                 <div className="mt-5 flex-1">
-                  <p className="text-xs font-semibold tracking-[0.08em] text-accent uppercase">{tool.category}</p>
+                  <p className="text-sm font-medium text-accent">{tool.category}</p>
                   <h3 className="mt-2 max-w-xl font-display text-xl font-semibold tracking-[-0.025em] text-ink">{tool.title}</h3>
                   <p className="mt-2 max-w-md text-sm leading-6 text-ink-dim">{tool.description}</p>
                 </div>

@@ -33,7 +33,14 @@ from sqlalchemy.orm import Session
 from app.auth import get_current_user
 from app.config import SCRATCH_DIR
 from app.database import get_db
-from app.jobs import cancel_job, run_cpu_phase, submit_job, get_job
+from app.jobs import (
+    cancel_job,
+    claim_job_action,
+    finish_job_action,
+    get_job,
+    run_cpu_phase,
+    submit_job,
+)
 from app.permissions import require_app_access
 from app.services import mailer_shared
 from app.services.ultrafine_payment_reminder import mapping_store, processing
@@ -231,12 +238,43 @@ def confirm_send(body: ConfirmSendBody, user=Depends(get_current_user)):
             detail="You haven't set up your email sender yet — go to Settings.",
         )
 
-    send_job_id = submit_job(
-        _job_send,
-        settings["email"],
-        settings["app_password"],
-        result["customers"],
+    claim_state, _ = claim_job_action(
+        body.job_id,
         owner_id=user.id,
+        action="confirm-send",
+    )
+    if claim_state != "claimed":
+        detail = {
+            "in_progress": "These emails are already being sent from another tab.",
+            "completed": "This preview has already been sent.",
+            "failed": (
+                "The previous send attempt did not complete safely. Generate a fresh "
+                "preview before trying again to avoid duplicate email."
+            ),
+        }.get(claim_state, "Job not found.")
+        raise HTTPException(status_code=404 if claim_state == "missing" else 409, detail=detail)
+
+    try:
+        send_job_id = submit_job(
+            _job_send,
+            settings["email"],
+            settings["app_password"],
+            result["customers"],
+            owner_id=user.id,
+        )
+    except Exception:
+        finish_job_action(
+            body.job_id,
+            owner_id=user.id,
+            action="confirm-send",
+            succeeded=False,
+        )
+        raise
+    finish_job_action(
+        body.job_id,
+        owner_id=user.id,
+        action="confirm-send",
+        succeeded=True,
     )
     return {"job_id": send_job_id}
 

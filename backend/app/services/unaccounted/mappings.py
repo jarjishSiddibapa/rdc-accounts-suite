@@ -28,7 +28,6 @@ from app.database import SessionLocal
 from app.soft_delete import (
     delete_keyed_row,
     list_archived_rows,
-    purge_keyed_row,
     restore_keyed_row,
     seed_missing_keyed_rows,
     sync_keyed_rows,
@@ -55,7 +54,7 @@ def _session_scope(db: "Session | None"):
     closes, on the assumption each caller commits its own writes), and none
     of this router's call sites called db.commit() after these functions
     either. The result was a real, reproduced-in-production bug: every
-    /mappings/fix (and every Add/Edit/Delete/Restore/Purge on this tool's
+    /mappings/fix (and every Add/Edit/Delete/Restore on this tool's
     3 mapping tables) returned 200 OK and looked saved, but the write was
     silently rolled back the moment the request ended - so a report
     regenerated right after "fixing" a mapping still showed it as missing,
@@ -170,11 +169,6 @@ def _restore_site_override(supplier_site: str, db: "Session | None" = None) -> b
         return restore_keyed_row(s, SiteOverride, ("supplier_site",), supplier_site.strip())
 
 
-def _purge_site_override(supplier_site: str, db: "Session | None" = None) -> bool:
-    with _session_scope(db) as s:
-        return purge_keyed_row(s, SiteOverride, ("supplier_site",), supplier_site.strip())
-
-
 def _upsert_creator_mapping(
     created_by: str, location: str, accounts_incharge: str, db: "Session | None" = None,
 ) -> None:
@@ -206,11 +200,6 @@ def _restore_creator_mapping(created_by: str, db: "Session | None" = None) -> bo
         return restore_keyed_row(s, CreatorMapping, ("created_by",), created_by.strip())
 
 
-def _purge_creator_mapping(created_by: str, db: "Session | None" = None) -> bool:
-    with _session_scope(db) as s:
-        return purge_keyed_row(s, CreatorMapping, ("created_by",), created_by.strip())
-
-
 def _upsert_location_incharge(
     location: str, accounts_incharge: str, db: "Session | None" = None,
 ) -> None:
@@ -238,11 +227,6 @@ def _list_archived_location_incharge(db: "Session | None" = None) -> list:
 def _restore_location_incharge(location: str, db: "Session | None" = None) -> bool:
     with _session_scope(db) as s:
         return restore_keyed_row(s, LocationIncharge, ("location",), location.strip())
-
-
-def _purge_location_incharge(location: str, db: "Session | None" = None) -> bool:
-    with _session_scope(db) as s:
-        return purge_keyed_row(s, LocationIncharge, ("location",), location.strip())
 
 
 def _save_custom_mappings(site_overrides: dict, creator_map: dict, db: "Session | None" = None) -> None:
@@ -480,4 +464,3 @@ def seed_missing_from_json(
 
     db.commit()
     return inserted
-

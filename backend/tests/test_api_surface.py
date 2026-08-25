@@ -27,6 +27,14 @@ class RemovedApiSurfaceTests(unittest.TestCase):
         }
         self.assertTrue(removed_paths.isdisjoint(route_paths))
 
+    def test_hard_delete_mapping_routes_are_absent(self):
+        route_paths = {
+            route.path
+            for route in app.routes
+            if getattr(route, "path", None) is not None
+        }
+        self.assertFalse(any(path.endswith("/purge") for path in route_paths))
+
     def test_unaccounted_mail_defaults_route_is_available(self):
         route_paths = {
             route.path
