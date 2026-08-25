@@ -2,8 +2,16 @@
 
 Run this once after pulling the concurrency release on production:
 
-```powershell
+Run this from **Command Prompt** in the project root:
+
+```bat
 mysql -h <MYSQL_HOST> -P <MYSQL_PORT> -u <MYSQL_USER> -p < deployment\mysql\20260825_durable_concurrency.sql
+```
+
+From PowerShell, wrap the same command with `cmd /c`:
+
+```powershell
+cmd /c "mysql -h <MYSQL_HOST> -P <MYSQL_PORT> -u <MYSQL_USER> -p < deployment\mysql\20260825_durable_concurrency.sql"
 ```
 
 The SQL is idempotent. It creates only new runtime tables and the initial
