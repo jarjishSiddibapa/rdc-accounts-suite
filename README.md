@@ -50,9 +50,9 @@ admin Users/Audit Log screens use server-side search and pagination.
    Oracle's site and extract it to `backend/instantclient/`. It's excluded
    from git because its DLLs are hundreds of MB (over GitHub's 100MB
    per-file limit), so this is a one-time manual step per machine.
-4. **Run it** — double-click `start_all.bat` (`start_server.bat` remains a
-   backward-compatible alias). First run creates a Python
-   virtual environment; every run (including the first) checks
+4. **Run it** — double-click `start_all.bat`. This is the suite's only
+   launcher. First run creates a Python virtual environment; every run
+   (including the first) checks
    `requirements.txt` against what's installed and installs anything
    missing before initializing MySQL and starting the server at
    `http://<this-pc's-LAN-IP>:2805` —
@@ -74,8 +74,8 @@ npm install
 npm run build
 ```
 
-`npm run build` writes straight into `backend/app/static/`, which is what
-gets committed and what `start_server.bat` serves.
+`npm run build` writes straight into `backend/app/static/`, which is what gets
+committed and served when `start_all.bat` launches the FastAPI processes.
 
 ## AI coding agents
 

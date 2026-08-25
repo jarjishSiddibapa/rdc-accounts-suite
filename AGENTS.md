@@ -31,6 +31,9 @@ and deployment workflow.
 - Never introduce process-local mutable state for jobs, rate limits, upload
   tokens, mail actions, or other cross-request state. The app deliberately runs
   multiple API and job-worker processes.
+- `start_all.bat` is the only supported launcher. It starts the supervisor for
+  API workers, job workers, and the scheduler; do not add another batch-file
+  entry point.
 - A job/status/action lookup must be owner-scoped. One user or browser tab must
   never see, cancel, download, or send another user's result.
 - Browser-submitted processing jobs are also tab-owned through

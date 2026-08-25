@@ -55,8 +55,9 @@ desktop action.
 
 ### Runtime topology
 
-`start_all.bat` is the canonical launcher. `start_server.bat` is only a
-backward-compatible wrapper. The supervisor starts and restarts:
+`start_all.bat` is the only supported launcher. Do not add a second batch-file
+entry point; production is intentionally configured around this one launcher.
+The supervisor starts and restarts:
 
 - two Uvicorn API workers by default (`API_WORKERS=2`);
 - two durable processing workers (`JOB_WORKER_PROCESSES=2`); and
