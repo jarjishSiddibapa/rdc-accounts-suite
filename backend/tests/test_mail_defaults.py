@@ -124,6 +124,7 @@ class MailTemplateDefaultsTests(unittest.TestCase):
             sheet.append(["East", "C", 5])
             sheet.append(["Grand Total", "", "=SUBTOTAL(9,C2:C5)"])
             workbook.save(workbook_path)
+            workbook.close()
 
             _, html_body = mailer_shared.build_email_content(
                 unaccounted_path=str(workbook_path),

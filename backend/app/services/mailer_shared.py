@@ -308,6 +308,7 @@ def sheet_to_html(path: str, sheet_name: str) -> str:
         return f"<p style='color:red'>(Cannot open {os.path.basename(path)}: {e})</p>"
 
     if sheet_name not in wb.sheetnames:
+        wb.close()
         return f"<p style='color:red'>(Sheet &quot;{sheet_name}&quot; not found)</p>"
 
     ws = wb[sheet_name]
@@ -350,7 +351,7 @@ def sheet_to_html(path: str, sheet_name: str) -> str:
         function_num = int(subtotal_match.group(1)) if subtotal_match else None
         range_ref = match.group(2) if subtotal_match else match.group(1)
         min_col, min_row, max_col, max_row = range_boundaries(
-            range_ref.replace(" ", "")
+            re.sub(r"\s+", "", range_ref)
         )
 
         _resolving.add(coordinate)
@@ -367,12 +368,19 @@ def sheet_to_html(path: str, sheet_name: str) -> str:
                     # Excel SUBTOTAL ignores nested SUBTOTAL formulas.  This is
                     # essential for Grand Total ranges that also contain each
                     # location's subtotal row.
-                    if subtotal_match and isinstance(source_raw, str) and _subtotal_re.match(source_raw):
+                    if (
+                        subtotal_match
+                        and isinstance(source_raw, str)
+                        and _subtotal_re.match(source_raw)
+                    ):
                         continue
                     if function_num == 109 and ws.row_dimensions[source_cell.row].hidden:
                         continue
                     value = _display_value(source_cell)
-                    if isinstance(value, (int, float)) and not isinstance(value, bool):
+                    if (
+                        isinstance(value, (int, float))
+                        and not isinstance(value, bool)
+                    ):
                         total += value
         finally:
             _resolving.remove(coordinate)
