@@ -1,8 +1,39 @@
+import tempfile
 import unittest
+from html.parser import HTMLParser
+from pathlib import Path
 from unittest.mock import patch
+
+from openpyxl import Workbook, load_workbook
 
 from app.routers import unaccounted_txn
 from app.services import mailer_shared
+
+
+class _EmailTableParser(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.rows = []
+        self._row = None
+        self._cell = None
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "tr":
+            self._row = []
+        elif tag in {"td", "th"} and self._row is not None:
+            self._cell = []
+
+    def handle_data(self, data):
+        if self._cell is not None:
+            self._cell.append(data)
+
+    def handle_endtag(self, tag):
+        if tag in {"td", "th"} and self._cell is not None:
+            self._row.append(" ".join("".join(self._cell).split()))
+            self._cell = None
+        elif tag == "tr" and self._row is not None:
+            self.rows.append(self._row)
+            self._row = None
 
 
 class MailTemplateDefaultsTests(unittest.TestCase):
@@ -79,6 +110,37 @@ class MailTemplateDefaultsTests(unittest.TestCase):
         self.assertIn("2. Uninvoiced Expenses till Aug-26", intro)
         self.assertNotIn("Pending MRN till", intro)
         self.assertIn("Rent and Land Lease have been excluded", intro)
+
+    def test_email_tables_calculate_subtotals_without_replacing_excel_formulas(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            workbook_path = Path(temp_dir) / "report.xlsx"
+            workbook = Workbook()
+            sheet = workbook.active
+            sheet.title = "Main"
+            sheet.append(["Location", "Accounts Incharge", "Count"])
+            sheet.append(["West", "A", 10])
+            sheet.append(["", "B", 20])
+            sheet.append(["West Total", "", "=SUBTOTAL(9,C2:C3)"])
+            sheet.append(["East", "C", 5])
+            sheet.append(["Grand Total", "", "=SUBTOTAL(9,C2:C5)"])
+            workbook.save(workbook_path)
+
+            _, html_body = mailer_shared.build_email_content(
+                unaccounted_path=str(workbook_path),
+                include_ua=True,
+                include_mrn=False,
+                include_po=False,
+            )
+
+            parser = _EmailTableParser()
+            parser.feed(html_body)
+            self.assertIn(["West Total", "", "30"], parser.rows)
+            self.assertEqual(parser.rows[-1], ["Grand Total", "", "35"])
+
+            saved = load_workbook(workbook_path, data_only=False)
+            self.assertEqual(saved["Main"]["C4"].value, "=SUBTOTAL(9,C2:C3)")
+            self.assertEqual(saved["Main"]["C6"].value, "=SUBTOTAL(9,C2:C5)")
+            saved.close()
 
 
 if __name__ == "__main__":

@@ -16,8 +16,10 @@ legacy singleton is read once as a non-destructive migration source.
 import json
 import logging
 import os
+import re
 
 import openpyxl
+from openpyxl.utils.cell import range_boundaries
 
 from app.database import SessionLocal
 from app.models import ApplicationEmailRecipient, EmailSettings, ReportRecipientDefaults
@@ -288,13 +290,20 @@ def sheet_to_html(path: str, sheet_name: str) -> str:
     """Open the saved Excel file and convert the pivot sheet to an HTML table
     that exactly mirrors the formatting in the report: fill colors, bold,
     font size, font name, text alignment — all read directly from the cells.
+
+    The suite deliberately writes live ``SUBTOTAL`` formulas into its report
+    footers.  openpyxl does not calculate or cache those formulas, so loading
+    the file with ``data_only=True`` makes otherwise valid totals appear blank.
+    Read the formula workbook instead and evaluate the small, controlled set of
+    aggregate formulas used by these email tables for display only.  The saved
+    attachment is never modified and retains every Excel formula.
     """
     from openpyxl.cell.cell import MergedCell as _MergedCell
 
     try:
-        # data_only=True returns cached formula results (populated by COM/Excel).
-        # Do NOT use read_only=True — that skips loading cell styles.
-        wb = openpyxl.load_workbook(path, data_only=True)
+        # Do NOT use read_only=True — that skips loading cell styles.  Formula
+        # text is required so totals can be resolved without Excel/COM.
+        wb = openpyxl.load_workbook(path, data_only=False)
     except Exception as e:
         return f"<p style='color:red'>(Cannot open {os.path.basename(path)}: {e})</p>"
 
@@ -302,6 +311,74 @@ def sheet_to_html(path: str, sheet_name: str) -> str:
         return f"<p style='color:red'>(Sheet &quot;{sheet_name}&quot; not found)</p>"
 
     ws = wb[sheet_name]
+
+    _subtotal_re = re.compile(
+        r"^\s*=\s*SUBTOTAL\s*\(\s*(9|109)\s*,\s*"
+        r"(\$?[A-Z]{1,3}\$?\d+\s*:\s*\$?[A-Z]{1,3}\$?\d+)\s*\)\s*$",
+        re.IGNORECASE,
+    )
+    _sum_re = re.compile(
+        r"^\s*=\s*SUM\s*\(\s*"
+        r"(\$?[A-Z]{1,3}\$?\d+\s*:\s*\$?[A-Z]{1,3}\$?\d+)\s*\)\s*$",
+        re.IGNORECASE,
+    )
+    _resolved_values = {}
+    _resolving = set()
+
+    def _display_value(cell):
+        """Return a server-computed display value for supported formulas."""
+        coordinate = cell.coordinate
+        if coordinate in _resolved_values:
+            return _resolved_values[coordinate]
+
+        raw = cell.value
+        if not (isinstance(raw, str) and raw.startswith("=")):
+            _resolved_values[coordinate] = raw
+            return raw
+        if coordinate in _resolving:
+            return None
+
+        subtotal_match = _subtotal_re.match(raw)
+        sum_match = _sum_re.match(raw)
+        match = subtotal_match or sum_match
+        if not match:
+            # Keep unsupported formulas out of the HTML instead of leaking the
+            # formula text.  Current email pivot sheets use SUBTOTAL only.
+            _resolved_values[coordinate] = None
+            return None
+
+        function_num = int(subtotal_match.group(1)) if subtotal_match else None
+        range_ref = match.group(2) if subtotal_match else match.group(1)
+        min_col, min_row, max_col, max_row = range_boundaries(
+            range_ref.replace(" ", "")
+        )
+
+        _resolving.add(coordinate)
+        try:
+            total = 0
+            for row in ws.iter_rows(
+                min_row=min_row,
+                max_row=max_row,
+                min_col=min_col,
+                max_col=max_col,
+            ):
+                for source_cell in row:
+                    source_raw = source_cell.value
+                    # Excel SUBTOTAL ignores nested SUBTOTAL formulas.  This is
+                    # essential for Grand Total ranges that also contain each
+                    # location's subtotal row.
+                    if subtotal_match and isinstance(source_raw, str) and _subtotal_re.match(source_raw):
+                        continue
+                    if function_num == 109 and ws.row_dimensions[source_cell.row].hidden:
+                        continue
+                    value = _display_value(source_cell)
+                    if isinstance(value, (int, float)) and not isinstance(value, bool):
+                        total += value
+        finally:
+            _resolving.remove(coordinate)
+
+        _resolved_values[coordinate] = total
+        return total
 
     # ── helpers ───────────────────────────────────────────────────────────────
     def _hex6(color_obj):
@@ -393,25 +470,27 @@ def sheet_to_html(path: str, sheet_name: str) -> str:
     ]
 
     for row in ws.iter_rows():
-        # Skip rows where every cell is blank (value=None)
-        if all(
-            (isinstance(c, _MergedCell) or c.value is None)
-            for c in row
-        ):
+        display_row = [
+            None if isinstance(cell, _MergedCell) else _display_value(cell)
+            for cell in row
+        ]
+        # Skip rows where every rendered cell is blank (value=None).
+        if all(value is None for value in display_row):
             continue
 
         lines.append("<tr>")
-        for cell in row:
+        for cell, display_value in zip(row, display_row):
             if isinstance(cell, _MergedCell):
                 # continuation cell of a merge — render empty, no extra border
                 lines.append('<td style="border:none;padding:0;"></td>')
                 continue
             css = _cell_css(cell)
-            val = _fmt_val(cell.value)
+            val = _fmt_val(display_value)
             lines.append(f'  <td style="{css}">{val}</td>')
         lines.append("</tr>")
 
     lines.append("</table>")
+    wb.close()
     return "\n".join(lines)
 
 

@@ -228,6 +228,14 @@ Keep preview and final-send behavior separate. One-shot job actions must remain
 idempotent across repeated clicks/tabs. Never persist plaintext email passwords
 inside a background job.
 
+The Unaccounted/MRN/Uninvoiced email tables are rendered from workbooks that
+retain live Excel `SUBTOTAL` formulas. OpenPyXL does not calculate cached formula
+results, so `mailer_shared.sheet_to_html()` reads formula cells and evaluates
+the controlled `SUBTOTAL`/`SUM` range forms for HTML display only. Do not switch
+that renderer back to `data_only=True`: newly generated reports would again show
+blank subtotal and Grand Total cells in both preview and the sent email. The
+attachment itself must remain untouched and formula-driven.
+
 ## 6. Frontend and UX decisions
 
 The frontend is React 19, TypeScript, Vite, Tailwind, Lucide, Motion, and local
