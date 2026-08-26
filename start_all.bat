@@ -1,7 +1,25 @@
 @echo off
-setlocal
+setlocal EnableDelayedExpansion
 cd /d "%~dp0backend"
 if not exist logs mkdir logs
+if not exist data mkdir data
+
+if exist data\supervisor.pid (
+    set /p OLD_PID=<data\supervisor.pid
+    if defined OLD_PID (
+        rem tasklist prints one info line ("INFO: No tasks are running...")
+        rem instead of an error when nothing matches both filters - that line
+        rem never contains "python.exe", so searching for that exact text is
+        rem what tells a genuine match apart from "nothing found", not just
+        rem counting output lines (which the info line would also count).
+        tasklist /FI "PID eq !OLD_PID!" /FI "IMAGENAME eq python.exe" /NH 2>nul | findstr /I "python.exe" >nul
+        if !errorlevel! equ 0 (
+            echo Found a previous run still registered ^(PID !OLD_PID!^) - stopping it first...
+            taskkill /F /T /PID !OLD_PID! >nul 2>nul
+        )
+    )
+    del /f /q data\supervisor.pid >nul 2>nul
+)
 
 set LOGFILE=%~dp0backend\logs\start_all.log
 echo ============================================== >> "%LOGFILE%"

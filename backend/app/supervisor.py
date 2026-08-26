@@ -16,6 +16,12 @@ DATA_DIR = BACKEND_DIR / "data"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 load_dotenv(BACKEND_DIR / ".env")
 
+# Read by start_all.bat before it starts a new instance, so a previous run
+# left behind by an abrupt shutdown (window closed before cleanup finished,
+# a crash, a forced kill) can be found and torn down by PID rather than the
+# batch file just hoping nothing is left over.
+PID_FILE = DATA_DIR / "supervisor.pid"
+
 
 def _enable_kill_on_close() -> None:
     """Put this process into a Windows Job Object with KILL_ON_JOB_CLOSE, so
@@ -137,6 +143,7 @@ def main() -> int:
     except Timeout:
         print("The RDC Accounts Suite supervisor is already running.", flush=True)
         return 2
+    PID_FILE.write_text(str(os.getpid()))
 
     api_workers = _count("API_WORKERS", 2)
     job_workers = _count("JOB_WORKER_PROCESSES", 2)
@@ -219,6 +226,11 @@ def main() -> int:
                 except subprocess.TimeoutExpired:
                     process.kill()
         lock.release()
+        try:
+            if PID_FILE.exists() and PID_FILE.read_text().strip() == str(os.getpid()):
+                PID_FILE.unlink()
+        except OSError:
+            pass
 
 
 if __name__ == "__main__":
