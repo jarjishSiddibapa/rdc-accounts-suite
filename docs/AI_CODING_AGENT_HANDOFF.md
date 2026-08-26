@@ -1,6 +1,6 @@
 # AI Coding Agent Handoff
 
-Last reviewed: 25 August 2026
+Last reviewed: 26 August 2026
 
 This document explains the current state of RDC Accounts Suite for future AI
 coding agents. Read it before changing behavior. `README.md` remains the
@@ -251,6 +251,15 @@ Preserve these UX requirements:
 - loading, empty, success, error, and disabled states are explicit; and
 - UI polish must not weaken validation, permissions, owner isolation, or job
   idempotency.
+
+Pending MRN and Uninvoiced Expense PO uploads have a required period-detection
+gate in both their standalone tabs and the combined mail workflow. The UI keeps
+a persistent `idle` / `detecting` / `complete` / `failed` state, ignores stale
+responses when a file is replaced or removed, displays a retryable failure, and
+does not enable report generation until detection succeeds. The backend repeats
+that validation before queueing a job, rejects empty detections and exclusions
+from a different/stale file, and removes rejected scratch uploads. Do not turn
+period detection back into a best-effort or silently swallowed step.
 
 `frontend/vite.config.ts` writes the production bundle directly to
 `backend/app/static/`. Any frontend source edit requires `npm run build`, and

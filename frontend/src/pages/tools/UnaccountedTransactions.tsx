@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   Archive,
@@ -46,6 +46,71 @@ const REPORT_LABELS: Record<string, string> = {
   unaccounted: 'Unaccounted Transactions',
   mrn: 'Pending MRN',
   po: 'Uninvoiced Expense PO',
+}
+
+type PeriodDetectionStatus = 'idle' | 'detecting' | 'complete' | 'failed'
+
+function periodDetectionError(error: unknown, reportLabel: string): string {
+  if (error instanceof ApiError) return error.message
+  if (error instanceof Error && error.message) return error.message
+  return `Failed to detect periods in the ${reportLabel} file.`
+}
+
+function PeriodDetectionNotice({
+  status,
+  count,
+  unit,
+  error,
+  onRetry,
+}: {
+  status: PeriodDetectionStatus
+  count: number
+  unit: 'period' | 'month'
+  error?: string | null
+  onRetry: () => void
+}) {
+  if (status === 'idle') return null
+
+  if (status === 'detecting') {
+    return (
+      <div
+        role="status"
+        aria-live="polite"
+        className="flex items-center gap-2 rounded-xl border border-accent/25 bg-accent/[0.06] px-3 py-2.5 text-sm text-ink-dim"
+      >
+        <RefreshCw className="h-4 w-4 shrink-0 animate-spin text-accent motion-reduce:animate-none" />
+        Detecting periods from the uploaded file… Processing will unlock when this is complete.
+      </div>
+    )
+  }
+
+  if (status === 'complete') {
+    return (
+      <div
+        role="status"
+        aria-live="polite"
+        className="flex items-center gap-2 rounded-xl border border-emerald-500/25 bg-emerald-500/[0.07] px-3 py-2.5 text-sm text-emerald-700 dark:text-emerald-300"
+      >
+        <CheckCircle2 className="h-4 w-4 shrink-0" />
+        {count} {count === 1 ? unit : `${unit}s`} detected. Period selection is ready.
+      </div>
+    )
+  }
+
+  return (
+    <div
+      role="alert"
+      className="flex flex-col gap-3 rounded-xl border border-red-500/30 bg-red-500/[0.08] px-3 py-3 sm:flex-row sm:items-center sm:justify-between"
+    >
+      <span className="flex min-w-0 items-start gap-2 text-sm text-red-600 dark:text-red-300">
+        <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+        <span>{error || 'Period detection failed. Retry before processing this report.'}</span>
+      </span>
+      <Button type="button" variant="secondary" onClick={onRetry} className="min-h-9 shrink-0 px-3 py-1.5 text-xs">
+        Retry detection
+      </Button>
+    </div>
+  )
 }
 
 // ── shared report-job types & log panel ──────────────────────────────────
@@ -349,38 +414,51 @@ function MrnTab({ knownLocations }: { knownLocations: string[] }) {
   const [file, setFile] = useState<File | null>(null)
   const [periods, setPeriods] = useState<string[]>([])
   const [includedPeriods, setIncludedPeriods] = useState<Record<string, boolean>>({})
-  const [detecting, setDetecting] = useState(false)
+  const [detectionStatus, setDetectionStatus] = useState<PeriodDetectionStatus>('idle')
   const [submitting, setSubmitting] = useState(false)
   const [jobId, setJobId] = useState<string | null>(null)
   const [result, setResult] = useState<ReportJobResult | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const detectionRequest = useRef(0)
   const periodPagination = usePagination(periods, 10, file?.name)
 
   async function handleFileSelected(f: File[]) {
+    const requestId = ++detectionRequest.current
     const picked = f[0] ?? null
     setFile(picked)
     setPeriods([])
     setIncludedPeriods({})
     setResult(null)
     setJobId(null)
-    if (!picked) return
-    setDetecting(true)
     setError(null)
+    if (!picked) {
+      setDetectionStatus('idle')
+      return
+    }
+    setDetectionStatus('detecting')
     try {
       const fd = new FormData()
       fd.append('file', picked)
       const res = await postForm<{ periods: string[] }>(`${BASE}/mrn/detect-periods`, fd)
+      if (requestId !== detectionRequest.current) return
+      if (res.periods.length === 0) {
+        throw new Error('No periods were detected in the Pending MRN file.')
+      }
       setPeriods(res.periods)
       setIncludedPeriods(Object.fromEntries(res.periods.map((p) => [p, true])))
+      setDetectionStatus('complete')
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to detect periods.')
-    } finally {
-      setDetecting(false)
+      if (requestId !== detectionRequest.current) return
+      setDetectionStatus('failed')
+      setError(periodDetectionError(err, 'Pending MRN'))
     }
   }
 
   async function handleRun() {
-    if (!file) return
+    if (!file || detectionStatus !== 'complete') {
+      setError('Period detection must complete successfully before generating the Pending MRN report.')
+      return
+    }
     setSubmitting(true)
     setError(null)
     setResult(null)
@@ -417,7 +495,15 @@ function MrnTab({ knownLocations }: { knownLocations: string[] }) {
         onFilesSelected={(f) => void handleFileSelected(f)}
         onRemove={() => void handleFileSelected([])}
       />
-      {detecting && <p className="text-sm text-ink-dim">Detecting periods...</p>}
+      {file && (
+        <PeriodDetectionNotice
+          status={detectionStatus}
+          count={periods.length}
+          unit="period"
+          error={detectionStatus === 'failed' ? error : null}
+          onRetry={() => void handleFileSelected([file])}
+        />
+      )}
       {periods.length > 0 && (
         <div className="flex flex-col gap-2 rounded-xl border border-border p-4">
           <span className="text-sm font-medium text-ink-dim">
@@ -448,11 +534,15 @@ function MrnTab({ knownLocations }: { knownLocations: string[] }) {
         </div>
       )}
       <div className="flex justify-stretch sm:justify-end">
-        <Button onClick={() => void handleRun()} loading={submitting} disabled={!file}>
+        <Button
+          onClick={() => void handleRun()}
+          loading={submitting}
+          disabled={!file || detectionStatus !== 'complete'}
+        >
           Generate report
         </Button>
       </div>
-      {error && (
+      {error && detectionStatus !== 'failed' && (
         <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-500">
           {error}
         </p>
@@ -496,38 +586,51 @@ function PoTab({ knownLocations }: { knownLocations: string[] }) {
   const [file, setFile] = useState<File | null>(null)
   const [months, setMonths] = useState<string[]>([])
   const [includedMonths, setIncludedMonths] = useState<Record<string, boolean>>({})
-  const [detecting, setDetecting] = useState(false)
+  const [detectionStatus, setDetectionStatus] = useState<PeriodDetectionStatus>('idle')
   const [submitting, setSubmitting] = useState(false)
   const [jobId, setJobId] = useState<string | null>(null)
   const [result, setResult] = useState<ReportJobResult | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const detectionRequest = useRef(0)
   const monthPagination = usePagination(months, 10, file?.name)
 
   async function handleFileSelected(f: File[]) {
+    const requestId = ++detectionRequest.current
     const picked = f[0] ?? null
     setFile(picked)
     setMonths([])
     setIncludedMonths({})
     setResult(null)
     setJobId(null)
-    if (!picked) return
-    setDetecting(true)
     setError(null)
+    if (!picked) {
+      setDetectionStatus('idle')
+      return
+    }
+    setDetectionStatus('detecting')
     try {
       const fd = new FormData()
       fd.append('file', picked)
       const res = await postForm<{ periods: string[]; po_numbers: string[] }>(`${BASE}/po/detect-periods`, fd)
+      if (requestId !== detectionRequest.current) return
+      if (res.periods.length === 0) {
+        throw new Error('No months were detected in the Uninvoiced Expense PO file.')
+      }
       setMonths(res.periods)
       setIncludedMonths(Object.fromEntries(res.periods.map((p) => [p, true])))
+      setDetectionStatus('complete')
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to detect periods.')
-    } finally {
-      setDetecting(false)
+      if (requestId !== detectionRequest.current) return
+      setDetectionStatus('failed')
+      setError(periodDetectionError(err, 'Uninvoiced Expense PO'))
     }
   }
 
   async function handleRun() {
-    if (!file) return
+    if (!file || detectionStatus !== 'complete') {
+      setError('Period detection must complete successfully before generating the Uninvoiced Expense PO report.')
+      return
+    }
     setSubmitting(true)
     setError(null)
     setResult(null)
@@ -566,7 +669,15 @@ function PoTab({ knownLocations }: { knownLocations: string[] }) {
         onFilesSelected={(f) => void handleFileSelected(f)}
         onRemove={() => void handleFileSelected([])}
       />
-      {detecting && <p className="text-sm text-ink-dim">Detecting periods...</p>}
+      {file && (
+        <PeriodDetectionNotice
+          status={detectionStatus}
+          count={months.length}
+          unit="month"
+          error={detectionStatus === 'failed' ? error : null}
+          onRetry={() => void handleFileSelected([file])}
+        />
+      )}
       {months.length > 0 && (
         <div className="flex flex-col gap-2 rounded-xl border border-border p-4">
           <span className="text-sm font-medium text-ink-dim">
@@ -603,11 +714,15 @@ function PoTab({ knownLocations }: { knownLocations: string[] }) {
       </p>
 
       <div className="flex justify-stretch sm:justify-end">
-        <Button onClick={() => void handleRun()} loading={submitting} disabled={!file}>
+        <Button
+          onClick={() => void handleRun()}
+          loading={submitting}
+          disabled={!file || detectionStatus !== 'complete'}
+        >
           Generate report
         </Button>
       </div>
-      {error && (
+      {error && detectionStatus !== 'failed' && (
         <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-500">
           {error}
         </p>
@@ -912,8 +1027,10 @@ function MailTab({
   const [to, setTo] = useState(LEGACY_MAIL_TO.join(', '))
   const [cc, setCc] = useState(LEGACY_MAIL_CC.join(', '))
 
-  const [detectingMrn, setDetectingMrn] = useState(false)
-  const [detectingPo, setDetectingPo] = useState(false)
+  const [mrnDetectionStatus, setMrnDetectionStatus] = useState<PeriodDetectionStatus>('idle')
+  const [poDetectionStatus, setPoDetectionStatus] = useState<PeriodDetectionStatus>('idle')
+  const [mrnDetectionError, setMrnDetectionError] = useState<string | null>(null)
+  const [poDetectionError, setPoDetectionError] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [jobId, setJobId] = useState<string | null>(null)
   const [jobResult, setJobResult] = useState<MailJobResult | null>(null)
@@ -924,6 +1041,8 @@ function MailTab({
   const [sentResult, setSentResult] = useState<{ subject: string; to: string[]; cc: string[] } | null>(
     null,
   )
+  const mrnDetectionRequest = useRef(0)
+  const poDetectionRequest = useRef(0)
   const mrnPeriodPagination = usePagination(mrnPeriods, 10, mrnFile?.name)
   const poMonthPagination = usePagination(poMonths, 10, poFile?.name)
   const suggestedSubject = buildSuggestedMailSubject(
@@ -961,46 +1080,78 @@ function MailTab({
   }, [introCustomized, suggestedIntro])
 
   async function handleMrnFileSelected(f: File[]) {
+    const requestId = ++mrnDetectionRequest.current
     const picked = f[0] ?? null
     setMrnFile(picked)
     setMrnPeriods([])
     setMrnIncluded({})
-    if (!picked) return
-    setDetectingMrn(true)
+    setMrnDetectionError(null)
+    setJobId(null)
+    setJobResult(null)
+    setSentResult(null)
+    if (!picked) {
+      setMrnDetectionStatus('idle')
+      return
+    }
+    setMrnDetectionStatus('detecting')
     try {
       const fd = new FormData()
       fd.append('file', picked)
       const res = await postForm<{ periods: string[] }>(`${BASE}/mrn/detect-periods`, fd)
+      if (requestId !== mrnDetectionRequest.current) return
+      if (res.periods.length === 0) {
+        throw new Error('No periods were detected in the Pending MRN file.')
+      }
       setMrnPeriods(res.periods)
       setMrnIncluded(Object.fromEntries(res.periods.map((p) => [p, true])))
-    } catch {
-      // Non-fatal. The user can still send without a period breakdown.
-    } finally {
-      setDetectingMrn(false)
+      setMrnDetectionStatus('complete')
+    } catch (err) {
+      if (requestId !== mrnDetectionRequest.current) return
+      setMrnDetectionStatus('failed')
+      setMrnDetectionError(periodDetectionError(err, 'Pending MRN'))
     }
   }
 
   async function handlePoFileSelected(f: File[]) {
+    const requestId = ++poDetectionRequest.current
     const picked = f[0] ?? null
     setPoFile(picked)
     setPoMonths([])
     setPoIncluded({})
-    if (!picked) return
-    setDetectingPo(true)
+    setPoDetectionError(null)
+    setJobId(null)
+    setJobResult(null)
+    setSentResult(null)
+    if (!picked) {
+      setPoDetectionStatus('idle')
+      return
+    }
+    setPoDetectionStatus('detecting')
     try {
       const fd = new FormData()
       fd.append('file', picked)
       const res = await postForm<{ periods: string[] }>(`${BASE}/po/detect-periods`, fd)
+      if (requestId !== poDetectionRequest.current) return
+      if (res.periods.length === 0) {
+        throw new Error('No months were detected in the Uninvoiced Expense PO file.')
+      }
       setPoMonths(res.periods)
       setPoIncluded(Object.fromEntries(res.periods.map((p) => [p, true])))
-    } catch {
-      // Non-fatal.
-    } finally {
-      setDetectingPo(false)
+      setPoDetectionStatus('complete')
+    } catch (err) {
+      if (requestId !== poDetectionRequest.current) return
+      setPoDetectionStatus('failed')
+      setPoDetectionError(periodDetectionError(err, 'Uninvoiced Expense PO'))
     }
   }
 
   async function handleSend(forceSend: boolean) {
+    if (!canPrepareReports) {
+      setError(
+        'Upload every selected report file and wait for Pending MRN and Uninvoiced Expense PO period detection to finish.',
+      )
+      return
+    }
     setSubmitting(true)
     setError(null)
     setNotConfigured(false)
@@ -1074,6 +1225,8 @@ function MailTab({
   }
 
   function handleClearAll() {
+    mrnDetectionRequest.current += 1
+    poDetectionRequest.current += 1
     setUaFiles([])
     setMrnFile(null)
     setPoFile(null)
@@ -1081,6 +1234,10 @@ function MailTab({
     setMrnIncluded({})
     setPoMonths([])
     setPoIncluded({})
+    setMrnDetectionStatus('idle')
+    setPoDetectionStatus('idle')
+    setMrnDetectionError(null)
+    setPoDetectionError(null)
     setAsOnDate(getDefaultAsOnDate())
     setJobId(null)
     setJobResult(null)
@@ -1099,8 +1256,16 @@ function MailTab({
     anchor.remove()
   }
 
-  const canSend =
-    (includeUa && uaFiles.length > 0) || (includeMrn && Boolean(mrnFile)) || (includePo && Boolean(poFile))
+  const hasSelectedReport = includeUa || includeMrn || includePo
+  const selectedFilesReady =
+    (!includeUa || uaFiles.length > 0) &&
+    (!includeMrn || Boolean(mrnFile)) &&
+    (!includePo || Boolean(poFile))
+  const requiredDetectionReady =
+    (!includeMrn || mrnDetectionStatus === 'complete') &&
+    (!includePo || poDetectionStatus === 'complete')
+  const canPrepareReports = hasSelectedReport && selectedFilesReady && requiredDetectionReady
+  const canSend = canPrepareReports && !submitting && !confirmSending
 
   const unmappedGroups = jobResult?.status === 'needs_mapping_fix' ? jobResult.unmapped_sites ?? {} : {}
   const allGroupsFixed = Object.entries(unmappedGroups).every(([key, sites]) =>
@@ -1188,7 +1353,15 @@ function MailTab({
             onFilesSelected={(f) => void handleMrnFileSelected(f)}
             onRemove={() => void handleMrnFileSelected([])}
           />
-          {detectingMrn && <p className="text-sm text-ink-dim">Detecting periods...</p>}
+          {mrnFile && (
+            <PeriodDetectionNotice
+              status={mrnDetectionStatus}
+              count={mrnPeriods.length}
+              unit="period"
+              error={mrnDetectionError}
+              onRetry={() => void handleMrnFileSelected([mrnFile])}
+            />
+          )}
           {mrnPeriods.length > 0 && (
             <div className="flex flex-col gap-3 rounded-xl border border-border p-3">
               <div className="flex flex-wrap gap-3">
@@ -1230,7 +1403,15 @@ function MailTab({
             onFilesSelected={(f) => void handlePoFileSelected(f)}
             onRemove={() => void handlePoFileSelected([])}
           />
-          {detectingPo && <p className="text-sm text-ink-dim">Detecting periods...</p>}
+          {poFile && (
+            <PeriodDetectionNotice
+              status={poDetectionStatus}
+              count={poMonths.length}
+              unit="month"
+              error={poDetectionError}
+              onRetry={() => void handlePoFileSelected([poFile])}
+            />
+          )}
           {poMonths.length > 0 && (
             <div className="flex flex-col gap-3 rounded-xl border border-border p-3">
               <div className="flex flex-wrap gap-3">

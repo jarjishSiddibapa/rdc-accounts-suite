@@ -52,6 +52,10 @@ and deployment workflow.
   searchable existing-value suggestions while still allowing a new value.
   High-growth lists (especially users, mappings, exclusions, and audit logs)
   require search plus pagination; user and audit searches run server-side.
+- Pending MRN and Uninvoiced Expense PO period detection is a mandatory
+  workflow gate. The UI must retain an explicit detecting/success/failure
+  state and must not enable processing until detection succeeds. Processing
+  APIs independently re-detect and reject empty or stale period selections.
 
 ## Required verification
 

@@ -11,6 +11,7 @@ MailPanel).
 """
 
 import uuid
+from collections.abc import Callable
 from pathlib import Path
 from typing import Optional
 
@@ -18,6 +19,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
 
 from app.auth import get_current_user
 from app.config import SCRATCH_DIR
@@ -78,6 +80,50 @@ def _split_csv(value: Optional[str]) -> list[str]:
     if not value:
         return []
     return [v.strip() for v in value.split(",") if v.strip()]
+
+
+def _require_detected_periods(
+    path: str | Path,
+    report_label: str,
+    detector: Callable[[str], list],
+) -> list[str]:
+    """Parse and require the period filter values for an MRN/PO upload.
+
+    Period selection is part of report correctness, not optional metadata. A
+    parser failure and a valid-looking file with no usable periods must both
+    stop the workflow before a durable job is queued.
+    """
+    periods = [str(value).strip() for value in detector(str(path)) if str(value).strip()]
+    if not periods:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"No periods could be detected in the {report_label} file. "
+                "Check that this is the correct ERP export and retry; report processing "
+                "cannot continue until period detection succeeds."
+            ),
+        )
+    return periods
+
+
+def _validate_excluded_periods(
+    excluded: set[str], detected: list[str], report_label: str
+) -> None:
+    unknown = sorted(excluded.difference(detected))
+    if unknown:
+        raise HTTPException(
+            status_code=422,
+            detail=(
+                f"The selected {report_label} exclusions do not match the uploaded file: "
+                f"{', '.join(unknown)}. Detect the file's periods again before processing."
+            ),
+        )
+
+
+def _unlink_uploaded_paths(paths: list[str | Path | None]) -> None:
+    for path in paths:
+        if path:
+            Path(path).unlink(missing_ok=True)
 
 
 class _CollectingLogQueue:
@@ -257,10 +303,23 @@ async def process_mrn(
     stem = Path(file.filename or "mrn").stem
     output_path = str(SCRATCH_DIR / f"{uuid.uuid4()}_{stem}_mrn.xlsx")
 
+    excluded = set(_split_csv(exclude_periods))
+    try:
+        detected = await run_in_threadpool(
+            _require_detected_periods,
+            path,
+            "Pending MRN",
+            processing.detect_mrn_periods,
+        )
+        _validate_excluded_periods(excluded, detected, "Pending MRN")
+    except Exception:
+        _unlink_uploaded_paths([path])
+        raise
+
     job_id = submit_job(
         _job_mrn,
         path,
-        set(_split_csv(exclude_periods)),
+        excluded,
         output_path,
         f"{stem}_Pending_MRN.xlsx",
         owner_id=user.id,
@@ -281,13 +340,26 @@ async def process_po(
     stem = Path(file.filename or "po").stem
     output_path = str(SCRATCH_DIR / f"{uuid.uuid4()}_{stem}_po.xlsx")
 
+    excluded = set(_split_csv(exclude_months))
+    try:
+        detected = await run_in_threadpool(
+            _require_detected_periods,
+            path,
+            "Uninvoiced Expense PO",
+            processing.detect_po_periods,
+        )
+        _validate_excluded_periods(excluded, detected, "Uninvoiced Expense PO")
+    except Exception:
+        _unlink_uploaded_paths([path])
+        raise
+
     kw_list = _split_csv(keywords) or mappings._load_po_keywords(db)
     threshold = fuzzy_threshold if fuzzy_threshold is not None else mappings._load_po_threshold(db)
 
     job_id = submit_job(
         _job_po,
         path,
-        set(_split_csv(exclude_months)),
+        excluded,
         kw_list,
         threshold,
         output_path,
@@ -304,7 +376,12 @@ async def process_po(
 async def detect_mrn_periods(file: UploadFile = File(...), user=Depends(get_current_user)):
     path = await _save_upload(file)
     try:
-        periods = processing.detect_mrn_periods(str(path))
+        periods = await run_in_threadpool(
+            _require_detected_periods,
+            path,
+            "Pending MRN",
+            processing.detect_mrn_periods,
+        )
         return {"periods": periods}
     finally:
         path.unlink(missing_ok=True)
@@ -314,8 +391,13 @@ async def detect_mrn_periods(file: UploadFile = File(...), user=Depends(get_curr
 async def detect_po_periods(file: UploadFile = File(...), user=Depends(get_current_user)):
     path = await _save_upload(file)
     try:
-        periods = processing.detect_po_periods(str(path))
-        numbers = processing.detect_po_numbers(str(path))
+        periods = await run_in_threadpool(
+            _require_detected_periods,
+            path,
+            "Uninvoiced Expense PO",
+            processing.detect_po_periods,
+        )
+        numbers = await run_in_threadpool(processing.detect_po_numbers, str(path))
         return {"periods": periods, "po_numbers": numbers}
     finally:
         path.unlink(missing_ok=True)
@@ -972,9 +1054,41 @@ async def mail_send(
             detail="You haven't set up your email sender yet — go to Settings.",
         )
 
+    if not any((include_ua, include_mrn, include_po)):
+        raise HTTPException(status_code=422, detail="Select at least one report to include.")
+    if include_ua and not ua_files:
+        raise HTTPException(status_code=422, detail="Upload the Unaccounted Transactions export files.")
+    if include_mrn and mrn_file is None:
+        raise HTTPException(status_code=422, detail="Upload the Pending MRN export file.")
+    if include_po and po_file is None:
+        raise HTTPException(status_code=422, detail="Upload the Uninvoiced Expense PO export file.")
+
     ua_paths = [str(await _save_upload(f)) for f in ua_files] if include_ua else []
     mrn_path = str(await _save_upload(mrn_file)) if (include_mrn and mrn_file) else None
     po_path = str(await _save_upload(po_file)) if (include_po and po_file) else None
+
+    excluded_periods_set = set(_split_csv(exclude_periods))
+    excluded_months_set = set(_split_csv(exclude_months))
+    try:
+        if mrn_path:
+            detected_mrn = await run_in_threadpool(
+                _require_detected_periods,
+                mrn_path,
+                "Pending MRN",
+                processing.detect_mrn_periods,
+            )
+            _validate_excluded_periods(excluded_periods_set, detected_mrn, "Pending MRN")
+        if po_path:
+            detected_po = await run_in_threadpool(
+                _require_detected_periods,
+                po_path,
+                "Uninvoiced Expense PO",
+                processing.detect_po_periods,
+            )
+            _validate_excluded_periods(excluded_months_set, detected_po, "Uninvoiced Expense PO")
+    except Exception:
+        _unlink_uploaded_paths([*ua_paths, mrn_path, po_path])
+        raise
 
     kw_list = _split_csv(keywords) or mappings._load_po_keywords(db)
     threshold = fuzzy_threshold if fuzzy_threshold is not None else mappings._load_po_threshold(db)
@@ -983,7 +1097,7 @@ async def mail_send(
         _job_mail_send,
         user.id,
         ua_paths, mrn_path, po_path,
-        set(_split_csv(exclude_periods)), set(_split_csv(exclude_months)),
+        excluded_periods_set, excluded_months_set,
         kw_list, threshold,
         month_subject, month_ua, month_mrn, month_po, as_on_date,
         include_ua, include_mrn, include_po,
