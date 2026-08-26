@@ -3,6 +3,7 @@ import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { motion, useReducedMotion } from 'motion/react'
 import { FileSpreadsheet, Layers, ListChecks, Mail, Receipt, ShieldCheck } from 'lucide-react'
 import { Button } from '@/components/Button'
+import { BongoCat } from '@/components/BongoCat'
 import { Footer } from '@/components/Footer'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { PasswordInput } from '@/components/PasswordInput'
@@ -158,64 +159,69 @@ export default function Login() {
         </div>
 
         {!forgotOpen ? (
-          <motion.form
-            className="flex flex-col gap-4"
-            onSubmit={handleSubmit}
-            initial={reduceMotion ? false : { opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
-          >
-            <label className="flex flex-col gap-1.5 text-sm">
-              <span className="font-medium text-ink-dim">Email</span>
-              <div className="relative">
-                <Mail className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-ink-faint" />
-                <input
-                  autoFocus
-                  required
-                  type="email"
-                  autoComplete="username"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="field-control w-full pr-3 pl-9"
-                  placeholder="name@rdc.in"
-                />
-              </div>
-            </label>
-
-            <label className="flex flex-col gap-1.5 text-sm">
-              <span className="font-medium text-ink-dim">Password</span>
-              <PasswordInput
-                required
-                name="password"
-                autoComplete="current-password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-              />
-            </label>
-
-            {error && (
-              <p role="alert" className="status-banner border-red-500/25 bg-red-500/8 text-red-500">
-                {error}
-              </p>
-            )}
-
-            <Button type="submit" variant="primary" loading={loading} className="mt-2 min-h-12 w-full">
-              Sign in
-            </Button>
-
-            <button
-              type="button"
-              onClick={() => {
-                setForgotOpen(true)
-                setForgotEmail(email)
-                setForgotMessage(null)
-              }}
-              className="text-center text-sm text-ink-dim underline-offset-2 hover:text-accent hover:underline"
+          <>
+            <BongoCat />
+            <motion.form
+              className="flex flex-col gap-4"
+              onSubmit={handleSubmit}
+              initial={reduceMotion ? false : { opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
             >
-              Forgot password?
-            </button>
-          </motion.form>
+              <label className="flex flex-col gap-1.5 text-sm">
+                <span className="font-medium text-ink-dim">Email</span>
+                <div className="relative">
+                  <Mail className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-ink-faint" />
+                  <input
+                    autoFocus
+                    required
+                    type="email"
+                    data-bongo-input="true"
+                    autoComplete="username"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    className="field-control w-full pr-3 pl-9"
+                    placeholder="name@rdc.in"
+                  />
+                </div>
+              </label>
+
+              <label className="flex flex-col gap-1.5 text-sm">
+                <span className="font-medium text-ink-dim">Password</span>
+                <PasswordInput
+                  required
+                  name="password"
+                  data-bongo-input="true"
+                  autoComplete="current-password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                />
+              </label>
+
+              {error && (
+                <p role="alert" className="status-banner border-red-500/25 bg-red-500/8 text-red-500">
+                  {error}
+                </p>
+              )}
+
+              <Button type="submit" variant="primary" loading={loading} className="mt-2 min-h-12 w-full">
+                Sign in
+              </Button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setForgotOpen(true)
+                  setForgotEmail(email)
+                  setForgotMessage(null)
+                }}
+                className="text-center text-sm text-ink-dim underline-offset-2 hover:text-accent hover:underline"
+              >
+                Forgot password?
+              </button>
+            </motion.form>
+          </>
         ) : (
           <motion.form
             className="flex flex-col gap-4"
