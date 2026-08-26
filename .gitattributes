@@ -1,0 +1,29 @@
+# Normalize text files to LF in the repository; each checkout gets LF back
+# by default, except the Windows-only launcher scripts below, which are
+# forced to CRLF since that's what cmd.exe expects. Without this, a plain
+# Windows checkout can end up with CRLF on disk for files git stored as LF,
+# which git then reports as a local modification on every pull/checkout -
+# exactly what blocked `git pull` on the production PC for start_all.bat.
+* text=auto eol=lf
+
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Binary files must never go through line-ending conversion - it would
+# corrupt them. git's own binary-content sniffing would likely catch these
+# anyway, but list the ones actually tracked in this repo explicitly.
+*.xlsx binary
+*.xls binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.db binary
+*.sqlite binary
+*.sqlite3 binary
