@@ -9,6 +9,7 @@ from openpyxl.utils import get_column_letter
 
 from .constants import MRN_SITE_COL, MRN_ANCHOR_COL
 from app.regional import format_indian_number, today_ist
+from app.services.xlsx_formula_cache import cache_formula_values, inject_cached_values
 
 # Indian number format: 1,23,456  |  zero displays as  –
 # Sections: positive ; negative ; zero
@@ -493,7 +494,9 @@ def write_formatted_excel(df: "pd.DataFrame", path: str) -> None:
     for sheet in wb.worksheets:
         _autofit_columns(sheet)
 
+    cached_values = cache_formula_values(wb)
     wb.save(path)
+    inject_cached_values(path, cached_values)
 
 
 # ── PO pivot sheet ────────────────────────────────────────────────────────────
@@ -891,7 +894,9 @@ def write_formatted_po_excel(
     # ── Pivot sheet (inserted as position-0, i.e. first tab) ─────────────────
     _add_po_pivot_sheet(wb, main_df)
 
+    cached_values = cache_formula_values(wb)
     wb.save(path)
+    inject_cached_values(path, cached_values)
 
 
 # ── Shared helpers for MRN pivot sheets ───────────────────────────────────────
@@ -1552,6 +1557,8 @@ def write_formatted_mrn_excel(df: "pd.DataFrame", path: str) -> None:
     for sheet in wb.worksheets:
         _autofit_columns(sheet)
 
+    cached_values = cache_formula_values(wb)
     wb.save(path)
+    inject_cached_values(path, cached_values)
 
 
