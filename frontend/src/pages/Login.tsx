@@ -3,7 +3,6 @@ import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { motion, useReducedMotion } from 'motion/react'
 import { FileSpreadsheet, Layers, ListChecks, Mail, Receipt, ShieldCheck } from 'lucide-react'
 import { Button } from '@/components/Button'
-import { BongoCat } from '@/components/BongoCat'
 import { Footer } from '@/components/Footer'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { PasswordInput } from '@/components/PasswordInput'
@@ -160,7 +159,6 @@ export default function Login() {
 
         {!forgotOpen ? (
           <>
-            <BongoCat />
             <motion.form
               className="flex flex-col gap-4"
               onSubmit={handleSubmit}
@@ -176,7 +174,6 @@ export default function Login() {
                     autoFocus
                     required
                     type="email"
-                    data-bongo-input="true"
                     autoComplete="username"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
@@ -191,7 +188,6 @@ export default function Login() {
                 <PasswordInput
                   required
                   name="password"
-                  data-bongo-input="true"
                   autoComplete="current-password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}

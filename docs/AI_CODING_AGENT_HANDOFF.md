@@ -260,15 +260,12 @@ Preserve these UX requirements:
 - UI polish must not weaken validation, permissions, owner isolation, or job
   idempotency.
 
-The login form includes an original, browser-native Bongo Cat interaction in
-`frontend/src/components/BongoCat.tsx`. Both paws rest on the keyboard and
-alternate on sign-in-field keystrokes; pointer movement moves the eyes and
-right paw to the illustrated mouse. The component uses Motion values for
-continuous pointer tracking, cleans up every window listener/timer, ignores
-touch pointer movement, and becomes static when `prefers-reduced-motion` is
-enabled. It is decorative feedback only: never let it observe, retain, log, or
-transmit the contents of the email or password fields, and do not make login
-validation depend on its animation state.
+The Bongo Cat login experiment was deliberately removed. The upstream desktop
+Live2D runtime could not be reproduced in the browser with the same smoothness
+and reliability without adding unnecessary client-side rendering complexity.
+Do not restore a static or reduced imitation; revisit the feature only if the
+product requirement explicitly changes and a faithful, stable browser
+implementation is available.
 
 Pending MRN and Uninvoiced Expense PO uploads have a required period-detection
 gate in both their standalone tabs and the combined mail workflow. The UI keeps
