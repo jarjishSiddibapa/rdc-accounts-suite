@@ -18,3 +18,4 @@ pyxlsb
 oracledb
 email-validator
 dnspython
+playwright==1.62.0

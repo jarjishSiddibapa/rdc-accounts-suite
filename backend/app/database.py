@@ -205,6 +205,31 @@ def _apply_additive_schema_updates() -> None:
                     )
                 )
 
+    # Kept additive because the IOCL monitor was exercised against the live
+    # portal during development before its daily retry-cooldown field was
+    # introduced. It is harmless on a fresh install and protects any early
+    # deployment from a missing-column startup failure.
+    if "iocl_balance_settings" in existing_tables:
+        iocl_columns = {
+            column["name"] for column in inspector.get_columns("iocl_balance_settings")
+        }
+        if "last_daily_attempt_at" not in iocl_columns:
+            with engine.begin() as connection:
+                connection.execute(
+                    text(
+                        "ALTER TABLE `iocl_balance_settings` "
+                        "ADD COLUMN `last_daily_attempt_at` DATETIME NULL"
+                    )
+                )
+        if "sender_user_id" not in iocl_columns:
+            with engine.begin() as connection:
+                connection.execute(
+                    text(
+                        "ALTER TABLE `iocl_balance_settings` "
+                        "ADD COLUMN `sender_user_id` INT NULL"
+                    )
+                )
+
     if "users" not in existing_tables:
         return
 
@@ -258,6 +283,7 @@ def _init_db_unlocked():
     _apply_additive_schema_updates()
 
     from app import auth, system_mailer  # lazy import to avoid circular import
+    from app.services.iocl_balance import monitor as iocl_monitor
     from app.models import BackgroundResourceSlot
     from app.permissions import seed_applications
     from app.services.rdc_payables import mapping_store as payables_mappings
@@ -269,6 +295,7 @@ def _init_db_unlocked():
         auth.seed_initial_users(db)
         seed_applications(db)
         system_mailer.seed_system_email(db)
+        iocl_monitor.seed_settings(db)
         # Add only legacy natural keys that have never existed. Existing and
         # soft-deleted mappings are intentionally left untouched so admin
         # edits/archives always take precedence over bundled seed data.

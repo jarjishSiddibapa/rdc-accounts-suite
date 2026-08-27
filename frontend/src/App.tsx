@@ -21,6 +21,7 @@ const UltrafineBalanceConfirmation = lazy(() => import('@/pages/tools/UltrafineB
 const UltrafinePaymentReminder = lazy(() => import('@/pages/tools/UltrafinePaymentReminder'))
 const GstInvoiceAdder = lazy(() => import('@/pages/tools/GstInvoiceAdder'))
 const ClosingPeriodReport = lazy(() => import('@/pages/tools/ClosingPeriodReport'))
+const IoclBalanceMonitor = lazy(() => import('@/pages/tools/IoclBalanceMonitor'))
 
 function ScrollToTop() {
   const { pathname } = useLocation()
@@ -183,6 +184,12 @@ export default function App() {
             path="/tools/closing-period-report"
             element={
               protectedPage(<AppGuard appKey="closing-period-report"><ClosingPeriodReport /></AppGuard>)
+            }
+          />
+          <Route
+            path="/tools/iocl-balance"
+            element={
+              protectedPage(<AppGuard appKey="iocl-balance-monitor"><IoclBalanceMonitor /></AppGuard>)
             }
           />
 

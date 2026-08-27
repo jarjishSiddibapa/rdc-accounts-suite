@@ -1,7 +1,7 @@
 import unittest
 
 from app.main import app
-from app.routers import auth_routes, erp_converter, job_control, unaccounted_txn
+from app.routers import auth_routes, erp_converter, iocl_balance, job_control, unaccounted_txn
 
 
 class RemovedApiSurfaceTests(unittest.TestCase):
@@ -84,6 +84,16 @@ class RemovedApiSurfaceTests(unittest.TestCase):
             if getattr(route, "path", None) is not None
         }
         self.assertFalse(any(path.startswith("/api/tools/dms") for path in route_paths))
+
+    def test_iocl_balance_monitor_routes_are_available(self):
+        route_paths = {
+            route.path
+            for route in iocl_balance.router.routes
+            if getattr(route, "path", None) is not None
+        }
+        self.assertIn("/api/tools/iocl-balance/settings", route_paths)
+        self.assertIn("/api/tools/iocl-balance/check-now", route_paths)
+        self.assertIn("/api/tools/iocl-balance/session", route_paths)
 
 
 if __name__ == "__main__":

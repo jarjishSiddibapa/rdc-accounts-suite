@@ -59,7 +59,13 @@ def test_smtp_connection(email: str, app_password: str) -> tuple[bool, str]:
         return False, "Connection failed. Check the network and SMTP settings, then try again."
 
 
-def send_system_email(db: Session, to_email: str, subject: str, body_text: str) -> tuple[bool, str]:
+def send_system_email_to_recipients(
+    db: Session,
+    to_emails: list[str],
+    cc_emails: list[str],
+    subject: str,
+    body_text: str,
+) -> tuple[bool, str]:
     """Sends a plain-text system email (password reset, notifications).
     Returns (ok, message). Never raises - callers should treat a failed
     send as a soft error (log it, don't crash the request)."""
@@ -70,18 +76,31 @@ def send_system_email(db: Session, to_email: str, subject: str, body_text: str) 
     msg = MIMEText(body_text, "plain")
     msg["Subject"] = subject
     msg["From"] = settings["sender_email"]
-    msg["To"] = to_email
+    clean_to = list(dict.fromkeys(email.strip() for email in to_emails if email.strip()))
+    clean_cc = [
+        email for email in dict.fromkeys(email.strip() for email in cc_emails if email.strip())
+        if email not in clean_to
+    ]
+    if not clean_to:
+        return False, "At least one To recipient is required."
+    msg["To"] = ", ".join(clean_to)
+    if clean_cc:
+        msg["Cc"] = ", ".join(clean_cc)
 
     try:
         with smtplib.SMTP("smtp.gmail.com", 587, timeout=60) as s:
             s.ehlo()
             s.starttls()
             s.login(settings["sender_email"], settings["app_password"])
-            s.sendmail(settings["sender_email"], [to_email], msg.as_string())
+            s.sendmail(settings["sender_email"], [*clean_to, *clean_cc], msg.as_string())
         return True, "Sent."
     except Exception:  # noqa: BLE001
         logger.exception("System email delivery failed")
         return False, "Email delivery failed. Check the system email settings and network connection."
+
+
+def send_system_email(db: Session, to_email: str, subject: str, body_text: str) -> tuple[bool, str]:
+    return send_system_email_to_recipients(db, [to_email], [], subject, body_text)
 
 
 def send_password_reset_email(db: Session, to_email: str, reset_link: str) -> tuple[bool, str]:

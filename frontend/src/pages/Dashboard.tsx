@@ -11,6 +11,7 @@ import {
   ShieldCheck,
   LayoutGrid,
   PackageCheck,
+  WalletCards,
 } from 'lucide-react'
 import { AppShell } from '@/components/AppShell'
 import { Reveal, RevealGroup } from '@/components/Reveal'
@@ -91,6 +92,14 @@ const tools = [
     icon: PackageCheck,
     appKey: 'closing-period-report',
     category: 'Inventory reporting',
+  },
+  {
+    to: '/tools/iocl-balance',
+    title: 'Ultrafine IOCL Balance Monitor',
+    description: 'Track the live IOCL CCMS balance and automatically send morning and threshold alerts.',
+    icon: WalletCards,
+    appKey: 'iocl-balance-monitor',
+    category: 'Ultrafine treasury automation',
   },
 ]
 

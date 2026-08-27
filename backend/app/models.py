@@ -10,6 +10,8 @@ from sqlalchemy import (
     Float,
     ForeignKey,
     Integer,
+    Date,
+    Numeric,
     String,
     Text,
     UniqueConstraint,
@@ -170,6 +172,101 @@ class BackupSettings(Base):
     # outlives a user's own session on disk.
     scratch_cleanup_minutes = Column(Integer, default=30, nullable=False)
     is_deleted = Column(Boolean, default=False, nullable=False)
+
+
+class IoclBalanceSettings(Base):
+    """Shared configuration and durable scheduler state for IOCL CCMS."""
+
+    __tablename__ = "iocl_balance_settings"
+
+    id = Column(Integer, primary_key=True)
+    enabled = Column(Boolean, default=False, nullable=False)
+    login_url = Column(
+        String(500),
+        default="https://beta.iocxtrapower.com/account/login?returnUrl=%2F",
+        nullable=False,
+    )
+    username = Column(String(255), nullable=True)
+    password_encrypted = Column(Text, nullable=True)
+    session_state_encrypted = Column(LONGTEXT, nullable=True)
+    login_timeout_seconds = Column(Integer, default=60, nullable=False)
+
+    check_interval_minutes = Column(Integer, default=30, nullable=False)
+    next_check_at = Column(DateTime, nullable=True, index=True)
+    check_lock_token = Column(String(36), nullable=True)
+    check_lock_expires_at = Column(DateTime, nullable=True, index=True)
+
+    # Which user's own Gmail sender identity (see EmailSettings - one row per
+    # user, configured under that user's own Settings page) morning/alert
+    # mail goes out from. Nullable: falls back to the shared system email
+    # account (see app.system_mailer) until an admin picks a sender here.
+    sender_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+
+    daily_email_enabled = Column(Boolean, default=True, nullable=False)
+    daily_email_time = Column(String(5), default="08:00", nullable=False)
+    daily_to = Column(Text, nullable=True)
+    daily_cc = Column(Text, nullable=True)
+    daily_subject_template = Column(Text, nullable=False)
+    daily_body_template = Column(LONGTEXT, nullable=False)
+    last_daily_sent_date = Column(Date, nullable=True)
+    last_daily_attempt_at = Column(DateTime, nullable=True)
+
+    alerts_enabled = Column(Boolean, default=True, nullable=False)
+    alert_start_amount = Column(Numeric(14, 2), default=500000, nullable=False)
+    alert_step_amount = Column(Numeric(14, 2), default=50000, nullable=False)
+    alert_to = Column(Text, nullable=True)
+    alert_cc = Column(Text, nullable=True)
+    alert_subject_template = Column(Text, nullable=False)
+    alert_body_template = Column(LONGTEXT, nullable=False)
+
+    last_balance = Column(Numeric(14, 2), nullable=True)
+    last_checked_at = Column(DateTime, nullable=True)
+    last_check_status = Column(String(20), nullable=True)
+    last_error = Column(Text, nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    version = Column(Integer, default=1, nullable=False)
+    is_deleted = Column(Boolean, default=False, nullable=False)
+
+
+class IoclBalanceCheck(Base):
+    """Append-only (soft deletable) history of portal balance checks."""
+
+    __tablename__ = "iocl_balance_checks"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    trigger = Column(String(20), nullable=False)  # scheduled/manual
+    status = Column(String(20), nullable=False)  # success/error/skipped
+    balance = Column(Numeric(14, 2), nullable=True)
+    error_message = Column(Text, nullable=True)
+    checked_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    duration_seconds = Column(Float, nullable=True)
+    is_deleted = Column(Boolean, default=False, nullable=False, index=True)
+
+
+class IoclBalanceNotification(Base):
+    """Durable, idempotent mail occurrence/outbox for IOCL notifications."""
+
+    __tablename__ = "iocl_balance_notifications"
+    __table_args__ = (
+        UniqueConstraint("notification_key", name="uq_iocl_balance_notification_key"),
+    )
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    notification_key = Column(String(160), nullable=False)
+    check_id = Column(BigInteger, ForeignKey("iocl_balance_checks.id"), nullable=True, index=True)
+    notification_type = Column(String(20), nullable=False, index=True)  # daily/threshold
+    threshold_amount = Column(Numeric(14, 2), nullable=True)
+    balance = Column(Numeric(14, 2), nullable=False)
+    subject = Column(Text, nullable=False)
+    body = Column(LONGTEXT, nullable=False)
+    to_recipients = Column(Text, nullable=False)
+    cc_recipients = Column(Text, nullable=True)
+    status = Column(String(20), nullable=False, index=True)  # pending/sending/sent/failed
+    error_message = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    attempted_at = Column(DateTime, nullable=True)
+    sent_at = Column(DateTime, nullable=True)
+    is_deleted = Column(Boolean, default=False, nullable=False, index=True)
 
 
 class BackgroundJob(Base):

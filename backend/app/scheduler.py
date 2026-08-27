@@ -20,6 +20,7 @@ from app.config import DATA_DIR, SCRATCH_DIR
 from app.database import SessionLocal
 from app.models import BackupSettings, RateLimitBucket, TrialBalanceUploadToken
 from app.regional import now_ist
+from app.services.iocl_balance import monitor as iocl_monitor
 
 logger = logging.getLogger(__name__)
 
@@ -168,6 +169,10 @@ def _loop() -> None:
             _sweep_database_runtime_state()
         except Exception:  # noqa: BLE001 - one bad sweep must not stop scheduling
             logger.exception("[scheduler] runtime-state sweep failed")
+        try:
+            iocl_monitor.enqueue_due_check()
+        except Exception:  # noqa: BLE001 - portal scheduling must not stop other duties
+            logger.exception("[scheduler] IOCL balance scheduling failed")
         time.sleep(_POLL_SECONDS)
 
 

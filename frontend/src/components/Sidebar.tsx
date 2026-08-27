@@ -24,6 +24,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   X,
+  WalletCards,
 } from 'lucide-react'
 import { cn } from '@/utils/cn'
 import { useAuth } from '@/lib/auth-context'
@@ -62,6 +63,7 @@ const mainNav: NavItem[] = [
   },
   { to: '/tools/gst-invoice-adder', label: 'GST Invoice Number Adder', icon: FileCheck2, appKey: 'gst-invoice-adder' },
   { to: '/tools/closing-period-report', label: 'Closing Period Report Generator', icon: PackageCheck, appKey: 'closing-period-report' },
+  { to: '/tools/iocl-balance', label: 'Ultrafine IOCL Balance Monitor', icon: WalletCards, appKey: 'iocl-balance-monitor' },
 ]
 
 interface SidebarProps {

@@ -65,6 +65,15 @@ if errorlevel 1 (
     exit /b 1
 )
 
+echo Checking the IOCL browser runtime...
+python -m playwright install chromium
+if errorlevel 1 (
+    echo ERROR: Playwright Chromium installation failed.
+    echo ERROR: Playwright Chromium installation failed. >> "%LOGFILE%"
+    pause
+    exit /b 1
+)
+
 if "%API_WORKERS%"=="" set API_WORKERS=2
 if "%JOB_WORKER_PROCESSES%"=="" set JOB_WORKER_PROCESSES=2
 

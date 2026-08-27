@@ -22,6 +22,7 @@ LAN-hosted FastAPI and React application. The current suite contains:
 8. GST Invoice Number Adder
 9. Ultrafine Payment Reminder sender
 10. Closing Period Report Generator
+11. Ultrafine IOCL Balance Monitor
 
 It also contains authentication, user and application-access administration,
 central email settings/default recipients, mapping administration, audit logs,
@@ -40,6 +41,7 @@ The development machine has the original desktop projects at:
 - `E:\jarjish-projects\sneha-raman-rdc-payables-report`
 - `E:\jarjish-projects\sneha-raman-unaccounted-transactions-report`
 - `E:\jarjish-projects\kishore-sir-closing-period-report-generator`
+- `E:\jarjish-projects\hitanshi-iocl-balance-alerts`
 - `E:\jarjish-projects\sneha-raman-dms-document-downloader` (retired from suite)
 
 Use the desktop source and, when practical, identical representative input to
@@ -60,6 +62,15 @@ reference exports produced the same `31-MAY-26` period, 168 processed files, 57
 skipped files, and 5,206 data rows. Preserve the explicit header row before
 calling `_style_main_sheet()`—that function inserts the title row, and omitting
 the prewritten header silently overwrites the first business record.
+
+The IOCL web port lives in `backend/app/services/iocl_balance/monitor.py`; its
+reference is `hitanshi-iocl-balance-alerts/xtrapower_test.py`. Preserve the
+reference flow: reuse Playwright storage state, fall back to credential login,
+wait for the Quicklinks SPA to finish rendering, navigate through Financials
+to Online CCMS Recharge, and prefer the exact CCMS Balance over the rounded
+Wallet Balance. Password and Playwright storage state are Fernet-encrypted in
+MySQL. Never copy the reference project's plaintext password or session JSON
+into this repository, logs, job arguments, or API responses.
 
 `backend/tests/test_desktop_parity.py` currently verifies selected payables
 statistics/log behavior and an Unaccounted mail attachment naming path. It is
@@ -133,6 +144,15 @@ must not become a partial batch merely because a browser closes. Unaccounted,
 Ultrafine Balance Confirmation, and Ultrafine Payment Reminder send tasks are
 detached in `backend/app/jobs.py`, and their send `ProgressPanel` instances set
 `cancelOnTabClose={false}`. Preserve both halves of that safeguard.
+
+IOCL checks are durable detached jobs too. The scheduler queues them using
+only the trigger string; workers reload encrypted portal credentials from
+MySQL. A database lease prevents concurrent manual/scheduled portal checks.
+Every attempted check is retained in `iocl_balance_checks`; every morning or
+threshold email occurrence is retained in `iocl_balance_notifications` with
+an idempotency key and delivery status. The IOCL page exposes both complete
+histories with server-side filtering and pagination. Do not replace this
+evidence with process-local state or a latest-only widget.
 
 Trial Balance's two-step upload flow stores owner/expiry metadata in MySQL and
 parsed content in UUID-named gzip JSON under the scratch directory. Do not move

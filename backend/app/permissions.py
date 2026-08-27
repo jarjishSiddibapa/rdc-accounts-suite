@@ -19,6 +19,7 @@ APP_KEYS = [
     "erp-to-excel", "rdc-payables", "unaccounted", "trial-balance", "gstr2b-combinator",
     "unapplied-receipts", "ultrafine-balance-confirmation", "ultrafine-payment-reminder",
     "gst-invoice-adder", "closing-period-report",
+    "iocl-balance-monitor",
 ]
 RETIRED_APP_KEYS = {"dms"}
 
@@ -33,13 +34,18 @@ APP_LABELS = {
     "ultrafine-payment-reminder": "Ultrafine Bulk Payment Reminder Sender",
     "gst-invoice-adder": "GST Invoice Number Adder",
     "closing-period-report": "Closing Period Report Generator",
+    "iocl-balance-monitor": "Ultrafine IOCL Balance Monitor",
 }
 
 APP_COMPANIES = ("RDC", "Ultrafine")
 DEFAULT_APP_COMPANY = "RDC"
 # Apps whose default company classification is Ultrafine rather than the
 # suite-wide RDC default (see seed_applications below).
-_ULTRAFINE_APP_KEYS = {"ultrafine-balance-confirmation", "ultrafine-payment-reminder"}
+_ULTRAFINE_APP_KEYS = {
+    "ultrafine-balance-confirmation",
+    "ultrafine-payment-reminder",
+    "iocl-balance-monitor",
+}
 
 # Apps that actually send mail using an admin-managed, application-wide
 # default To/Cc (see ApplicationEmailRecipient / mailer_shared's

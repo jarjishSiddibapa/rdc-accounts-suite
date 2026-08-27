@@ -16,6 +16,8 @@ office PC and shared over the local network via a browser.
 - Ultrafine Balance Confirmation Bulk Sender
 - Ultrafine Bulk Payment Reminder Sender
 - GST Invoice Number Adder
+- Closing Period Report Generator
+- Ultrafine IOCL Balance Monitor (scheduled morning and threshold alert emails)
 
 Plus shared admin features: user management, per-app access control, email
 sender settings, database backup scheduling, and a file-based + database
@@ -32,7 +34,9 @@ admin Users/Audit Log screens use server-side search and pagination.
 - Windows deployment integration: Oracle Instant Client (thick-mode
   `oracledb`, for the Unapplied Receipts and GST Invoice Adder tools). Report
   generation and `.xlsb` handling are pure Python and do not require Excel COM
-  or an interactive Microsoft Excel session.
+  or an interactive Microsoft Excel session. The IOCL monitor uses a
+  headless Playwright Chromium browser; `start_all.bat` installs/checks that
+  browser runtime automatically.
 
 ## First-time setup
 
@@ -102,6 +106,12 @@ before pulling (see above).
 For the 25 August 2026 concurrency release, existing production databases must
 run `deployment/mysql/20260825_tab_owned_jobs.sql` in MySQL Workbench after the
 original durable-concurrency migration. It is safe to run more than once.
+
+For the 27 August 2026 IOCL monitor release, run
+`deployment/mysql/20260827_iocl_balance_monitor.sql` in MySQL Workbench. It is
+idempotent and creates the monitor settings, complete check history, durable
+notification history, and application catalogue row without storing any
+plaintext credentials.
 
 ## What's not in this repo
 
