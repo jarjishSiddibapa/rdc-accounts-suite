@@ -8,6 +8,7 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
 from .constants import MRN_SITE_COL, MRN_ANCHOR_COL
+from .native_pivots import attach_pending_mrn_native_pivot
 from app.regional import format_indian_number, today_ist
 from app.services.xlsx_formula_cache import cache_formula_values, inject_cached_values
 
@@ -1344,6 +1345,21 @@ def _add_locationwise_pivot_sheet(wb, df: "pd.DataFrame") -> None:
 
 def write_formatted_mrn_excel(df: "pd.DataFrame", path: str) -> None:
     """Write Pending MRN df to formatted xlsx: data sheet + unmapped sites sheet."""
+    # Order rows chronologically by accounting period (stable, so rows within
+    # the same period keep their original relative order). The native
+    # Vendorwise Pivot has no live Excel session to re-sort its period
+    # columns after opening (see native_pivots.py), so a PivotField without
+    # an explicit AutoSort shows new items in the order Excel first meets
+    # them while scanning the Summary sheet top-to-bottom - this is that
+    # order.
+    if MRN_ANCHOR_COL in df.columns:
+        df = (
+            df.assign(_period_sort=df[MRN_ANCHOR_COL].map(_mrn_period_sort_key))
+            .sort_values("_period_sort", kind="stable")
+            .drop(columns="_period_sort")
+            .reset_index(drop=True)
+        )
+
     wb     = Workbook()
     ws     = wb.active
     ws.title = "Summary"
@@ -1557,8 +1573,7 @@ def write_formatted_mrn_excel(df: "pd.DataFrame", path: str) -> None:
     for sheet in wb.worksheets:
         _autofit_columns(sheet)
 
-    cached_values = cache_formula_values(wb)
     wb.save(path)
-    inject_cached_values(path, cached_values)
+    attach_pending_mrn_native_pivot(path)
 
 

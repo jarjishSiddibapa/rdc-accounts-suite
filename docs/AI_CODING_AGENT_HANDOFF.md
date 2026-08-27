@@ -144,6 +144,35 @@ local interactive Excel session. `.xlsb` handling and report generation use
 Python libraries. Do not reintroduce `win32com` without a proven, explicitly
 approved requirement.
 
+Pending MRN is the one reference workflow that produced a genuine native Excel
+PivotTable: `Vendorwise Pivot`. The web suite preserves that behavior without
+runtime COM by loading the sanitized synthetic template at
+`backend/app/services/unaccounted/pivot_templates/pending_mrn_vendorwise.xlsx`,
+copying the newly generated ordinary report sheets into it, pointing the pivot
+cache at the new workbook's `Summary` range, and setting a clean open-time
+refresh. The embedded cache contains only an explicit synthetic placeholder;
+`missingItemsLimit = 0` removes it on refresh. Keep the template sanitized and
+retain formula-cache injection after the template merge. The other pivot-named
+desktop sheets were static pandas/openpyxl summaries, not native PivotTables
+(confirmed by the desktop source's own `_add_real_pivots` comment: "Locationwise
+Pivot is kept as a plain openpyxl static table").
+
+The desktop app's real pivot also re-sorted its ACCOUNTING PERIOD column
+chronologically and reformatted captions every time it ran, via COM
+(`_sort_period_field`, setting each PivotItem's `.Position`/`.Caption`
+explicitly) - something that cannot be replicated without a live Excel
+session. The template's ACCOUNTING PERIOD field is a manual-sort field, so
+Excel populates any period it hasn't seen before, on refresh, in the order it
+first encounters that value scanning the `Summary` sheet top-to-bottom
+(verified directly against real Excel). `write_formatted_mrn_excel` therefore
+sorts its input rows chronologically by accounting period before writing
+`Summary`, so the native pivot's column order still comes out chronological
+regardless of the order periods appear in the uploaded MRN export. See
+`test_summary_rows_are_ordered_chronologically_by_period` in
+`backend/tests/test_native_pivots.py`. If a future pivot ever needs this same
+treatment, apply the same source-row-ordering fix rather than assuming
+`refreshOnLoad` alone reproduces the desktop's per-refresh sort/caption logic.
+
 The current supervisor targets one Windows server. Multiple processes on that
 host are supported. Running workers on multiple machines would additionally
 require shared scratch/output storage (or object storage); MySQL durability
