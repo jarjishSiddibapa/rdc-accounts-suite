@@ -34,6 +34,32 @@ function clientTabHeaders(): Record<string, string> {
   return tabId ? { 'X-Client-Tab-ID': tabId } : {}
 }
 
+/**
+ * FastAPI's own `detail` is usually a plain string (from our HTTPException
+ * calls), but a 422 validation failure sends `detail` as a LIST of
+ * {loc, msg, type} objects instead - naively doing String(detail) on that
+ * renders "[object Object]" (Array.prototype.toString calling the default
+ * Object.toString on each item). Extract the actual `msg` text instead.
+ */
+function formatErrorDetail(detail: unknown): string | undefined {
+  if (typeof detail === 'string') return detail
+  if (Array.isArray(detail)) {
+    const messages = detail
+      .map((item) => {
+        if (item && typeof item === 'object' && 'msg' in item) {
+          const loc = (item as { loc?: unknown }).loc
+          const field = Array.isArray(loc) ? loc.filter((part) => part !== 'body').join('.') : undefined
+          const msg = String((item as { msg: unknown }).msg)
+          return field ? `${field}: ${msg}` : msg
+        }
+        return undefined
+      })
+      .filter((value): value is string => Boolean(value))
+    return messages.length > 0 ? messages.join('; ') : undefined
+  }
+  return undefined
+}
+
 async function parseErrorMessage(res: Response): Promise<{ message: string; body: unknown }> {
   const contentType = res.headers.get('content-type') ?? ''
   try {
@@ -41,7 +67,7 @@ async function parseErrorMessage(res: Response): Promise<{ message: string; body
       const body = await res.json()
       const message =
         (typeof body === 'object' && body !== null && 'detail' in body
-          ? String((body as { detail: unknown }).detail)
+          ? formatErrorDetail((body as { detail: unknown }).detail)
           : undefined) ??
         (typeof body === 'object' && body !== null && 'message' in body
           ? String((body as { message: unknown }).message)

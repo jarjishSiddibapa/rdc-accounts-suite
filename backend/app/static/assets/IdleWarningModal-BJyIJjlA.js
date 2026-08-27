@@ -1,6 +1,0 @@
-import{r as n,j as e}from"./index-D9MzetGV.js";import{M as r}from"./Modal-DpeOE7Gl.js";import{B as m}from"./Button-FhFBhjBZ.js";import{c as d}from"./cn-_Dh4idq5.js";import"./x-L2SrKkO5.js";/**
- * @license lucide-react v0.469.0 - ISC
- *
- * This source code is licensed under the ISC license.
- * See the LICENSE file in the root directory of this source tree.
- */const x=d("Clock",[["circle",{cx:"12",cy:"12",r:"10",key:"1mglay"}],["polyline",{points:"12 6 12 12 16 14",key:"68esgv"}]]),o=60;function g({open:t,onStayLoggedIn:s}){const[a,i]=n.useState(o);return n.useEffect(()=>{if(!t)return;i(o);const c=window.setInterval(()=>{i(l=>Math.max(0,l-1))},1e3);return()=>window.clearInterval(c)},[t]),e.jsx(r,{open:t,onClose:s,title:"You're about to be signed out",children:e.jsxs("div",{className:"flex flex-col gap-4",children:[e.jsxs("p",{className:"flex items-center gap-2 text-sm text-ink-dim",children:[e.jsx(x,{className:"h-4 w-4 shrink-0 text-accent"}),"Due to inactivity, you'll be automatically logged out in"," ",e.jsxs("span",{className:"font-semibold text-ink",children:[a,"s"]}),"."]}),e.jsx("p",{className:"text-sm text-ink-dim",children:"Click below or interact with the page to stay signed in."}),e.jsx(m,{onClick:s,className:"self-end",children:"Stay signed in"})]})})}export{g as IdleWarningModal};
