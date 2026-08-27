@@ -1083,6 +1083,18 @@ def to_excel_bytes(df, missing_codes=None):
             else:
                 ws_p.write_number(row_i, col_i, value, fmt_nonzero)
 
+        def _piv_write_sum(ws_p, row_i, col_i, value, cell_refs, fmt_nonzero, fmt_dash):
+            """Write a data-row total as a live =SUM(...) over the row's own
+            other cells (e.g. Grand Total over the TX-type block, or Total
+            LE30 over every LE30 column), instead of the pre-computed value
+            - so it recalculates in Excel exactly like the region subtotal
+            and GRAND TOTAL rows already do."""
+            if value == 0.0:
+                ws_p.write(row_i, col_i, "-", fmt_dash)
+            else:
+                ws_p.write_formula(row_i, col_i, f"=SUM({','.join(cell_refs)})",
+                                    fmt_nonzero, value)
+
         # ── Worksheet layout ──────────────────────────────────────────────────
         last_col = 3 + len(TX_ORDER) * 2 + 2 - 1   # = 14
 
@@ -1145,14 +1157,22 @@ def to_excel_bytes(df, missing_codes=None):
                 continue
             ws_piv.write(ri, 0, region,   lbl_fmt_p)
             ws_piv.write(ri, 1, incharge, lbl_fmt_p)
-            _piv_write(ws_piv, ri, 2, d["Grand Total"], num_fmt_p_bold, dash_fmt_p_bold)
+            tx_first_col, tx_last_col = 3, 3 + len(TX_ORDER) * 2 - 1
+            _piv_write_sum(
+                ws_piv, ri, 2, d["Grand Total"],
+                [f"{xl_rowcol_to_cell(ri, tx_first_col)}:{xl_rowcol_to_cell(ri, tx_last_col)}"],
+                num_fmt_p_bold, dash_fmt_p_bold,
+            )
             c = 3
+            le30_cols, gt30_cols = [], []
             for tx in TX_ORDER:
                 _piv_write(ws_piv, ri, c,     d[(tx, LE30)])
                 _piv_write(ws_piv, ri, c + 1, d[(tx, GT30)])
+                le30_cols.append(xl_rowcol_to_cell(ri, c))
+                gt30_cols.append(xl_rowcol_to_cell(ri, c + 1))
                 c += 2
-            _piv_write(ws_piv, ri, c,     d[("Total", LE30)], num_fmt_p_bold, dash_fmt_p_bold)
-            _piv_write(ws_piv, ri, c + 1, d[("Total", GT30)], num_fmt_p_bold, dash_fmt_p_bold)
+            _piv_write_sum(ws_piv, ri, c, d[("Total", LE30)], le30_cols, num_fmt_p_bold, dash_fmt_p_bold)
+            _piv_write_sum(ws_piv, ri, c + 1, d[("Total", GT30)], gt30_cols, num_fmt_p_bold, dash_fmt_p_bold)
 
         # ── Grand Total row — same light-blue theme as the headers ────────────
         def _gfmt(props):

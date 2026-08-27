@@ -34,6 +34,31 @@ class XlsxFormulaCacheTests(unittest.TestCase):
             self.assertEqual(wb_v["Main"]["B5"].value, 15)
             wb_v.close()
 
+    def test_sum_supports_comma_separated_non_adjacent_ranges_and_cells(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "report.xlsx"
+            wb = Workbook()
+            ws = wb.active
+            ws.title = "Main"
+            # A2=1, B2=2, C2=99 (skipped), D2=4, E2=5 - a row total that
+            # skips a non-adjacent column, matching the shape of e.g. RDC
+            # Payables' per-row "Total LE30" column, which sums only every
+            # other transaction-type block.
+            ws.append([1, 2, 99, 4, 5])
+            ws["G1"] = "=SUM(A1,B1:B1,D1:E1)"
+
+            cached = cache_formula_values(wb)
+            wb.save(path)
+            inject_cached_values(str(path), cached)
+
+            wb_f = load_workbook(path, data_only=False)
+            self.assertEqual(wb_f["Main"]["G1"].value, "=SUM(A1,B1:B1,D1:E1)")
+            wb_f.close()
+
+            wb_v = load_workbook(path, data_only=True)
+            self.assertEqual(wb_v["Main"]["G1"].value, 1 + 2 + 4 + 5)
+            wb_v.close()
+
     def test_grand_total_excludes_nested_subtotal_like_excel_does(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             path = Path(temp_dir) / "report.xlsx"

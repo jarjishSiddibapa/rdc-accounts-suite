@@ -8,7 +8,11 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
 from .constants import MRN_SITE_COL, MRN_ANCHOR_COL
-from .native_pivots import attach_pending_mrn_native_pivot
+from .native_pivots import (
+    attach_pending_mrn_native_pivots,
+    attach_two_level_pivot,
+    try_attach_native_pivot,
+)
 from app.regional import format_indian_number, today_ist
 from app.services.xlsx_formula_cache import cache_formula_values, inject_cached_values
 
@@ -56,17 +60,13 @@ def _autofit_columns(ws, min_width: int = 8, max_width: int = 60, padding: int =
         ws.column_dimensions[col_letter].width = min(max(max_len + padding, min_width), max_width)
 
 
-def _add_pivot_sheet(wb, df: "pd.DataFrame") -> None:
-    """Add a formatted pivot summary: Location × Accounts Incharge × invoice count.
-
-    Supports **multiple months** — one column is created per distinct month found
-    in the GL Date column, sorted chronologically.  A final 'Total' column sums
-    across all months.  When only one month is present the layout looks identical
-    to the original single-column design (no separate Total column is shown).
-    """
+def _location_incharge_month_counts(df: "pd.DataFrame") -> tuple[list[tuple], list[str]]:
+    """Shared aggregation for the Unaccounted 'Main' pivot: one row per
+    (Location, Accounts Incharge, Month) with its transaction count, plus the
+    distinct months present in chronological order. Used by both the static
+    table builder below and the native-pivot attachment."""
     GL_DATE_COL = "GL Date"
 
-    # ── 1. Derive month labels ─────────────────────────────────────────────────
     # Prefer the pre-stamped __month__ column (set from B12 Period Name in
     # processing.py).  Fall back to parsing GL Date if __month__ is absent.
     def _parse_month(val):
@@ -92,18 +92,13 @@ def _add_pivot_sheet(wb, df: "pd.DataFrame") -> None:
     if not unique_months:
         unique_months = [today_ist().strftime("%b-%y")]
 
-    multi_month = len(unique_months) > 1
-
-    # ── 2. Add __month__ to working copy ──────────────────────────────────────
     df = df.copy()
     if "__month__" not in df.columns:
-        # derive from GL Date as fallback
         if GL_DATE_COL in df.columns:
             df["__month__"] = df[GL_DATE_COL].apply(_parse_month)
         else:
             df["__month__"] = unique_months[0]
 
-    # ── 3. Build pivot: Location × Accounts Incharge × Month → count ──────────
     mapped = df[df["Location"].astype(str).str.strip() != ""].copy()
 
     pivot_raw = (
@@ -112,6 +107,25 @@ def _add_pivot_sheet(wb, df: "pd.DataFrame") -> None:
         .size()
         .reset_index(name="Count")
     )
+    rows = [
+        (str(loc), str(incharge), str(month), int(count))
+        for loc, incharge, month, count in pivot_raw.itertuples(index=False, name=None)
+    ]
+    return rows, unique_months
+
+
+def _add_pivot_sheet(wb, df: "pd.DataFrame") -> None:
+    """Add a formatted pivot summary: Location × Accounts Incharge × invoice count.
+
+    Supports **multiple months** — one column is created per distinct month found
+    in the GL Date column, sorted chronologically.  A final 'Total' column sums
+    across all months.  When only one month is present the layout looks identical
+    to the original single-column design (no separate Total column is shown).
+    """
+    pivot_raw_rows, unique_months = _location_incharge_month_counts(df)
+    multi_month = len(unique_months) > 1
+
+    pivot_raw = pd.DataFrame(pivot_raw_rows, columns=["Location", "Accounts Incharge", "__month__", "Count"])
 
     # Aggregate to Location × Accounts Incharge with one column per month
     pivot = (
@@ -159,6 +173,22 @@ def _add_pivot_sheet(wb, df: "pd.DataFrame") -> None:
         hdr_labels.append("Total")
 
     n_value_cols = len(data_cols)   # number of numeric columns
+    # Column range covering just the month columns, for the per-row "Total"
+    # formula below - None when there's no separate Total column at all.
+    month_range = (
+        f"{get_column_letter(3)}{{row}}:{get_column_letter(3 + len(month_cols) - 1)}{{row}}"
+        if multi_month else None
+    )
+
+    def _write_row_cell(ws, row, ci_off, col, value):
+        c = ws.cell(row=row, column=ci_off)
+        if col == "__total__":
+            c.value = f"=SUM({month_range.format(row=row)})"
+        else:
+            c.value = int(value)
+        c.font = plain
+        c.alignment = Alignment(horizontal="center", vertical="center")
+        c.number_format = INDIAN_FMT
 
     # Row 1: headers
     for ci, h in enumerate(hdr_labels, 1):
@@ -186,10 +216,7 @@ def _add_pivot_sheet(wb, df: "pd.DataFrame") -> None:
             ws.cell(row=current_row, column=2, value=incharge).font = plain
             ws.cell(row=current_row, column=2).alignment = Alignment(horizontal="center", vertical="center")
             for ci_off, col in enumerate(data_cols, 3):
-                c = ws.cell(row=current_row, column=ci_off, value=int(loc_grp.iloc[0][col]))
-                c.font = plain
-                c.alignment = Alignment(horizontal="center", vertical="center")
-                c.number_format = INDIAN_FMT
+                _write_row_cell(ws, current_row, ci_off, col, loc_grp.iloc[0][col])
             current_row += 1
         else:
             # Location header row
@@ -204,10 +231,7 @@ def _add_pivot_sheet(wb, df: "pd.DataFrame") -> None:
                 ws.cell(row=current_row, column=2, value=row_data["Accounts Incharge"]).font = plain
                 ws.cell(row=current_row, column=2).alignment = Alignment(horizontal="center", vertical="center")
                 for ci_off, col in enumerate(data_cols, 3):
-                    c = ws.cell(row=current_row, column=ci_off, value=int(row_data[col]))
-                    c.font = plain
-                    c.alignment = Alignment(horizontal="center", vertical="center")
-                    c.number_format = INDIAN_FMT
+                    _write_row_cell(ws, current_row, ci_off, col, row_data[col])
                 current_row += 1
             detail_end = current_row - 1
 
@@ -499,8 +523,58 @@ def write_formatted_excel(df: "pd.DataFrame", path: str) -> None:
     wb.save(path)
     inject_cached_values(path, cached_values)
 
+    pivot_rows, unique_months = _location_incharge_month_counts(df)
+    if pivot_rows:
+        month_rank = {m: i for i, m in enumerate(unique_months)}
+        pivot_rows = sorted(pivot_rows, key=lambda r: month_rank.get(r[2], len(unique_months)))
+        try_attach_native_pivot(
+            attach_two_level_pivot,
+            path,
+            rows=pivot_rows,
+            target_sheet="Main",
+            sheet_position=0,
+            tab_color="1F3864",
+            dim1_caption="Location",
+            dim2_caption="Accounts Incharge",
+            period_caption="Month",
+            value_caption="Count",
+        )
+
 
 # ── PO pivot sheet ────────────────────────────────────────────────────────────
+
+def _po_location_incharge_month_counts(main_df) -> tuple[list[tuple], list[str]]:
+    """Shared aggregation for the PO report's 'Main' pivot: one row per
+    (Location, Accounts Incharge, Month) with its distinct-PO count, plus the
+    months present in chronological order. Mirrors the dedup + groupby that
+    feeds the static table in _add_po_pivot_sheet below."""
+    required = {'PO Number', 'Location', 'Accounts Incharge', 'Month'}
+    if not required.issubset(main_df.columns) or main_df.empty:
+        return [], []
+
+    piv_src = main_df.drop_duplicates(
+        subset=['PO Number', 'Location', 'Accounts Incharge', 'Month'])
+
+    grouped = (
+        piv_src
+        .groupby(['Location', 'Accounts Incharge', 'Month'], sort=False)['PO Number']
+        .count()
+        .reset_index(name="Count")
+    )
+
+    def _month_key(m):
+        try:
+            return pd.to_datetime(m, format='%b-%y')
+        except Exception:
+            return pd.Timestamp('2099-01-01')
+
+    unique_months = sorted(set(grouped["Month"].astype(str)), key=_month_key)
+    rows = [
+        (str(loc), str(incharge), str(month), int(count))
+        for loc, incharge, month, count in grouped.itertuples(index=False, name=None)
+    ]
+    return rows, unique_months
+
 
 def _add_po_pivot_sheet(wb, main_df) -> None:
     """Insert a 'Main' pivot sheet at position 0 (first sheet) of *wb*.
@@ -583,6 +657,9 @@ def _add_po_pivot_sheet(wb, main_df) -> None:
 
     # ── Data rows ─────────────────────────────────────────────────────────────
     cur_row = 2
+    # Column range covering just the month columns, for each row's live
+    # Grand Total formula below.
+    month_range = f"{get_column_letter(3)}{{row}}:{get_column_letter(N - 1)}{{row}}"
 
     for location, loc_grp in piv_reset.groupby('Location', sort=False):
         n_incharges = len(loc_grp)
@@ -599,7 +676,8 @@ def _add_po_pivot_sheet(wb, main_df) -> None:
                 val = int(rd[month]) if month in rd.index else 0
                 c = ws.cell(row=cur_row, column=ci, value=val)
                 c.font = plain; c.alignment = CENTER; c.number_format = INDIAN_FMT
-            c_gt = ws.cell(row=cur_row, column=N, value=int(rd['Grand Total']))
+            c_gt = ws.cell(row=cur_row, column=N,
+                           value=f"=SUM({month_range.format(row=cur_row)})")
             c_gt.font = plain; c_gt.alignment = CENTER; c_gt.number_format = INDIAN_FMT
             cur_row += 1
 
@@ -624,7 +702,7 @@ def _add_po_pivot_sheet(wb, main_df) -> None:
                     c = ws.cell(row=cur_row, column=ci, value=val)
                     c.font = plain; c.alignment = CENTER; c.number_format = INDIAN_FMT
                 c_gt = ws.cell(row=cur_row, column=N,
-                               value=int(rd['Grand Total']))
+                               value=f"=SUM({month_range.format(row=cur_row)})")
                 c_gt.font = plain; c_gt.alignment = CENTER
                 c_gt.number_format = INDIAN_FMT
                 cur_row += 1
@@ -899,6 +977,23 @@ def write_formatted_po_excel(
     wb.save(path)
     inject_cached_values(path, cached_values)
 
+    pivot_rows, unique_months = _po_location_incharge_month_counts(main_df)
+    if pivot_rows:
+        month_rank = {m: i for i, m in enumerate(unique_months)}
+        pivot_rows = sorted(pivot_rows, key=lambda r: month_rank.get(r[2], len(unique_months)))
+        try_attach_native_pivot(
+            attach_two_level_pivot,
+            path,
+            rows=pivot_rows,
+            target_sheet="Main",
+            sheet_position=0,
+            tab_color="1F3864",
+            dim1_caption="Location",
+            dim2_caption="Accounts Incharge",
+            period_caption="Month",
+            value_caption="Count",
+        )
+
 
 # ── Shared helpers for MRN pivot sheets ───────────────────────────────────────
 def _parse_mrn_period(p):
@@ -1165,8 +1260,9 @@ def _add_vendorwise_pivot_sheet(wb, df: "pd.DataFrame") -> None:
             c  = ws.cell(row=ri, column=ci, value=int(val) if val else 0)
             c.font = plain; c.alignment = num_aln; c.border = bdr
             c.number_format = INDIAN_FMT
-        # last col: Grand Total
-        c_gt = ws.cell(row=ri, column=gt_col, value=int(row[-1]))
+        # last col: Grand Total - live SUM over this row's own period columns
+        period_range = f"{get_column_letter(3)}{ri}:{get_column_letter(2 + len(present))}{ri}"
+        c_gt = ws.cell(row=ri, column=gt_col, value=f"=SUM({period_range})")
         c_gt.font          = Font(name="Calibri", size=11, bold=True)
         c_gt.alignment     = num_aln; c_gt.border = bdr
         c_gt.number_format = INDIAN_FMT
@@ -1207,6 +1303,30 @@ def _add_vendorwise_pivot_sheet(wb, df: "pd.DataFrame") -> None:
     for ci_off in range(len(present)):
         ws.column_dimensions[get_column_letter(3 + ci_off)].width = 11
     ws.column_dimensions[get_column_letter(gt_col)].width = 13
+
+
+def _mrn_location_incharge_period_counts(df: "pd.DataFrame") -> tuple[list[tuple], list[str]]:
+    """Shared aggregation for MRN's 'Locationwise Pivot': one row per
+    (Location, Accounts Incharge, Period) with its transaction count, plus
+    the periods present in chronological order. Mirrors the groupby that
+    feeds the static table in _add_locationwise_pivot_sheet below."""
+    work = df[df["Location"].astype(str).str.strip() != ""].copy()
+    if work.empty:
+        return [], []
+
+    all_periods = [str(p) for p in work[MRN_ANCHOR_COL].dropna().unique()]
+    periods     = sorted(all_periods, key=_mrn_period_sort_key)
+
+    grouped = (
+        work.groupby(["Location", "Accounts Incharge", MRN_ANCHOR_COL], sort=False)
+        .size()
+        .reset_index(name="Count")
+    )
+    rows = [
+        (str(loc), str(incharge), _fmt_mrn_period(period), int(count))
+        for loc, incharge, period, count in grouped.itertuples(index=False, name=None)
+    ]
+    return rows, [_fmt_mrn_period(p) for p in periods]
 
 
 def _add_locationwise_pivot_sheet(wb, df: "pd.DataFrame") -> None:
@@ -1293,8 +1413,9 @@ def _add_locationwise_pivot_sheet(wb, df: "pd.DataFrame") -> None:
             c   = ws.cell(row=ri, column=ci, value=int(val) if val else 0)
             c.font = plain; c.alignment = ctr_aln; c.border = bdr
             c.number_format = INDIAN_FMT
-        # Grand Total (last col)
-        c_gt = ws.cell(row=ri, column=gt_col, value=int(row[-1]))
+        # Grand Total (last col) - live SUM over this row's own period columns
+        period_range = f"{get_column_letter(3)}{ri}:{get_column_letter(2 + len(present))}{ri}"
+        c_gt = ws.cell(row=ri, column=gt_col, value=f"=SUM({period_range})")
         c_gt.font          = Font(name="Calibri", size=11, bold=True)
         c_gt.alignment     = ctr_aln; c_gt.border = bdr
         c_gt.number_format = INDIAN_FMT
@@ -1573,7 +1694,14 @@ def write_formatted_mrn_excel(df: "pd.DataFrame", path: str) -> None:
     for sheet in wb.worksheets:
         _autofit_columns(sheet)
 
+    cached_values = cache_formula_values(wb)
     wb.save(path)
-    attach_pending_mrn_native_pivot(path)
+    inject_cached_values(path, cached_values)
+
+    pivot_rows, unique_periods = _mrn_location_incharge_period_counts(df)
+    if pivot_rows:
+        period_rank = {p: i for i, p in enumerate(unique_periods)}
+        pivot_rows = sorted(pivot_rows, key=lambda r: period_rank.get(r[2], len(unique_periods)))
+        try_attach_native_pivot(attach_pending_mrn_native_pivots, path, pivot_rows)
 
 

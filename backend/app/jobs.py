@@ -52,6 +52,7 @@ _ALLOWED_TASKS = frozenset(
     {
         "app.routers.erp_converter:_job_convert",
         "app.routers.gstr2b:_run_combine_job",
+        "app.routers.closing_period:_run_combine_job",
         "app.routers.gst_invoice_adder:_job_enrich",
         "app.routers.rdc_payables:_run_process_job",
         "app.routers.trial_balance:_run_process_job_from_stash",

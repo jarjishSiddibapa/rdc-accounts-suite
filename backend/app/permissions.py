@@ -18,7 +18,7 @@ from app.models import Application, User
 APP_KEYS = [
     "erp-to-excel", "rdc-payables", "unaccounted", "trial-balance", "gstr2b-combinator",
     "unapplied-receipts", "ultrafine-balance-confirmation", "ultrafine-payment-reminder",
-    "gst-invoice-adder",
+    "gst-invoice-adder", "closing-period-report",
 ]
 RETIRED_APP_KEYS = {"dms"}
 
@@ -32,6 +32,7 @@ APP_LABELS = {
     "ultrafine-balance-confirmation": "Ultrafine Balance Confirmation Bulk Sender",
     "ultrafine-payment-reminder": "Ultrafine Bulk Payment Reminder Sender",
     "gst-invoice-adder": "GST Invoice Number Adder",
+    "closing-period-report": "Closing Period Report Generator",
 }
 
 APP_COMPANIES = ("RDC", "Ultrafine")

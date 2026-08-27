@@ -10,6 +10,7 @@ import {
   ArrowRight,
   ShieldCheck,
   LayoutGrid,
+  PackageCheck,
 } from 'lucide-react'
 import { AppShell } from '@/components/AppShell'
 import { Reveal, RevealGroup } from '@/components/Reveal'
@@ -82,6 +83,14 @@ const tools = [
     icon: BellRing,
     appKey: 'ultrafine-payment-reminder',
     category: 'Ultrafine customer communication',
+  },
+  {
+    to: '/tools/closing-period-report',
+    title: 'Closing Period Report Generator',
+    description: 'Combine closing-period inventory reports by location into one workbook with a summary.',
+    icon: PackageCheck,
+    appKey: 'closing-period-report',
+    category: 'Inventory reporting',
   },
 ]
 

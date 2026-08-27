@@ -68,6 +68,8 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
+from app.services.xlsx_formula_cache import cache_formula_values, inject_cached_values
+
 from app.jobs import JobCancelled, JobUserError
 from app.oracle_runtime import initialize_oracle_client
 
@@ -791,7 +793,11 @@ def _write_totals_row(ws, df: pd.DataFrame, cols: list, n_rows: int,
             c.alignment = l_align
         elif col_name in _CURRENCY_COLS:
             col_sum = pd.to_numeric(df[col_name], errors="coerce").fillna(0).sum()
-            c.value         = float(col_sum) if col_sum else None
+            if col_sum:
+                col_letter = get_column_letter(ci)
+                c.value = f"=SUBTOTAL(9,{col_letter}3:{col_letter}{tr - 1})"
+            else:
+                c.value = None
             c.number_format = "#,##0.00"
             c.font          = tot_num_f
             c.alignment     = r_align
@@ -955,7 +961,10 @@ def write_formatted_excel(df_main: pd.DataFrame, df_advance: pd.DataFrame,
     _write_pivot_sheet(wb2, df_main, as_on_date, incharge_map=_eff_incharge)
     summary_idx = wb2.sheetnames.index("Summary")
     wb2.move_sheet("Summary", offset=-summary_idx)
+    cached_values = cache_formula_values(wb2)
     wb2.save(path)
+    inject_cached_values(path, cached_values)
+
     if log_q:
         log_q.put(("ok", "Summary sheet written ✓"))
 
@@ -1084,11 +1093,20 @@ def _write_pivot_sheet(wb, df: pd.DataFrame, as_on_date: _dt.date,
         ic.fill = PatternFill("solid", fgColor=bg)
         ic.alignment = c_left; ic.border = bdr
 
-        # Col 3+: data columns
+        # Col 3+: data columns. Grand Total (col 3) is a live =SUM(...) over
+        # this row's own bucket columns (cols 4+) instead of the
+        # pre-computed value, so it recalculates in Excel.
+        bucket_first_col, bucket_last_col = 4, 3 + len(all_cols) - 1
         for ci, (col_name, val) in enumerate(zip(all_cols, row_data), 3):
             is_grand = (col_name == GT_COL)
             c = ws.cell(row=ri, column=ci)
-            c.value         = float(val) if val and val != 0 else None
+            if is_grand and val and val != 0:
+                c.value = (
+                    f"=SUM({get_column_letter(bucket_first_col)}{ri}:"
+                    f"{get_column_letter(bucket_last_col)}{ri})"
+                )
+            else:
+                c.value = float(val) if val and val != 0 else None
             c.number_format = "#,##0.00"
             c.border        = bdr
             c.alignment     = c_right
@@ -1112,10 +1130,15 @@ def _write_pivot_sheet(wb, df: pd.DataFrame, as_on_date: _dt.date,
     gt2.font = grand_font; gt2.fill = hdr_fill
     gt2.alignment = c_left; gt2.border = bdr
 
-    # Col 3+: column sums
+    # Col 3+: column sums - live =SUBTOTAL(9,...) over the data rows above,
+    # instead of the pre-computed value, so it recalculates in Excel.
     for ci, (col_name, val) in enumerate(zip(all_cols, grand_row), 3):
         c = ws.cell(row=gr, column=ci)
-        c.value         = float(val) if val and val != 0 else None
+        if val and val != 0:
+            col_letter = get_column_letter(ci)
+            c.value = f"=SUBTOTAL(9,{col_letter}4:{col_letter}{gr - 1})"
+        else:
+            c.value = None
         c.number_format = "#,##0.00"
         c.font          = grand_font
         c.fill          = PatternFill("solid", fgColor=HDR_BG)

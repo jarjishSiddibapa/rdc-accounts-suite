@@ -13,6 +13,7 @@ import {
   ShieldCheck,
   BellRing,
   FileCheck2,
+  PackageCheck,
   DatabaseBackup,
   ClipboardList,
   Users,
@@ -60,6 +61,7 @@ const mainNav: NavItem[] = [
     appKey: 'ultrafine-payment-reminder',
   },
   { to: '/tools/gst-invoice-adder', label: 'GST Invoice Number Adder', icon: FileCheck2, appKey: 'gst-invoice-adder' },
+  { to: '/tools/closing-period-report', label: 'Closing Period Report Generator', icon: PackageCheck, appKey: 'closing-period-report' },
 ]
 
 interface SidebarProps {

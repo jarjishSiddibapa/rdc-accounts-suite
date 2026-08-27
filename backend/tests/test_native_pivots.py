@@ -5,10 +5,14 @@ from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
-from openpyxl import load_workbook
+from openpyxl import Workbook, load_workbook
 
 from app.services.unaccounted.excel_writers import write_formatted_mrn_excel
-from app.services.unaccounted.native_pivots import _TEMPLATE_PATH
+from app.services.unaccounted.native_pivots import (
+    _TEMPLATE_PATH,
+    _TWO_LEVEL_TEMPLATE_PATH,
+    attach_two_level_pivot,
+)
 
 
 MRN_COLUMNS = [
@@ -68,7 +72,7 @@ def _row(period: str, supplier: str, site: str, location: str, owner: str, numbe
 
 
 class NativePivotTests(unittest.TestCase):
-    def test_template_is_sanitized_and_contains_one_native_pivot(self):
+    def test_template_is_sanitized_and_contains_both_native_pivots(self):
         self.assertTrue(_TEMPLATE_PATH.is_file())
         with zipfile.ZipFile(_TEMPLATE_PATH) as archive:
             pivot_parts = [name for name in archive.namelist() if "pivot" in name.lower()]
@@ -78,20 +82,86 @@ class NativePivotTests(unittest.TestCase):
                 if name.endswith((".xml", ".rels"))
             )
         self.assertIn("xl/pivotTables/pivotTable1.xml", pivot_parts)
+        self.assertIn("xl/pivotTables/pivotTable2.xml", pivot_parts)
         self.assertIn("xl/pivotCache/pivotCacheDefinition1.xml", pivot_parts)
+        self.assertIn("xl/pivotCache/pivotCacheDefinition2.xml", pivot_parts)
         self.assertNotIn(b"Jarjish", xml_payload)
         self.assertNotIn(b"Sidhabappa", xml_payload)
 
         workbook = load_workbook(_TEMPLATE_PATH)
         try:
-            pivots = workbook["Vendorwise Pivot"]._pivots
-            self.assertEqual(len(pivots), 1)
-            self.assertTrue(pivots[0].cache.refreshOnLoad)
-            self.assertEqual(pivots[0].cache.missingItemsLimit, 0)
+            for sheet_name in ("Vendorwise Pivot", "Locationwise Pivot"):
+                pivots = workbook[sheet_name]._pivots
+                self.assertEqual(len(pivots), 1)
+                self.assertTrue(pivots[0].cache.refreshOnLoad)
+                self.assertEqual(pivots[0].cache.missingItemsLimit, 0)
         finally:
             workbook.close()
 
-    def test_pending_mrn_output_contains_refreshable_native_vendorwise_pivot(self):
+    def test_generic_two_level_template_is_sanitized_and_attachable(self):
+        self.assertTrue(_TWO_LEVEL_TEMPLATE_PATH.is_file())
+        with zipfile.ZipFile(_TWO_LEVEL_TEMPLATE_PATH) as archive:
+            names = set(archive.namelist())
+            xml_payload = b"\n".join(
+                archive.read(name)
+                for name in names
+                if name.endswith((".xml", ".rels"))
+            )
+        self.assertIn("xl/pivotTables/pivotTable1.xml", names)
+        self.assertIn("xl/pivotCache/pivotCacheDefinition1.xml", names)
+        self.assertNotIn(b"Jarjish", xml_payload)
+        self.assertNotIn(b"Sidhabappa", xml_payload)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "report.xlsx"
+            workbook = Workbook()
+            workbook.active.title = "Main"
+            workbook["Main"]["A1"] = "Static fallback"
+            workbook.create_sheet("Details")["A1"] = "Preserved report sheet"
+            workbook.save(path)
+
+            rows = [
+                ("CHENNAI", "Analyst One", "Jun-26", 1),
+                ("CHENNAI", "Analyst One", "Jul-26", 2),
+                ("PUNE", "Analyst Two", "Jul-26", 3),
+            ]
+            attach_two_level_pivot(
+                path,
+                rows=rows,
+                target_sheet="Main",
+                sheet_position=0,
+                tab_color="1F3864",
+                dim1_caption="Location",
+                dim2_caption="Accounts Incharge",
+                period_caption="Month",
+                value_caption="Count",
+            )
+
+            output = load_workbook(path, data_only=False)
+            try:
+                self.assertEqual(
+                    [name for name in output.sheetnames if output[name].sheet_state == "visible"],
+                    ["Main", "Details"],
+                )
+                self.assertEqual(output["_PivotSrc"].sheet_state, "hidden")
+                pivot = output["Main"]._pivots[0]
+                source = pivot.cache.cacheSource.worksheetSource
+                self.assertEqual(source.sheet, "_PivotSrc")
+                self.assertEqual(source.ref, "A1:D4")
+                self.assertTrue(pivot.cache.refreshOnLoad)
+                self.assertEqual(
+                    [field.name for field in pivot.pivotFields[:3]],
+                    ["Location", "Accounts Incharge", "Month"],
+                )
+                self.assertEqual(pivot.dataFields[0].name, "Count")
+                self.assertEqual(
+                    set(tuple(cell.value for cell in row) for row in output["_PivotSrc"].iter_rows(min_row=2)),
+                    set(rows),
+                )
+            finally:
+                output.close()
+
+    def test_pending_mrn_output_contains_both_refreshable_native_pivots(self):
         rows = [
             _row("Jun-26", "Supplier Gamma", "SITE-G", "CHENNAI", "Analyst Three", 1),
             _row("Jul-26", "Supplier Gamma", "SITE-G", "CHENNAI", "Analyst Three", 2),
@@ -106,43 +176,50 @@ class NativePivotTests(unittest.TestCase):
             with zipfile.ZipFile(path) as archive:
                 names = set(archive.namelist())
             self.assertIn("xl/pivotTables/pivotTable1.xml", names)
+            self.assertIn("xl/pivotTables/pivotTable2.xml", names)
             self.assertIn("xl/pivotCache/pivotCacheDefinition1.xml", names)
-            self.assertIn("xl/pivotCache/pivotCacheRecords1.xml", names)
+            self.assertIn("xl/pivotCache/pivotCacheDefinition2.xml", names)
 
             workbook = load_workbook(path, data_only=False)
             try:
-                self.assertEqual(workbook.sheetnames[:3], [
-                    "Locationwise Pivot",
-                    "Vendorwise Pivot",
-                    "Summary",
-                ])
-                pivot = workbook["Vendorwise Pivot"]._pivots[0]
-                source = pivot.cache.cacheSource.worksheetSource
-                self.assertEqual(source.sheet, "Summary")
-                self.assertEqual(source.ref, "A1:V4")
-                self.assertTrue(pivot.cache.refreshOnLoad)
-                self.assertTrue(pivot.cache.enableRefresh)
-                self.assertEqual(pivot.cache.missingItemsLimit, 0)
+                visible = [name for name in workbook.sheetnames if workbook[name].sheet_state == "visible"]
+                self.assertEqual(visible, ["Locationwise Pivot", "Vendorwise Pivot", "Summary"])
+                self.assertEqual(workbook["_PivotSrc"].sheet_state, "hidden")
+
+                vendorwise = workbook["Vendorwise Pivot"]._pivots
+                self.assertEqual(len(vendorwise), 1)
+                vsource = vendorwise[0].cache.cacheSource.worksheetSource
+                self.assertEqual(vsource.sheet, "Summary")
+                self.assertEqual(vsource.ref, "A1:V4")
+                self.assertTrue(vendorwise[0].cache.refreshOnLoad)
+                self.assertTrue(vendorwise[0].cache.enableRefresh)
+                self.assertEqual(vendorwise[0].cache.missingItemsLimit, 0)
                 self.assertEqual(workbook["Summary"]["C2"].value, "Supplier Gamma")
-                footer_row = workbook["Locationwise Pivot"].max_row
-                footer_col = workbook["Locationwise Pivot"].max_column
-                self.assertTrue(
-                    str(workbook["Locationwise Pivot"].cell(footer_row, footer_col).value)
-                    .startswith("=SUBTOTAL(")
+
+                locationwise = workbook["Locationwise Pivot"]._pivots
+                self.assertEqual(len(locationwise), 1)
+                lsource = locationwise[0].cache.cacheSource.worksheetSource
+                self.assertEqual(lsource.sheet, "_PivotSrc")
+                self.assertEqual(lsource.ref, "A1:D4")
+                self.assertTrue(locationwise[0].cache.refreshOnLoad)
+                self.assertTrue(locationwise[0].cache.enableRefresh)
+                self.assertEqual(locationwise[0].cache.missingItemsLimit, 0)
+                self.assertEqual(len(locationwise[0].rowFields), 2)
+
+                data_rows = [
+                    tuple(cell.value for cell in row)
+                    for row in workbook["_PivotSrc"].iter_rows(min_row=2)
+                ]
+                self.assertEqual(
+                    set(data_rows),
+                    {
+                        ("CHENNAI", "Analyst Three", "Jun-26", 1),
+                        ("CHENNAI", "Analyst Three", "Jul-26", 1),
+                        ("PUNE", "Analyst Four", "Jul-26", 1),
+                    },
                 )
             finally:
                 workbook.close()
-
-            values = load_workbook(path, data_only=True)
-            try:
-                footer_row = values["Locationwise Pivot"].max_row
-                footer_col = values["Locationwise Pivot"].max_column
-                self.assertEqual(
-                    values["Locationwise Pivot"].cell(footer_row, footer_col).value,
-                    3,
-                )
-            finally:
-                values.close()
 
             # OpenPyXL must also be able to preserve the native parts on a
             # normal re-open/re-save cycle without corrupting the package.

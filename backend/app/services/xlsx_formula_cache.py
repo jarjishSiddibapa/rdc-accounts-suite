@@ -26,10 +26,11 @@ recalculating SUBTOTAL/SUM exactly as before.
 
 Only the same small, controlled set of aggregate forms the email renderer
 already understands are resolved: ``SUBTOTAL(9, range)``,
-``SUBTOTAL(109, range)`` (hidden-row-excluding), and ``SUM(range)``. Any
-other formula is left exactly as openpyxl wrote it (no cached value forced),
-so this can never mask a genuinely wrong/unsupported formula behind a
-fabricated number.
+``SUBTOTAL(109, range)`` (hidden-row-excluding), and ``SUM(...)`` over one or
+more comma-separated ranges/cells (e.g. ``SUM(D5:E5,G5:H5)`` for a row total
+that skips non-adjacent columns). Any other formula is left exactly as
+openpyxl wrote it (no cached value forced), so this can never mask a
+genuinely wrong/unsupported formula behind a fabricated number.
 """
 
 import re
@@ -40,6 +41,7 @@ from pathlib import Path
 
 from openpyxl.utils.cell import range_boundaries
 
+_CELL_OR_RANGE = r"\$?[A-Z]{1,3}\$?\d+(?:\s*:\s*\$?[A-Z]{1,3}\$?\d+)?"
 _SUBTOTAL_RE = re.compile(
     r"^\s*=\s*SUBTOTAL\s*\(\s*(9|109)\s*,\s*"
     r"(\$?[A-Z]{1,3}\$?\d+\s*:\s*\$?[A-Z]{1,3}\$?\d+)\s*\)\s*$",
@@ -47,9 +49,20 @@ _SUBTOTAL_RE = re.compile(
 )
 _SUM_RE = re.compile(
     r"^\s*=\s*SUM\s*\(\s*"
-    r"(\$?[A-Z]{1,3}\$?\d+\s*:\s*\$?[A-Z]{1,3}\$?\d+)\s*\)\s*$",
+    r"(" + _CELL_OR_RANGE + r"(?:\s*,\s*" + _CELL_OR_RANGE + r")*)"
+    r"\s*\)\s*$",
     re.IGNORECASE,
 )
+
+
+def _iter_sum_parts(ws, parts_text: str):
+    """Yield every cell in a SUM(...) formula's comma-separated ranges/cells."""
+    for part in re.split(r"\s*,\s*", parts_text.strip()):
+        part = part.replace(" ", "")
+        ref = part if ":" in part else f"{part}:{part}"
+        min_col, min_row, max_col, max_row = range_boundaries(ref)
+        for row in ws.iter_rows(min_row=min_row, max_row=max_row, min_col=min_col, max_col=max_col):
+            yield from row
 
 
 def _resolve_sheet_formulas(ws) -> dict[str, float]:
@@ -81,22 +94,29 @@ def _resolve_sheet_formulas(ws) -> dict[str, float]:
             return None
 
         function_num = int(subtotal_match.group(1)) if subtotal_match else None
-        range_ref = match.group(2) if subtotal_match else match.group(1)
-        min_col, min_row, max_col, max_row = range_boundaries(range_ref.replace(" ", ""))
 
         resolving.add(coordinate)
         try:
             total = 0
-            for row in ws.iter_rows(min_row=min_row, max_row=max_row, min_col=min_col, max_col=max_col):
-                for source_cell in row:
-                    source_raw = source_cell.value
-                    if subtotal_match and isinstance(source_raw, str) and _SUBTOTAL_RE.match(source_raw):
-                        continue
-                    if function_num == 109 and ws.row_dimensions[source_cell.row].hidden:
-                        continue
-                    value = _value(source_cell)
-                    if isinstance(value, (int, float)) and not isinstance(value, bool):
-                        total += value
+            if subtotal_match:
+                range_ref = subtotal_match.group(2)
+                min_col, min_row, max_col, max_row = range_boundaries(range_ref.replace(" ", ""))
+                source_cells = (
+                    source_cell
+                    for row in ws.iter_rows(min_row=min_row, max_row=max_row, min_col=min_col, max_col=max_col)
+                    for source_cell in row
+                )
+            else:
+                source_cells = _iter_sum_parts(ws, sum_match.group(1))
+            for source_cell in source_cells:
+                source_raw = source_cell.value
+                if subtotal_match and isinstance(source_raw, str) and _SUBTOTAL_RE.match(source_raw):
+                    continue
+                if function_num == 109 and ws.row_dimensions[source_cell.row].hidden:
+                    continue
+                value = _value(source_cell)
+                if isinstance(value, (int, float)) and not isinstance(value, bool):
+                    total += value
         finally:
             resolving.discard(coordinate)
 

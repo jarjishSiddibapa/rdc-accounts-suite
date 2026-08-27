@@ -1,6 +1,6 @@
 # AI Coding Agent Handoff
 
-Last reviewed: 26 August 2026
+Last reviewed: 27 August 2026
 
 This document explains the current state of RDC Accounts Suite for future AI
 coding agents. Read it before changing behavior. `README.md` remains the
@@ -21,6 +21,7 @@ LAN-hosted FastAPI and React application. The current suite contains:
 7. Ultrafine Balance Confirmation sender
 8. GST Invoice Number Adder
 9. Ultrafine Payment Reminder sender
+10. Closing Period Report Generator
 
 It also contains authentication, user and application-access administration,
 central email settings/default recipients, mapping administration, audit logs,
@@ -38,6 +39,7 @@ The development machine has the original desktop projects at:
 - `E:\jarjish-projects\erp-to-excel-sneha`
 - `E:\jarjish-projects\sneha-raman-rdc-payables-report`
 - `E:\jarjish-projects\sneha-raman-unaccounted-transactions-report`
+- `E:\jarjish-projects\kishore-sir-closing-period-report-generator`
 - `E:\jarjish-projects\sneha-raman-dms-document-downloader` (retired from suite)
 
 Use the desktop source and, when practical, identical representative input to
@@ -45,6 +47,19 @@ compare parsing, mapping, report content, filenames, defaults, and mail output.
 Do not claim 100% parity without actually exercising the relevant desktop and
 web workflows, including real external systems when the workflow depends on
 Oracle or SMTP.
+
+The Closing Period web port lives in
+`backend/app/services/closing_period/combiner.py`. Its authoritative reference
+is the supplied `kishore-sir-closing-period-report-generator/script.py`: it
+detects the dated Quantity/Value columns from row 2, keeps only `MOD-RM`,
+`NMOD-RM`, and `STORES`, and skips the same subtotal/report rows. The port uses
+the already-required `lxml` parser instead of making production depend on a
+manually copied BeautifulSoup installation; `_cell_text()` deliberately mirrors
+BeautifulSoup's `get_text(strip=True)` behavior. A parity run over all 225
+reference exports produced the same `31-MAY-26` period, 168 processed files, 57
+skipped files, and 5,206 data rows. Preserve the explicit header row before
+calling `_style_main_sheet()`—that function inserts the title row, and omitting
+the prewritten header silently overwrites the first business record.
 
 `backend/tests/test_desktop_parity.py` currently verifies selected payables
 statistics/log behavior and an Unaccounted mail attachment naming path. It is
@@ -155,7 +170,15 @@ refresh. The embedded cache contains only an explicit synthetic placeholder;
 retain formula-cache injection after the template merge. The other pivot-named
 desktop sheets were static pandas/openpyxl summaries, not native PivotTables
 (confirmed by the desktop source's own `_add_real_pivots` comment: "Locationwise
-Pivot is kept as a plain openpyxl static table").
+Pivot is kept as a plain openpyxl static table"). At the user's later request,
+the web suite upgrades the Pending MRN `Locationwise Pivot`, Unaccounted `Main`,
+and Uninvoiced Expense PO `Main` sheets to genuine refreshable PivotTables too.
+They use the sanitized generic template at
+`backend/app/services/unaccounted/pivot_templates/location_incharge_period.xlsx`
+and a hidden `_PivotSrc` data sheet. The already-written formula-driven static
+sheet remains the safe fallback if a template attachment ever fails. Both
+templates and their generated workbooks have been opened and refreshed through
+real Excel during development, but Excel/COM is not used by the deployed app.
 
 The desktop app's real pivot also re-sorted its ACCOUNTING PERIOD column
 chronologically and reformatted captions every time it ran, via COM
@@ -260,10 +283,11 @@ inside a background job.
 The Unaccounted/MRN/Uninvoiced email tables are rendered from workbooks that
 retain live Excel `SUBTOTAL` formulas. OpenPyXL does not calculate cached formula
 results, so `mailer_shared.sheet_to_html()` reads formula cells and evaluates
-the controlled `SUBTOTAL`/`SUM` range forms for HTML display only. Do not switch
-that renderer back to `data_only=True`: newly generated reports would again show
-blank subtotal and Grand Total cells in both preview and the sent email. The
-attachment itself must remain untouched and formula-driven.
+the controlled `SUBTOTAL`/`SUM` forms (including comma-separated non-adjacent
+ranges/cells) for HTML display only. Do not switch that renderer back to
+`data_only=True`: newly generated reports would again show blank subtotal and
+Grand Total cells in both preview and the sent email. The attachment itself must
+remain untouched and formula-driven.
 
 ## 6. Frontend and UX decisions
 

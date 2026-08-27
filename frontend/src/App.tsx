@@ -20,6 +20,7 @@ const UnappliedReceipts = lazy(() => import('@/pages/tools/UnappliedReceipts'))
 const UltrafineBalanceConfirmation = lazy(() => import('@/pages/tools/UltrafineBalanceConfirmation'))
 const UltrafinePaymentReminder = lazy(() => import('@/pages/tools/UltrafinePaymentReminder'))
 const GstInvoiceAdder = lazy(() => import('@/pages/tools/GstInvoiceAdder'))
+const ClosingPeriodReport = lazy(() => import('@/pages/tools/ClosingPeriodReport'))
 
 function ScrollToTop() {
   const { pathname } = useLocation()
@@ -176,6 +177,12 @@ export default function App() {
             path="/tools/gst-invoice-adder"
             element={
               protectedPage(<AppGuard appKey="gst-invoice-adder"><GstInvoiceAdder /></AppGuard>)
+            }
+          />
+          <Route
+            path="/tools/closing-period-report"
+            element={
+              protectedPage(<AppGuard appKey="closing-period-report"><ClosingPeriodReport /></AppGuard>)
             }
           />
 

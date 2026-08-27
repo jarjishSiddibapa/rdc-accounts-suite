@@ -14,6 +14,7 @@ from app import audit_middleware, client_context, config, database, http_middlew
 from app.routers import (
     admin_routes,
     auth_routes,
+    closing_period,
     erp_converter,
     gst_invoice_adder,
     gstr2b,
@@ -135,6 +136,7 @@ app.include_router(unapplied_receipts.router)
 app.include_router(ultrafine_balance_confirmation.router)
 app.include_router(gst_invoice_adder.router)
 app.include_router(ultrafine_payment_reminder.router)
+app.include_router(closing_period.router)
 
 # Serve the built React app's JS/CSS bundles directly.
 app.mount("/assets", StaticFiles(directory=str(config.STATIC_DIR / "assets")), name="static-assets")
