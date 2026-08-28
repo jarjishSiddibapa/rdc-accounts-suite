@@ -1,0 +1,34 @@
+name: Bug report
+description: Report a reproducible problem in the internal suite
+title: "[Bug] "
+body:
+  - type: markdown
+    attributes:
+      value: Do not include passwords, session files, customer data, or production secrets.
+  - type: input
+    id: area
+    attributes:
+      label: Application or area
+      placeholder: IOCL monitor, mappings, ERP to Excel, login
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Include the inputs, filters, and actions that lead to the issue.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected and actual behavior
+    validations:
+      required: true
+  - type: input
+    id: timestamp
+    attributes:
+      label: Approximate timestamp
+      description: Use local time so an administrator can correlate audit/worker logs.
+    validations:
+      required: true

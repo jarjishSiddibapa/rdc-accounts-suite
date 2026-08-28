@@ -1,0 +1,35 @@
+# User guide
+
+## Sign in
+
+Open the server's LAN URL, enter your assigned email and password, and choose
+an application from the dashboard. The sidebar can be collapsed with the
+hamburger control; the layout adapts to smaller screens.
+
+## Reports
+
+Upload the source files requested by the selected tool, complete the visible
+date/month/year picker, and wait for validation or period detection to finish.
+Pending MRN and Uninvoiced Expense PO period detection is mandatory: processing
+remains disabled until it succeeds. Review mappings and missing-value prompts,
+then generate/download the workbook or open the mail preview.
+
+Report mail defaults are editable where the workflow permits. In the Unaccounted
+workflow, one, two, or all three selected reports update the subject and body
+automatically before sending.
+
+## IOCL monitor
+
+Assigned users can select **Ultrafine IOCL Balance Monitor**, choose **Check
+balance now**, and review the check and notification tables. The page shows
+monitoring status, current balance, last/next check, delivery status, filters,
+and pagination. Configuration and credentials are intentionally administrator-
+only.
+
+## If something fails
+
+Read the on-page error and retry after correcting the input. Do not refresh or
+close a tab during a cancellable report unless you intend to abandon it. For
+server, Oracle, SMTP, or scheduler issues, contact the administrator with the
+timestamp and the visible job/error identifier; never send passwords or session
+files in a ticket.

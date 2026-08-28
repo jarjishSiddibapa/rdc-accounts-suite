@@ -1,6 +1,6 @@
 # AI Coding Agent Handoff
 
-Last reviewed: 27 August 2026
+Last reviewed: 28 August 2026
 
 This document explains the current state of RDC Accounts Suite for future AI
 coding agents. Read it before changing behavior. `README.md` remains the
@@ -455,6 +455,15 @@ git ls-remote origin refs/heads/main
 ```
 
 ## 9. Recent implementation milestones
+
+The repository now includes the operator-facing documentation set under
+`docs/` (`ARCHITECTURE.md`, `DEPLOYMENT.md`, `ADMIN_GUIDE.md`, `USER_GUIDE.md`,
+and `TROUBLESHOOTING.md`), plus `SECURITY.md` and `CONTRIBUTING.md`. The
+screenshots in `docs/screenshots/` were captured from a disposable local
+database containing only synthetic `example.invalid` identities. Keep this
+documentation current when applications, migrations, or operating procedures
+change. The dashboard catalogue must continue to expose all 11 active tools;
+the GST Invoice Number Adder is easy to omit because it is Oracle-backed.
 
 - `1e6e40f` — frontend design-system and interaction overhaul
 - `c9120fd` — durable MySQL multi-process job runtime and supervisor

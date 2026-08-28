@@ -1,130 +1,137 @@
 # RDC Accounts Suite
 
-A single LAN web application consolidating RDC Concrete and Ultrafine's Accounts
-Department tools — previously separate Windows desktop apps — into one FastAPI
-backend + React frontend, running as supervised API/worker processes on one
-office PC and shared over the local network via a browser.
+RDC Accounts Suite is the shared web workspace for RDC Concrete and Ultrafine's
+Accounts teams. It brings the former Windows utilities into one readable,
+role-aware application with durable background processing, central mappings,
+Oracle-backed reports, and scheduled email workflows.
 
-## Apps included
+![RDC Accounts Suite dashboard](docs/screenshots/dashboard.png)
 
-- ERP to Excel Converter
-- RDC Payables Report
-- Unaccounted Transactions, Pending MRN & Uninvoiced Expense POs Report Generator
-- Trial Balance Location Wise Report Generator
-- GSTR 2B File Combinator
-- Unapplied Receipts Report Generator
-- Ultrafine Balance Confirmation Bulk Sender
-- Ultrafine Bulk Payment Reminder Sender
-- GST Invoice Number Adder
-- Closing Period Report Generator
-- Ultrafine IOCL Balance Monitor (admin-owned sender/configuration, scheduled
-  morning and threshold alert emails, user-visible balance and history)
+## What it includes
 
-Plus shared admin features: user management, per-app access control, email
-sender settings, database backup scheduling, and a file-based + database
-audit log. Mapping inputs show searchable existing-value suggestions, and the
-admin Users/Audit Log screens use server-side search and pagination.
+| Application | Purpose | External dependency |
+| --- | --- | --- |
+| ERP to Excel Converter | Clean and format ERP exports as workbooks | None |
+| RDC Payables Report | Produce the mapped payables report | None |
+| Unaccounted Transactions, Pending MRN & Uninvoiced Expense POs | Generate the three exception reports and mail package | None |
+| Trial Balance Location Wise | Convert and review trial-balance data | None |
+| GSTR 2B File Combinator | Combine GSTR-2B exports | None |
+| Unapplied Receipts Report | Enrich receipts with live location/comments data | Oracle |
+| Ultrafine Balance Confirmation | Prepare and send balance confirmations | SMTP |
+| Ultrafine Payment Reminder | Prepare and send payment reminders | SMTP |
+| GST Invoice Number Adder | Enrich GST workbooks with invoice numbers | Oracle |
+| Closing Period Report Generator | Combine closing-period HTML/XLS exports | None |
+| Ultrafine IOCL Balance Monitor | Watch CCMS balance and send scheduled alerts | Playwright + SMTP |
 
-## Stack
+The DMS Downloader is retired and intentionally not part of the catalogue.
 
-- **Backend:** FastAPI (Python), SQLAlchemy, and a durable MySQL job queue.
-  Two API workers, two bounded report-processing workers, and one scheduler
-  are supervised independently without requiring Celery or Redis.
-- **Frontend:** React + Vite + TypeScript + Tailwind, built to static files
-  and served directly by FastAPI. No Node process at runtime.
-- Windows deployment integration: Oracle Instant Client (thick-mode
-  `oracledb`, for the Unapplied Receipts and GST Invoice Adder tools). Report
-  generation and `.xlsb` handling are pure Python and do not require Excel COM
-  or an interactive Microsoft Excel session. The IOCL monitor uses a
-  headless Playwright Chromium browser; `start_all.bat` installs/checks that
-  browser runtime automatically.
+## Built for a shared office server
 
-## First-time setup
+- FastAPI and SQLAlchemy backend with MySQL as the durable system of record.
+- React, TypeScript, Vite, Tailwind, Geist typography, and accessible responsive UI.
+- Two supervised API workers, two durable job workers, and one scheduler by default.
+- MySQL-backed job leases, tab ownership, rate limits, resource slots, audit history, and idempotent mail actions.
+- Centralized mappings with searchable suggestions, pagination, soft deletion, and administrator-controlled defaults.
+- Oracle work is coordinated through the shared `oracle-gst` resource slot; report generation does not require Excel COM.
+- IOCL has one encrypted, administrator-owned sender configuration. Regular users can check the balance and read history only.
 
-1. **MySQL** — have a MySQL server reachable from this machine, with an
-   account that can create databases (the app creates its own database and
-   tables on first run).
-2. **Backend config** — copy `backend/.env.example` to `backend/.env` and
-   fill in real values (MySQL credentials, `INITIAL_ADMIN_EMAIL` /
-   `INITIAL_ADMIN_PASSWORD` for the first login, `APP_BASE_URL`, and the
-   Oracle connection details if you'll use the Oracle-backed tools).
-   `backend/.env` is gitignored — it holds real secrets and is never
-   committed.
-3. **Oracle Instant Client** (only needed for Unapplied Receipts / GST
-   Invoice Number Adder) — download the Basic package for Windows from
-   Oracle's site and extract it to `backend/instantclient/`. It's excluded
-   from git because its DLLs are hundreds of MB (over GitHub's 100MB
-   per-file limit), so this is a one-time manual step per machine.
-4. **Run it** — double-click `start_all.bat`. This is the suite's only
-   launcher. First run creates a Python virtual environment; every run
-   (including the first) checks
-   `requirements.txt` against what's installed and installs anything
-   missing before initializing MySQL and starting the server at
-   `http://<this-pc's-LAN-IP>:2805` —
-   so a `git pull` that adds a new dependency is picked up automatically on
-   the next restart, no manual `pip install` needed. Logs go to
-   `backend/logs/`.
+## Screenshots
 
-The frontend is pre-built and committed under `backend/app/static/`, so
-`start_all.bat` needs only Python at runtime — no Node/npm install on the
-production machine.
+| Sign in | Administrator dashboard |
+| --- | --- |
+| ![Sign in](docs/screenshots/login.png) | ![Dashboard](docs/screenshots/dashboard.png) |
 
-## Making a frontend change
+| IOCL administrator configuration | User administration |
+| --- | --- |
+| ![IOCL administrator view](docs/screenshots/iocl-admin.png) | ![User administration](docs/screenshots/user-administration.png) |
 
-If you edit anything under `frontend/`, rebuild it before deploying:
+| IOCL standard-user view | Complete IOCL history |
+| --- | --- |
+| ![IOCL standard-user view](docs/screenshots/iocl-user.png) | ![IOCL history](docs/screenshots/iocl-history.png) |
 
-```bash
-cd frontend
+Screenshots use a disposable local MySQL database with synthetic
+`example.invalid` identities and no real credentials or recipient addresses.
+
+## Roles and safety boundaries
+
+Administrators manage users, application access, centralized mappings, sender
+defaults, backups, audit logs, and IOCL configuration. Regular users see only
+the applications granted to them. The API enforces every permission; hiding a
+control in the browser is never treated as authorization.
+
+All business records use soft deletion (`is_deleted = true`). User email is
+required and unique after normalization; first and last name are optional, and
+active/inactive is independent from archived/not-archived.
+
+## Architecture
+
+```mermaid
+flowchart LR
+  Browser[Browser tabs] --> API[FastAPI API workers]
+  API --> DB[(MySQL)]
+  API --> Queue[Durable background_jobs]
+  Queue --> Workers[Processing workers]
+  Scheduler[Single scheduler] --> Queue
+  Workers --> Oracle[(Oracle ERP)]
+  Workers --> SMTP[SMTP]
+  API --> Static[Committed React bundle]
+```
+
+See [the architecture guide](docs/ARCHITECTURE.md) for ownership, leases,
+Oracle limits, and the scheduler model.
+
+## Quick start
+
+1. Install Python 3.11+ and MySQL on the server PC.
+2. Copy `backend/.env.example` to `backend/.env` and set MySQL, initial admin,
+   application URL, and any Oracle/SMTP values required by your workflows.
+3. Install Oracle Instant Client under `backend/instantclient/` only if using
+   the Oracle-backed tools.
+4. Double-click [`start_all.bat`](start_all.bat). It creates/checks the virtual
+   environment, installs `requirements.txt`, installs Playwright Chromium, and
+   starts the supervised service on port `2805`.
+5. Open `http://<server-LAN-IP>:2805` and sign in with the initial admin.
+
+The production machine does not need Node/npm: the built React bundle is
+committed under `backend/app/static/`.
+
+## Development and verification
+
+```powershell
+cd backend
+.\venv\Scripts\python.exe -m compileall -q app tests
+.\venv\Scripts\python.exe -m unittest discover -s tests -p "test_*.py"
+
+cd ..\frontend
 npm install
 npm run build
 ```
 
-`npm run build` writes straight into `backend/app/static/`, which is what gets
-committed and served when `start_all.bat` launches the FastAPI processes.
+`npm run build` writes directly to `backend/app/static/`; commit the source and
+generated assets together. Use `git diff --check` before committing.
 
-## AI coding agents
+## Deployment and database changes
 
-Future coding agents must read `AGENTS.md` and
-`docs/AI_CODING_AGENT_HANDOFF.md` before changing the application. Those files
-record the soft-delete, mapping, concurrency, Oracle, email, parity, frontend
-build, testing, and deployment decisions that are not obvious from the UI.
+Production updates are manual: pull `main`, run any dated SQL migration
+documented under [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) using MySQL
+Workbench, then restart [`start_all.bat`](start_all.bat). Migrations are
+idempotent, but should still be reviewed before execution.
 
-## Deploying an update to the production PC
+Read the [deployment guide](docs/DEPLOYMENT.md), [administrator guide](docs/ADMIN_GUIDE.md),
+[user guide](docs/USER_GUIDE.md), and [troubleshooting guide](docs/TROUBLESHOOTING.md)
+before operating the server. Security-sensitive handling is documented in
+[`SECURITY.md`](SECURITY.md).
 
-This repo uses **manual deploys** — no CI/CD. On the production machine:
+## Project status
 
-```bash
-git pull
-```
+This is an internal, proprietary operations application designed for the
+configured RDC/Ultrafine environment and reference workflows. Desktop parity
+must be demonstrated with representative input and external systems before it
+is described as complete.
 
-apply any new SQL file documented under `deployment/`, then stop and restart
-`start_all.bat` (it re-checks its virtual
-environment and reinstalls dependencies automatically if `requirements.txt`
-changed). If only backend files changed, a restart is enough; if frontend
-files changed, make sure the build in `backend/app/static/` was committed
-before pulling (see above).
+## Working with AI coding agents
 
-For the 25 August 2026 concurrency release, existing production databases must
-run `deployment/mysql/20260825_tab_owned_jobs.sql` in MySQL Workbench after the
-original durable-concurrency migration. It is safe to run more than once.
-
-For the 27 August 2026 IOCL monitor release, run
-`deployment/mysql/20260827_iocl_balance_monitor.sql` in MySQL Workbench. It is
-idempotent and creates the monitor settings, complete check history, durable
-notification history, and application catalogue row without storing any
-plaintext credentials.
-
-For the 28 August 2026 admin-owned IOCL sender update, existing production
-databases must run
-`deployment/mysql/20260828_iocl_admin_owned_sender.sql` in MySQL Workbench.
-It adds the dedicated encrypted sender fields and preserves the previously
-used sender once where possible. After restarting, sign in as an administrator
-and confirm the sender under the IOCL monitor before relying on scheduled mail.
-
-## What's not in this repo
-
-- `backend/data/` — the running database's working files, scratch
-  uploads/outputs, backups, and the Fernet key used to encrypt the stored
-  email app-password. Generated at runtime; never committed.
-- `backend/instantclient/` — see step 3 above.
-- `backend/.env` — real secrets; use `.env.example` as the template.
+Read [`AGENTS.md`](AGENTS.md) and
+[`docs/AI_CODING_AGENT_HANDOFF.md`](docs/AI_CODING_AGENT_HANDOFF.md) before
+changing code. They record product invariants, migrations, concurrency rules,
+reference projects, and required verification commands.

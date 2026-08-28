@@ -12,6 +12,7 @@ import {
   LayoutGrid,
   PackageCheck,
   WalletCards,
+  FilePlus2,
 } from 'lucide-react'
 import { AppShell } from '@/components/AppShell'
 import { Reveal, RevealGroup } from '@/components/Reveal'
@@ -84,6 +85,14 @@ const tools = [
     icon: BellRing,
     appKey: 'ultrafine-payment-reminder',
     category: 'Ultrafine customer communication',
+  },
+  {
+    to: '/tools/gst-invoice-adder',
+    title: 'GST Invoice Number Adder',
+    description: 'Enrich GST invoice workbooks with Oracle-backed invoice details.',
+    icon: FilePlus2,
+    appKey: 'gst-invoice-adder',
+    category: 'Tax data enrichment',
   },
   {
     to: '/tools/closing-period-report',
