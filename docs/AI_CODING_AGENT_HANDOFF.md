@@ -151,8 +151,15 @@ MySQL. A database lease prevents concurrent manual/scheduled portal checks.
 Every attempted check is retained in `iocl_balance_checks`; every morning or
 threshold email occurrence is retained in `iocl_balance_notifications` with
 an idempotency key and delivery status. The IOCL page exposes both complete
-histories with server-side filtering and pagination. Do not replace this
-evidence with process-local state or a latest-only widget.
+histories with server-side filtering and pagination. The singleton IOCL
+settings row also owns one dedicated sender email and encrypted app password.
+Only administrators may read or change portal/session credentials, sender,
+recipients, schedules, thresholds, and templates. Assigned regular users get
+only the safe status summary, manual balance check, and both histories. The
+API enforces this split; hiding controls in React is not sufficient. Scheduled
+delivery must never depend on the last user who saved settings and must never
+silently fall back to a user's personal sender or the password-reset sender.
+Do not replace this evidence with process-local state or a latest-only widget.
 
 Trial Balance's two-step upload flow stores owner/expiry metadata in MySQL and
 parsed content in UUID-named gzip JSON under the scratch directory. Do not move
@@ -379,6 +386,15 @@ already applied before tab ownership was added, also run:
 It idempotently adds the three browser-tab lease columns and their indexes. A
 fresh environment can run the current full durable-concurrency script and then
 the tab-owned script safely; both are repeatable.
+
+The IOCL monitor migrations are:
+
+- `deployment/mysql/20260827_iocl_balance_monitor.sql` for the original tables;
+- `deployment/mysql/20260828_iocl_admin_owned_sender.sql` for the dedicated
+  admin-owned sender fields and one-time encrypted sender backfill.
+
+Existing production installs that already ran the 27 August script need only
+run the 28 August script. It is idempotent and does not copy plaintext secrets.
 
 Normal production update sequence:
 

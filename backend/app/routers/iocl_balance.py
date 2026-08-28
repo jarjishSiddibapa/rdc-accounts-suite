@@ -9,19 +9,19 @@ from decimal import Decimal
 from typing import Literal
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
-from pydantic import BaseModel, EmailStr, Field, field_validator
+from pydantic import BaseModel, EmailStr, Field, SecretStr, field_validator
 from sqlalchemy import desc
 from sqlalchemy.orm import Session
 
-from app import security, system_mailer
-from app.auth import get_current_user
+from app import security
+from app.auth import get_current_user, require_admin
 from app.database import get_db
 from app.jobs import cancel_job, get_job, submit_job
 from app.models import IoclBalanceCheck, IoclBalanceNotification, IoclBalanceSettings, User
 from app.permissions import require_app_access
 from app.regional import to_ist_iso
 from app.services.iocl_balance import monitor
-from app.services.mailer_shared import get_email_settings, send_mail
+from app.services.mailer_shared import send_mail
 
 router = APIRouter(
     prefix="/api/tools/iocl-balance",
@@ -42,6 +42,8 @@ class SettingsBody(BaseModel):
     login_url: str = Field(min_length=8, max_length=500)
     username: str = Field(default="", max_length=255)
     password: str | None = Field(default=None, max_length=500)
+    sender_email: EmailStr | None = None
+    sender_app_password: SecretStr | None = Field(default=None, max_length=500)
     login_timeout_seconds: int = Field(ge=15, le=300)
     check_interval_minutes: int = Field(ge=5, le=1440)
     daily_email_enabled: bool
@@ -84,21 +86,28 @@ class SettingsBody(BaseModel):
         return list(dict.fromkeys(value))
 
 
-def _settings_dict(row: IoclBalanceSettings, db: Session) -> dict:
-    system_email = system_mailer.get_system_email_settings(db)
-    sender_email = None
-    sender_configured = False
-    if row.sender_user_id is not None:
-        sender_settings = get_email_settings(row.sender_user_id)
-        sender_configured = sender_settings["configured"]
-        sender_user = db.query(User).filter(User.id == row.sender_user_id).first()
-        sender_email = sender_user.email if sender_user is not None else None
+def _status_dict(row: IoclBalanceSettings) -> dict:
+    portal_configured = bool(row.username and row.password_encrypted)
+    sender_configured = bool(row.sender_email and row.sender_app_password_encrypted)
     return {
-        "version": row.version,
         "enabled": row.enabled,
-        "sender_user_id": row.sender_user_id,
-        "sender_email": sender_email,
-        "sender_configured": sender_configured,
+        "portal_configured": portal_configured,
+        "mail_configured": sender_configured,
+        "check_interval_minutes": row.check_interval_minutes,
+        "last_balance": float(row.last_balance) if row.last_balance is not None else None,
+        "last_checked_at": to_ist_iso(row.last_checked_at),
+        "last_check_status": row.last_check_status,
+        "last_error": row.last_error,
+        "next_check_at": to_ist_iso(row.next_check_at),
+    }
+
+
+def _settings_dict(row: IoclBalanceSettings) -> dict:
+    return {
+        **_status_dict(row),
+        "version": row.version,
+        "sender_email": row.sender_email or "",
+        "sender_app_password_configured": bool(row.sender_app_password_encrypted),
         "login_url": row.login_url,
         "username": row.username or "",
         "password_configured": bool(row.password_encrypted),
@@ -118,27 +127,25 @@ def _settings_dict(row: IoclBalanceSettings, db: Session) -> dict:
         "alert_cc": monitor.parse_recipients(row.alert_cc),
         "alert_subject_template": row.alert_subject_template,
         "alert_body_template": row.alert_body_template,
-        "last_balance": float(row.last_balance) if row.last_balance is not None else None,
-        "last_checked_at": to_ist_iso(row.last_checked_at),
-        "last_check_status": row.last_check_status,
-        "last_error": row.last_error,
-        "next_check_at": to_ist_iso(row.next_check_at),
         "last_daily_sent_date": row.last_daily_sent_date.isoformat() if row.last_daily_sent_date else None,
-        "system_email_configured": system_email["configured"],
-        "system_sender_email": system_email["sender_email"],
     }
 
 
-@router.get("/settings")
+@router.get("/status")
+def get_status(db: Session = Depends(get_db)):
+    """Safe monitoring summary for every user assigned to this application."""
+    return _status_dict(monitor.get_or_create_settings(db))
+
+
+@router.get("/settings", dependencies=[Depends(require_admin)])
 def get_settings(db: Session = Depends(get_db)):
-    return _settings_dict(monitor.get_or_create_settings(db), db)
+    return _settings_dict(monitor.get_or_create_settings(db))
 
 
-@router.put("/settings")
+@router.put("/settings", dependencies=[Depends(require_admin)])
 def put_settings(
     body: SettingsBody,
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
 ):
     row = db.query(IoclBalanceSettings).filter(IoclBalanceSettings.id == 1).with_for_update().first()
     if row is None:
@@ -151,9 +158,22 @@ def put_settings(
         )
     if body.enabled and (not body.username or (not body.password and not row.password_encrypted)):
         raise HTTPException(status_code=400, detail="Username and password are required before enabling monitoring")
-    if body.daily_email_enabled and not body.daily_to:
+    sender_email = str(body.sender_email).strip().lower() if body.sender_email else ""
+    sender_identity_changed = (row.sender_email or "").lower() != sender_email
+    sender_password_configured = bool(
+        body.sender_app_password
+        or (not sender_identity_changed and row.sender_app_password_encrypted)
+    )
+    if body.enabled and (body.daily_email_enabled or body.alerts_enabled) and not (
+        sender_email and sender_password_configured
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Configure the IOCL sender email and app password before enabling email automation",
+        )
+    if body.enabled and body.daily_email_enabled and not body.daily_to:
         raise HTTPException(status_code=400, detail="At least one morning-mail To recipient is required")
-    if body.alerts_enabled and not body.alert_to:
+    if body.enabled and body.alerts_enabled and not body.alert_to:
         raise HTTPException(status_code=400, detail="At least one alert-mail To recipient is required")
     try:
         monitor.validate_template(body.daily_subject_template, monitor.DAILY_TEMPLATE_FIELDS)
@@ -165,11 +185,16 @@ def put_settings(
 
     session_identity_changed = row.username != body.username or row.login_url != body.login_url
     row.enabled = body.enabled
-    # Mail always goes out as whoever last saved these settings (their own
-    # Gmail sender from their Settings page) - this is a shared, multi-user
-    # automation, not an admin-only tool, so there is no picker letting one
-    # user send mail as someone else.
-    row.sender_user_id = current_user.id
+    row.sender_email = sender_email or None
+    if body.sender_app_password:
+        row.sender_app_password_encrypted = security.encrypt(
+            body.sender_app_password.get_secret_value()
+        )
+    elif sender_identity_changed:
+        # An app password belongs to the sender account. Never retain one
+        # silently after the administrator changes the sender address.
+        row.sender_app_password_encrypted = None
+    row.sender_user_id = None
     row.login_url = body.login_url
     row.username = body.username or None
     if body.password:
@@ -198,7 +223,7 @@ def put_settings(
     row.is_deleted = False
     db.commit()
     db.refresh(row)
-    return _settings_dict(row, db)
+    return _settings_dict(row)
 
 
 class TestMailBody(BaseModel):
@@ -207,15 +232,15 @@ class TestMailBody(BaseModel):
     body_template: str = Field(min_length=1, max_length=20_000)
 
 
-@router.post("/test-mail")
+@router.post("/test-mail", dependencies=[Depends(require_admin)])
 def send_test_mail(
     body: TestMailBody,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     """Renders the given (possibly unsaved) template with sample data and
-    sends it to the CURRENT user's own inbox only - never to the real To/Cc
-    list - so anyone editing these templates can see exactly how the mail
+    sends it to the current administrator's own inbox only - never to the real
+    To/Cc list - so the administrator can see exactly how the mail
     will look before saving."""
     fields = monitor.DAILY_TEMPLATE_FIELDS if body.mail_type == "daily" else monitor.ALERT_TEMPLATE_FIELDS
     try:
@@ -224,22 +249,21 @@ def send_test_mail(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    sender = get_email_settings(current_user.id)
-    if not sender["configured"]:
+    settings = monitor.get_or_create_settings(db)
+    if not settings.sender_email or not settings.sender_app_password_encrypted:
         raise HTTPException(
             status_code=400,
-            detail="Set up your own Gmail sender under Settings before sending a test mail",
+            detail="Configure the IOCL sender email and app password before sending a test mail",
         )
 
-    settings = monitor.get_or_create_settings(db)
     sample_balance = Decimal(str(settings.last_balance)) if settings.last_balance is not None else Decimal("1245620.60")
     sample_threshold = settings.alert_start_amount if body.mail_type == "alert" else None
     subject, rendered_body = monitor.render_preview(body.subject_template, body.body_template, sample_balance, sample_threshold)
 
     try:
         send_mail(
-            from_email=sender["email"],
-            app_password=sender["app_password"],
+            from_email=settings.sender_email,
+            app_password=security.decrypt(settings.sender_app_password_encrypted),
             to_addresses=[current_user.email],
             cc_addresses=[],
             subject=f"[Test] {subject}",
@@ -252,7 +276,7 @@ def send_test_mail(
     return {"ok": True, "sent_to": current_user.email}
 
 
-@router.post("/session")
+@router.post("/session", dependencies=[Depends(require_admin)])
 async def import_session(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
@@ -272,10 +296,10 @@ async def import_session(
     row.version += 1
     db.commit()
     db.refresh(row)
-    return _settings_dict(row, db)
+    return _settings_dict(row)
 
 
-@router.post("/session/clear")
+@router.post("/session/clear", dependencies=[Depends(require_admin)])
 def clear_session(db: Session = Depends(get_db)):
     row = monitor.get_or_create_settings(db)
     row.session_state_encrypted = None
@@ -283,7 +307,7 @@ def clear_session(db: Session = Depends(get_db)):
     row.version += 1
     db.commit()
     db.refresh(row)
-    return _settings_dict(row, db)
+    return _settings_dict(row)
 
 
 @router.post("/check-now")

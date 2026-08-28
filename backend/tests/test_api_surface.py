@@ -92,8 +92,40 @@ class RemovedApiSurfaceTests(unittest.TestCase):
             if getattr(route, "path", None) is not None
         }
         self.assertIn("/api/tools/iocl-balance/settings", route_paths)
+        self.assertIn("/api/tools/iocl-balance/status", route_paths)
         self.assertIn("/api/tools/iocl-balance/check-now", route_paths)
         self.assertIn("/api/tools/iocl-balance/session", route_paths)
+
+    def test_iocl_configuration_routes_are_admin_only(self):
+        admin_paths = {
+            "/api/tools/iocl-balance/settings",
+            "/api/tools/iocl-balance/test-mail",
+            "/api/tools/iocl-balance/session",
+            "/api/tools/iocl-balance/session/clear",
+        }
+        for route in iocl_balance.router.routes:
+            if route.path not in admin_paths:
+                continue
+            dependency_names = {
+                getattr(dependency.call, "__name__", "")
+                for dependency in route.dependant.dependencies
+            }
+            self.assertIn("require_admin", dependency_names, route.path)
+
+        user_paths = {
+            "/api/tools/iocl-balance/status",
+            "/api/tools/iocl-balance/check-now",
+            "/api/tools/iocl-balance/checks",
+            "/api/tools/iocl-balance/notifications",
+        }
+        for route in iocl_balance.router.routes:
+            if route.path not in user_paths:
+                continue
+            dependency_names = {
+                getattr(dependency.call, "__name__", "")
+                for dependency in route.dependant.dependencies
+            }
+            self.assertNotIn("require_admin", dependency_names, route.path)
 
 
 if __name__ == "__main__":

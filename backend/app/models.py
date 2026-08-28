@@ -196,11 +196,12 @@ class IoclBalanceSettings(Base):
     check_lock_token = Column(String(36), nullable=True)
     check_lock_expires_at = Column(DateTime, nullable=True, index=True)
 
-    # Which user's own Gmail sender identity (see EmailSettings - one row per
-    # user, configured under that user's own Settings page) morning/alert
-    # mail goes out from. Nullable: falls back to the shared system email
-    # account (see app.system_mailer) until an admin picks a sender here.
+    # Legacy sender ownership from the first release. It is retained so
+    # existing production databases can be migrated without dropping data,
+    # but runtime delivery uses the dedicated admin-owned fields below.
     sender_user_id = Column(Integer, ForeignKey("users.id"), nullable=True)
+    sender_email = Column(String(255), nullable=True)
+    sender_app_password_encrypted = Column(Text, nullable=True)
 
     daily_email_enabled = Column(Boolean, default=True, nullable=False)
     daily_email_time = Column(String(5), default="08:00", nullable=False)

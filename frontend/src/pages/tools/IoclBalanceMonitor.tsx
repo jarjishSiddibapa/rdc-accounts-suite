@@ -21,21 +21,32 @@ import { PasswordInput } from '@/components/PasswordInput'
 import { Pagination } from '@/components/Pagination'
 import { ProgressPanel, type JobState } from '@/components/ProgressPanel'
 import { ApiError, get, post, postForm, put } from '@/lib/api'
+import { useAuth } from '@/lib/auth-context'
 import { formatIndianCurrency, formatIndianDateTime } from '@/lib/regional'
 
 const BASE = '/tools/iocl-balance'
 
-interface Settings {
-  version: number
+interface MonitorStatus {
   enabled: boolean
-  sender_email: string | null
-  sender_configured: boolean
+  portal_configured: boolean
+  mail_configured: boolean
+  check_interval_minutes: number
+  last_balance: number | null
+  last_checked_at: string | null
+  last_check_status: string | null
+  last_error: string | null
+  next_check_at: string | null
+}
+
+interface Settings extends MonitorStatus {
+  version: number
+  sender_email: string
+  sender_app_password_configured: boolean
   login_url: string
   username: string
   password_configured: boolean
   session_configured: boolean
   login_timeout_seconds: number
-  check_interval_minutes: number
   daily_email_enabled: boolean
   daily_email_time: string
   daily_to: string[]
@@ -49,14 +60,7 @@ interface Settings {
   alert_cc: string[]
   alert_subject_template: string
   alert_body_template: string
-  last_balance: number | null
-  last_checked_at: string | null
-  last_check_status: string | null
-  last_error: string | null
-  next_check_at: string | null
   last_daily_sent_date: string | null
-  system_email_configured: boolean
-  system_sender_email: string | null
 }
 
 interface CheckResult {
@@ -121,8 +125,12 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 export default function IoclBalanceMonitor() {
+  const { user } = useAuth()
+  const isAdmin = user?.role === 'admin'
+  const [status, setStatus] = useState<MonitorStatus | null>(null)
   const [settings, setSettings] = useState<Settings | null>(null)
   const [password, setPassword] = useState('')
+  const [senderAppPassword, setSenderAppPassword] = useState('')
   const [dailyTo, setDailyTo] = useState('')
   const [dailyCc, setDailyCc] = useState('')
   const [alertTo, setAlertTo] = useState('')
@@ -168,13 +176,18 @@ export default function IoclBalanceMonitor() {
   async function loadAll(initializeRecipients = true) {
     setLoading(true)
     try {
-      const [nextSettings, checkResultPage, notificationResultPage] = await Promise.all([
-        get<Settings>(`${BASE}/settings`),
+      const settingsRequest: Promise<Settings | null> = isAdmin
+        ? get<Settings>(`${BASE}/settings`)
+        : Promise.resolve(null)
+      const [nextStatus, nextSettings, checkResultPage, notificationResultPage] = await Promise.all([
+        get<MonitorStatus>(`${BASE}/status`),
+        settingsRequest,
         get<Page<CheckRow>>(`${BASE}/checks?limit=${checkPageSize}&offset=${(checkPage - 1) * checkPageSize}`),
         get<Page<NotificationRow>>(`${BASE}/notifications?limit=${notificationPageSize}&offset=${(notificationPage - 1) * notificationPageSize}`),
       ])
+      setStatus(nextStatus)
       setSettings(nextSettings)
-      if (initializeRecipients) {
+      if (initializeRecipients && nextSettings) {
         setDailyTo(recipientText(nextSettings.daily_to))
         setDailyCc(recipientText(nextSettings.daily_cc))
         setAlertTo(recipientText(nextSettings.alert_to))
@@ -192,8 +205,12 @@ export default function IoclBalanceMonitor() {
   }
 
   async function refreshAfterCheck() {
-    const nextSettings = await get<Settings>(`${BASE}/settings`)
-    setSettings(nextSettings)
+    const nextStatus = await get<MonitorStatus>(`${BASE}/status`)
+    setStatus(nextStatus)
+    if (isAdmin) {
+      const nextSettings = await get<Settings>(`${BASE}/settings`)
+      setSettings(nextSettings)
+    }
     await Promise.all([loadChecks(), loadNotifications()])
   }
 
@@ -217,13 +234,16 @@ export default function IoclBalanceMonitor() {
       const updated = await put<Settings>(`${BASE}/settings`, {
         ...settings,
         password: password || null,
+        sender_app_password: senderAppPassword || null,
         daily_to: parseRecipients(dailyTo),
         daily_cc: parseRecipients(dailyCc),
         alert_to: parseRecipients(alertTo),
         alert_cc: parseRecipients(alertCc),
       })
       setSettings(updated)
+      setStatus(updated)
       setPassword('')
+      setSenderAppPassword('')
       setMessage({ ok: true, text: successText })
     } catch (error) {
       setMessage({ ok: false, text: error instanceof ApiError ? error.message : 'Unable to save settings.' })
@@ -270,6 +290,7 @@ export default function IoclBalanceMonitor() {
       form.append('file', file)
       const updated = await postForm<Settings>(`${BASE}/session`, form)
       setSettings(updated)
+      setStatus(updated)
       setMessage({ ok: true, text: 'Browser session imported and encrypted.' })
     } catch (error) {
       setMessage({ ok: false, text: error instanceof ApiError ? error.message : 'Unable to import the browser session.' })
@@ -278,17 +299,17 @@ export default function IoclBalanceMonitor() {
     }
   }
 
-  const configured = Boolean(settings?.username && settings.password_configured)
+  const configured = Boolean(status?.portal_configured)
   const statusText = useMemo(() => {
-    if (!settings) return 'Loading'
-    if (!settings.enabled) return 'Paused'
+    if (!status) return 'Loading'
+    if (!status.enabled) return 'Paused'
     if (!configured) return 'Setup required'
-    return settings.last_check_status === 'error' ? 'Needs attention' : 'Monitoring'
-  }, [settings, configured])
+    return status.last_check_status === 'error' ? 'Needs attention' : 'Monitoring'
+  }, [status, configured])
 
   const anyActionRunning = savingPanel !== null || testingMail !== null
 
-  if (loading || !settings) {
+  if (loading || !status) {
     return <AppShell title="Ultrafine IOCL Balance Monitor"><p className="text-sm text-ink-faint">Loading…</p></AppShell>
   }
 
@@ -309,26 +330,32 @@ export default function IoclBalanceMonitor() {
           </div>
 
           <div className="mt-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-            <div className="subpanel p-4"><span className="text-xs font-medium text-ink-faint">Current balance</span><p className="mt-1 font-display text-2xl font-semibold text-ink">{settings.last_balance == null ? 'Not checked' : formatIndianCurrency(settings.last_balance)}</p></div>
+            <div className="subpanel p-4"><span className="text-xs font-medium text-ink-faint">Current balance</span><p className="mt-1 font-display text-2xl font-semibold text-ink">{status.last_balance == null ? 'Not checked' : formatIndianCurrency(status.last_balance)}</p></div>
             <div className="subpanel p-4"><span className="text-xs font-medium text-ink-faint">Status</span><p className="mt-1 font-display text-xl font-semibold text-accent">{statusText}</p></div>
-            <div className="subpanel p-4"><span className="text-xs font-medium text-ink-faint">Last checked</span><p className="mt-1 text-sm font-semibold text-ink">{settings.last_checked_at ? formatIndianDateTime(settings.last_checked_at) : 'Not yet'}</p></div>
-            <div className="subpanel p-4"><span className="text-xs font-medium text-ink-faint">Next scheduled check</span><p className="mt-1 text-sm font-semibold text-ink">{settings.next_check_at ? formatIndianDateTime(settings.next_check_at) : 'Turn on monitoring below'}</p></div>
+            <div className="subpanel p-4"><span className="text-xs font-medium text-ink-faint">Last checked</span><p className="mt-1 text-sm font-semibold text-ink">{status.last_checked_at ? formatIndianDateTime(status.last_checked_at) : 'Not yet'}</p></div>
+            <div className="subpanel p-4"><span className="text-xs font-medium text-ink-faint">Next scheduled check</span><p className="mt-1 text-sm font-semibold text-ink">{status.next_check_at ? formatIndianDateTime(status.next_check_at) : 'Monitoring is paused'}</p></div>
             <div className="subpanel p-4">
-              <span className="text-xs font-medium text-ink-faint">Mail sent from</span>
-              <p className="mt-1 text-sm font-semibold text-ink">{settings.sender_email ?? 'Shared system account'}</p>
-              {settings.sender_email && !settings.sender_configured && <p className="mt-1 text-xs text-amber-600">Not set up in Settings yet — using the shared account for now</p>}
+              <span className="text-xs font-medium text-ink-faint">Mail automation</span>
+              <p className={`mt-1 text-sm font-semibold ${status.mail_configured ? 'text-emerald-600' : 'text-amber-600'}`}>{status.mail_configured ? 'Sender ready' : 'Needs admin setup'}</p>
+              <p className="mt-1 text-xs text-ink-faint">Managed centrally by an administrator</p>
             </div>
           </div>
         </GlassCard>
 
-        {!settings.system_email_configured && (
+        {isAdmin && !status.mail_configured && (
           <div className="flex items-start gap-3 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-ink-dim">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
-            Configure the system sender under Admin → Email administration before scheduled messages can be delivered.
+            Configure the dedicated IOCL sender below before scheduled messages can be delivered.
+          </div>
+        )}
+        {!isAdmin && (
+          <div className="flex items-start gap-3 rounded-2xl border border-accent/20 bg-accent/5 px-4 py-3 text-sm text-ink-dim">
+            <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-accent" />
+            Alert recipients, sender credentials, thresholds, and schedules are centrally controlled by an administrator. You can check the balance and review the complete history.
           </div>
         )}
         {message && <p className={`rounded-xl border px-4 py-3 text-sm ${message.ok ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600' : 'border-red-500/30 bg-red-500/10 text-red-500'}`}>{message.text}</p>}
-        {settings.last_error && <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-500">Last check: {settings.last_error}</p>}
+        {status.last_error && <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-500">Last check: {status.last_error}</p>}
 
         {jobId && (
           <ProgressPanel<CheckResult>
@@ -346,6 +373,7 @@ export default function IoclBalanceMonitor() {
           />
         )}
 
+        {isAdmin && settings && <>
         <GlassCard padding="lg" className="flex flex-col gap-5">
           <div className="flex items-center gap-4"><span className="icon-tile grid h-11 w-11 place-items-center rounded-xl"><KeyRound className="h-5 w-5" /></span><div><h2 className="font-display text-xl font-semibold text-ink">Portal login</h2><p className="text-sm text-ink-dim">Encrypted server-side and never sent back to the browser.</p></div></div>
           <div className="grid gap-4 lg:grid-cols-2">
@@ -359,6 +387,18 @@ export default function IoclBalanceMonitor() {
             <label className="inline-flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-xl border border-border bg-surface px-4 text-sm font-semibold text-ink transition hover:border-accent/40 hover:text-accent"><Upload className="h-4 w-4" />{sessionUploading ? 'Importing…' : 'Import session'}<input type="file" accept=".json,application/json" className="sr-only" disabled={sessionUploading} onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadSession(file); event.currentTarget.value = '' }} /></label>
           </div>
           <div className="flex justify-end"><Button icon={<Save className="h-4 w-4" />} loading={savingPanel === 'portal'} disabled={anyActionRunning && savingPanel !== 'portal'} onClick={() => void saveSettings('portal', 'Portal login saved.')}>Save login details</Button></div>
+        </GlassCard>
+
+        <GlassCard padding="lg" className="flex flex-col gap-5">
+          <div className="flex items-center gap-4"><span className="icon-tile grid h-11 w-11 place-items-center rounded-xl"><Mail className="h-5 w-5" /></span><div><h2 className="font-display text-xl font-semibold text-ink">Dedicated mail sender</h2><p className="text-sm text-ink-dim">The single account used by every scheduled morning mail and balance alert.</p></div></div>
+          <div className="grid gap-4 lg:grid-cols-2">
+            <Field label="Sender email" hint="Use an authorized Gmail or Google Workspace account."><input type="email" autoComplete="username" className="field-control" value={settings.sender_email} onChange={(event) => setSettings({ ...settings, sender_email: event.target.value })} /></Field>
+            <Field label="Sender app password" hint={settings.sender_app_password_configured ? 'Leave blank to keep the saved app password.' : 'Required before email automation can start.'}><PasswordInput autoComplete="new-password" value={senderAppPassword} onChange={(event) => setSenderAppPassword(event.target.value)} placeholder={settings.sender_app_password_configured ? 'Saved — enter only to replace it' : 'Enter the 16-character app password'} /></Field>
+          </div>
+          <div className="subpanel flex flex-col justify-between gap-3 p-4 sm:flex-row sm:items-center">
+            <div><p className="text-sm font-semibold text-ink">Sender status: {settings.mail_configured ? 'Ready' : 'Setup required'}</p><p className="mt-1 text-xs leading-5 text-ink-faint">Credentials are encrypted in MySQL and are never returned to the browser, job queue, history, or logs.</p></div>
+            <Button icon={<Save className="h-4 w-4" />} loading={savingPanel === 'sender'} disabled={anyActionRunning && savingPanel !== 'sender'} onClick={() => void saveSettings('sender', 'Dedicated mail sender saved.')}>Save sender</Button>
+          </div>
         </GlassCard>
 
         <GlassCard padding="lg" className="flex flex-col gap-5">
@@ -400,6 +440,7 @@ export default function IoclBalanceMonitor() {
             </div>
           </GlassCard>
         </div>
+        </>}
 
         <GlassCard padding="lg">
           <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div className="flex items-center gap-3"><ShieldCheck className="h-5 w-5 text-accent" /><div><h2 className="font-display text-lg font-semibold text-ink">Complete balance-check history</h2><p className="text-sm text-ink-dim">Every scheduled and manual check, including failures and skipped overlaps.</p></div></div><div className="flex flex-wrap gap-2"><select className="field-control min-w-36" value={checkTrigger} onChange={(event) => { setCheckTrigger(event.target.value); setCheckPage(1) }} aria-label="Filter checks by trigger"><option value="">All triggers</option><option value="scheduled">Scheduled</option><option value="manual">Manual</option></select><select className="field-control min-w-36" value={checkStatus} onChange={(event) => { setCheckStatus(event.target.value); setCheckPage(1) }} aria-label="Filter checks by status"><option value="">All statuses</option><option value="success">Success</option><option value="error">Error</option><option value="skipped">Skipped</option></select></div></div>

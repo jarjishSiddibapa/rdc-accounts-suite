@@ -42,6 +42,12 @@ and deployment workflow.
   jobs are deliberately detached and must continue safely server-side.
 - Oracle work must honor the shared `oracle-gst` resource slots and must not
   multiply Oracle connection pools merely because API/worker counts increase.
+- The IOCL monitor has one dedicated, admin-owned sender and one shared
+  configuration. Only administrators may change portal credentials/session,
+  sender credentials, recipients, schedules, thresholds, or templates.
+  Assigned regular users may check the balance and read check/notification
+  history, but configuration restrictions must be enforced by the API as well
+  as the UI. Never bind scheduled mail to whichever user last saved settings.
 - The DMS Downloader is retired. Do not re-add its routes or navigation unless
   the user explicitly reverses that product decision.
 - Maintain a professional, highly readable UI: Geist typography, mixed-case

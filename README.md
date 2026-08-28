@@ -17,7 +17,8 @@ office PC and shared over the local network via a browser.
 - Ultrafine Bulk Payment Reminder Sender
 - GST Invoice Number Adder
 - Closing Period Report Generator
-- Ultrafine IOCL Balance Monitor (scheduled morning and threshold alert emails)
+- Ultrafine IOCL Balance Monitor (admin-owned sender/configuration, scheduled
+  morning and threshold alert emails, user-visible balance and history)
 
 Plus shared admin features: user management, per-app access control, email
 sender settings, database backup scheduling, and a file-based + database
@@ -112,6 +113,13 @@ For the 27 August 2026 IOCL monitor release, run
 idempotent and creates the monitor settings, complete check history, durable
 notification history, and application catalogue row without storing any
 plaintext credentials.
+
+For the 28 August 2026 admin-owned IOCL sender update, existing production
+databases must run
+`deployment/mysql/20260828_iocl_admin_owned_sender.sql` in MySQL Workbench.
+It adds the dedicated encrypted sender fields and preserves the previously
+used sender once where possible. After restarting, sign in as an administrator
+and confirm the sender under the IOCL monitor before relying on scheduled mail.
 
 ## What's not in this repo
 

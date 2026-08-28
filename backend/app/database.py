@@ -213,6 +213,10 @@ def _apply_additive_schema_updates() -> None:
         iocl_columns = {
             column["name"] for column in inspector.get_columns("iocl_balance_settings")
         }
+        needs_iocl_sender_backfill = (
+            "sender_email" not in iocl_columns
+            or "sender_app_password_encrypted" not in iocl_columns
+        )
         if "last_daily_attempt_at" not in iocl_columns:
             with engine.begin() as connection:
                 connection.execute(
@@ -227,6 +231,48 @@ def _apply_additive_schema_updates() -> None:
                     text(
                         "ALTER TABLE `iocl_balance_settings` "
                         "ADD COLUMN `sender_user_id` INT NULL"
+                    )
+                )
+        if "sender_email" not in iocl_columns:
+            with engine.begin() as connection:
+                connection.execute(
+                    text(
+                        "ALTER TABLE `iocl_balance_settings` "
+                        "ADD COLUMN `sender_email` VARCHAR(255) NULL"
+                    )
+                )
+        if "sender_app_password_encrypted" not in iocl_columns:
+            with engine.begin() as connection:
+                connection.execute(
+                    text(
+                        "ALTER TABLE `iocl_balance_settings` "
+                        "ADD COLUMN `sender_app_password_encrypted` TEXT NULL"
+                    )
+                )
+        if needs_iocl_sender_backfill:
+            # One-time migration only: never repopulate a sender that an
+            # administrator deliberately cleared after the schema upgrade.
+            with engine.begin() as connection:
+                connection.execute(
+                    text(
+                        "UPDATE `iocl_balance_settings` s "
+                        "JOIN `email_settings` e ON e.user_id = s.sender_user_id "
+                        "SET s.sender_email = e.sender_email, "
+                        "s.sender_app_password_encrypted = e.app_password_encrypted "
+                        "WHERE s.id = 1 AND s.sender_email IS NULL "
+                        "AND e.is_deleted = FALSE AND e.sender_email IS NOT NULL "
+                        "AND e.app_password_encrypted IS NOT NULL"
+                    )
+                )
+                connection.execute(
+                    text(
+                        "UPDATE `iocl_balance_settings` s "
+                        "JOIN `system_email_settings` e ON e.id = 1 "
+                        "SET s.sender_email = e.sender_email, "
+                        "s.sender_app_password_encrypted = e.app_password_encrypted "
+                        "WHERE s.id = 1 AND s.sender_email IS NULL "
+                        "AND e.is_deleted = FALSE AND e.sender_email IS NOT NULL "
+                        "AND e.app_password_encrypted IS NOT NULL"
                     )
                 )
 

@@ -21,7 +21,7 @@ from typing import Any
 
 from sqlalchemy.orm import Session
 
-from app import audit_middleware, security, system_mailer
+from app import audit_middleware, security
 from app.database import SessionLocal
 from app.models import IoclBalanceCheck, IoclBalanceNotification, IoclBalanceSettings
 from app.regional import format_indian_number, now_ist
@@ -487,41 +487,36 @@ def _add_threshold_notifications(
 
 
 def _send_from_configured_sender(
-    db: Session,
-    sender_user_id: int | None,
+    sender_email: str | None,
+    sender_app_password_encrypted: str | None,
     to_emails: list[str],
     cc_emails: list[str],
     subject: str,
     body: str,
 ) -> tuple[bool, str]:
-    """Send from the admin-picked user's own Gmail sender identity (see
-    EmailSettings, configured under that user's own Settings page) if one is
-    set and actually configured; otherwise fall back to the shared system
-    email account, exactly like before this per-user option existed."""
-    if sender_user_id is not None:
-        from app.services.mailer_shared import get_email_settings, send_mail
+    """Send only from the dedicated admin-owned IOCL sender.
 
-        sender = get_email_settings(sender_user_id)
-        if sender["configured"]:
-            try:
-                send_mail(
-                    from_email=sender["email"],
-                    app_password=sender["app_password"],
-                    to_addresses=to_emails,
-                    cc_addresses=cc_emails,
-                    subject=subject,
-                    html_body=body.replace("\n", "<br>"),
-                    attachments=[],
-                )
-                return True, f"Sent from {sender['email']}"
-            except Exception as exc:  # noqa: BLE001 - report as a soft send failure
-                return False, str(exc)
-        logger.warning(
-            "IOCL sender_user_id=%s has no configured Gmail sender - "
-            "falling back to the shared system email account",
-            sender_user_id,
+    The encrypted password is loaded from the singleton settings row at send
+    time, never placed in the durable job payload or notification history.
+    """
+    if not sender_email or not sender_app_password_encrypted:
+        return False, "The IOCL sender email and app password are not configured."
+
+    from app.services.mailer_shared import send_mail
+
+    try:
+        send_mail(
+            from_email=sender_email,
+            app_password=security.decrypt(sender_app_password_encrypted),
+            to_addresses=to_emails,
+            cc_addresses=cc_emails,
+            subject=subject,
+            html_body=body.replace("\n", "<br>"),
+            attachments=[],
         )
-    return system_mailer.send_system_email_to_recipients(db, to_emails, cc_emails, subject, body)
+        return True, f"Sent from {sender_email}"
+    except Exception as exc:  # noqa: BLE001 - report as a soft send failure
+        return False, str(exc)
 
 
 def _deliver_notification(notification_id: int) -> dict:
@@ -540,9 +535,14 @@ def _deliver_notification(notification_id: int) -> dict:
         row.error_message = None
         db.commit()
 
-        sender_user_id = get_or_create_settings(db).sender_user_id
+        settings = get_or_create_settings(db)
         ok, message = _send_from_configured_sender(
-            db, sender_user_id, to_emails, cc_emails, row.subject, row.body,
+            settings.sender_email,
+            settings.sender_app_password_encrypted,
+            to_emails,
+            cc_emails,
+            row.subject,
+            row.body,
         )
         row = db.query(IoclBalanceNotification).filter_by(id=notification_id).one()
         if ok:
