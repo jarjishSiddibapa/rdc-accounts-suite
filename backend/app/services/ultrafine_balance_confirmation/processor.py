@@ -39,6 +39,7 @@ from email_validator import EmailNotValidError, validate_email
 
 from . import mail_builder
 from app.jobs import JobUserError
+from app.services.mailer_shared import read_attachment_bytes
 
 # ── Column aliasing / reading (verbatim from app/excel/excel_reader.py,
 #    minus the requirement that To/CC columns be present) ────────────────────
@@ -245,14 +246,12 @@ def _send_single(server: smtplib.SMTP, from_email: str, to_emails, cc_emails, su
     message.set_content("Please view this message in an HTML-capable email client.")
     message.add_alternative(html_body, subtype="html")
     if attachment_path:
-        if not os.path.isfile(attachment_path):
-            raise FileNotFoundError(f"Attachment not found: {attachment_path}")
         content_type, encoding = mimetypes.guess_type(attachment_path)
         if not content_type or encoding:
             content_type = "application/octet-stream"
         maintype, subtype = content_type.split("/", 1)
-        with open(attachment_path, "rb") as handle:
-            message.add_attachment(handle.read(), maintype=maintype, subtype=subtype, filename=os.path.basename(attachment_path))
+        data = read_attachment_bytes(attachment_path)
+        message.add_attachment(data, maintype=maintype, subtype=subtype, filename=os.path.basename(attachment_path))
     server.send_message(message)
 
 

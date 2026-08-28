@@ -831,7 +831,11 @@ def _job_mail_send(
         # indeterminate time after this job finishes (or possibly never, if
         # the user only downloads reports without ever sending). It's
         # reclaimed by the scheduled scratch sweep instead (see
-        # app/scheduler.py, extended to also remove stale directories).
+        # app/scheduler.py's _sweep_scratch, which gives "mail-*" directories
+        # their own generous 24h grace period rather than the shorter
+        # general-purpose scratch_cleanup_minutes - a real review-then-send
+        # can take a while, and reaping it too early once caused a send with
+        # missing attachments).
         for path in ua_paths:
             Path(path).unlink(missing_ok=True)
         if mrn_path:
@@ -982,6 +986,14 @@ def mail_confirm_send(
             html_body=result["html_body"],
             attachments=result["attachments"],
         )
+    except mailer_shared.MailAttachmentError as exc:
+        finish_job_action(
+            body.job_id,
+            owner_id=user.id,
+            action="confirm-send",
+            succeeded=False,
+        )
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception:
         finish_job_action(
             body.job_id,

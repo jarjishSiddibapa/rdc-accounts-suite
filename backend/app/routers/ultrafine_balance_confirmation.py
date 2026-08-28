@@ -51,8 +51,8 @@ router = APIRouter(
 )
 
 
-async def _save_upload(upload: UploadFile) -> Path:
-    return await save_upload(upload, SCRATCH_DIR)
+async def _save_upload(upload: UploadFile, destination: Path = SCRATCH_DIR) -> Path:
+    return await save_upload(upload, destination)
 
 
 _TEMPLATE_PATH = SEED_DIR / "ultrafine_balance_confirmation_template.xlsx"
@@ -165,11 +165,20 @@ async def preview(
             detail="You haven't set up your email sender yet — go to Settings.",
         )
 
-    workbook_path = str(await _save_upload(workbook))
+    # Grouped into one shared "balance-confirm-<uuid>" directory (rather than
+    # loose SCRATCH_DIR files) so the scratch-cleanup sweep can give this
+    # preview-then-confirm-send workflow its own generous grace period
+    # instead of the shorter general-purpose scratch_cleanup_minutes - see
+    # app/scheduler.py's _sweep_scratch. Reaping this too early is exactly
+    # what silently corrupted an Unaccounted Transactions email once.
+    job_dir = SCRATCH_DIR / f"balance-confirm-{uuid.uuid4()}"
+    job_dir.mkdir(parents=True, exist_ok=True)
+
+    workbook_path = str(await _save_upload(workbook, job_dir))
 
     pdf_pairs = []
     for pdf in pdf_files:
-        saved_path = str(await _save_upload(pdf))
+        saved_path = str(await _save_upload(pdf, job_dir))
         pdf_pairs.append((pdf.filename or "", saved_path))
 
     mapping = mapping_store.load_all(db)

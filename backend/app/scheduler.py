@@ -46,6 +46,23 @@ _POLL_SECONDS = 45
 _SCRATCH_SWEEP_INTERVAL_SECONDS = 5 * 60  # sweep every 5 min
 _last_scratch_sweep = 0.0
 
+# unaccounted_txn's combined "generate all 3 reports, preview, then an
+# explicit separate confirm-send click" mail workflow (and the same
+# preview-then-confirm-send shape in ultrafine_balance_confirmation and
+# ultrafine_payment_reminder) writes its attachments into a dedicated
+# SCRATCH_DIR / "<prefix>-<uuid>" directory and keeps them there until the
+# user actually confirms - there is no time limit on how long someone can
+# sit on that preview before sending it. Reaping that directory on the same
+# admin-configured scratch_cleanup_minutes as a simple one-shot report
+# download (default 30 min) let the sweep delete pending, not-yet-sent
+# attachments out from under a real send, which is what caused an email
+# with fake/placeholder-looking data and empty attachments to go out - the
+# mail body itself is a separate, already-fixed bug, but this half of the
+# incident is a bare deletion race. Give every such workflow its own, much
+# longer grace period, independent of the general-purpose setting.
+_MAIL_PREVIEW_MAX_AGE_SECONDS = 24 * 60 * 60  # 24 hours
+_MAIL_PREVIEW_DIR_PREFIXES = ("mail-", "balance-confirm-", "payment-reminder-")
+
 
 def _sweep_scratch() -> None:
     global _last_scratch_sweep
@@ -63,10 +80,15 @@ def _sweep_scratch() -> None:
     removed = 0
     for path in SCRATCH_DIR.iterdir():
         try:
-            if path.is_file() and now - path.stat().st_mtime > max_age_seconds:
+            entry_max_age = (
+                _MAIL_PREVIEW_MAX_AGE_SECONDS
+                if path.is_dir() and path.name.startswith(_MAIL_PREVIEW_DIR_PREFIXES)
+                else max_age_seconds
+            )
+            if path.is_file() and now - path.stat().st_mtime > entry_max_age:
                 path.unlink()
                 removed += 1
-            elif path.is_dir() and now - path.stat().st_mtime > max_age_seconds:
+            elif path.is_dir() and now - path.stat().st_mtime > entry_max_age:
                 # Some tools (e.g. unaccounted_txn's combined mail workflow)
                 # write their output into a whole per-request subdirectory
                 # rather than a single file - those are otherwise never

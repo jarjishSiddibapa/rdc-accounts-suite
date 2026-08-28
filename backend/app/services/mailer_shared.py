@@ -17,6 +17,7 @@ import json
 import logging
 import os
 import re
+import time
 
 import openpyxl
 from openpyxl.utils.cell import range_boundaries
@@ -596,6 +597,48 @@ def build_email_content(
 
 
 # ── Send ──────────────────────────────────────────────────────────────────────
+class MailAttachmentError(Exception):
+    """Raised when a requested attachment can't be read as a complete, non-
+    empty file at send time - e.g. the scratch-cleanup sweep reclaimed a
+    generated report before a slow "review the preview, then confirm send"
+    workflow got around to actually sending it, or (seen in production even
+    on an immediate send) a brief window right after the file is written
+    where a fresh cross-process read sees 0 bytes - most likely antivirus
+    on-access scanning holding the file, a known Windows phenomenon. Callers
+    must surface this to the user and ask them to regenerate rather than
+    silently sending a mail that claims an attachment it doesn't actually
+    have."""
+
+
+def read_attachment_bytes(path: str, *, max_attempts: int = 6, retry_delay_seconds: float = 0.5) -> bytes:
+    """Read a report file's full bytes for an email attachment, tolerating
+    the brief post-write window described in MailAttachmentError above by
+    retrying a few times before giving up. A genuinely missing, deleted, or
+    corrupt file still fails - this only rides out a transient race, it
+    never invents content."""
+    last_error: Exception | None = None
+    for attempt in range(1, max_attempts + 1):
+        try:
+            expected_size = os.path.getsize(path)
+        except OSError as exc:
+            last_error = exc
+            expected_size = None
+        if expected_size == 0:
+            last_error = OSError(f"{path} is 0 bytes")
+        elif expected_size is not None:
+            with open(path, "rb") as fh:
+                data = fh.read()
+            if data and len(data) == expected_size:
+                return data
+            last_error = OSError(f"read {len(data)} of {expected_size} expected bytes from {path}")
+        if attempt < max_attempts:
+            time.sleep(retry_delay_seconds)
+    raise MailAttachmentError(
+        f"Could not read a complete copy of {os.path.basename(path)} after {max_attempts} "
+        f"attempts ({last_error}). Regenerate the report and send again."
+    )
+
+
 def send_mail(
     from_email: str,
     app_password: str,
@@ -606,7 +649,13 @@ def send_mail(
     attachments: list,
     **_,   # absorb any extra kwargs (smtp_server / smtp_port) — always use Gmail
 ) -> None:
-    """Send HTML email with Excel attachments via Gmail SMTP STARTTLS."""
+    """Send HTML email with Excel attachments via Gmail SMTP STARTTLS.
+
+    Every path in ``attachments`` is read via read_attachment_bytes, which
+    raises MailAttachmentError (before contacting SMTP at all, since every
+    attachment is read while still only building the message) if any file
+    can't be read as complete and non-empty even after retrying - never
+    silently sends an email with a named-but-empty attachment."""
     import smtplib
     from email.mime.multipart import MIMEMultipart
     from email.mime.text      import MIMEText
@@ -625,11 +674,11 @@ def send_mail(
     msg.attach(alt)
 
     for path in attachments:
-        if not path or not os.path.isfile(path):
+        if not path:
             continue
-        with open(path, "rb") as fh:
-            part = MIMEBase("application", "octet-stream")
-            part.set_payload(fh.read())
+        data = read_attachment_bytes(path)
+        part = MIMEBase("application", "octet-stream")
+        part.set_payload(data)
         encoders.encode_base64(part)
         part.add_header(
             "Content-Disposition",

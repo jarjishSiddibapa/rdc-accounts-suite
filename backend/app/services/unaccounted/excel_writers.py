@@ -1,6 +1,7 @@
 """openpyxl-based Excel writers for both report types."""
 
 import datetime as _dt
+import logging
 
 import pandas as pd
 from openpyxl import Workbook
@@ -8,13 +9,10 @@ from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
 from openpyxl.utils import get_column_letter
 
 from .constants import MRN_SITE_COL, MRN_ANCHOR_COL
-from .native_pivots import (
-    attach_pending_mrn_native_pivots,
-    attach_two_level_pivot,
-    try_attach_native_pivot,
-)
 from app.regional import format_indian_number, today_ist
 from app.services.xlsx_formula_cache import cache_formula_values, inject_cached_values
+
+logger = logging.getLogger(__name__)
 
 # Indian number format: 1,23,456  |  zero displays as  –
 # Sections: positive ; negative ; zero
@@ -523,58 +521,8 @@ def write_formatted_excel(df: "pd.DataFrame", path: str) -> None:
     wb.save(path)
     inject_cached_values(path, cached_values)
 
-    pivot_rows, unique_months = _location_incharge_month_counts(df)
-    if pivot_rows:
-        month_rank = {m: i for i, m in enumerate(unique_months)}
-        pivot_rows = sorted(pivot_rows, key=lambda r: month_rank.get(r[2], len(unique_months)))
-        try_attach_native_pivot(
-            attach_two_level_pivot,
-            path,
-            rows=pivot_rows,
-            target_sheet="Main",
-            sheet_position=0,
-            tab_color="1F3864",
-            dim1_caption="Location",
-            dim2_caption="Accounts Incharge",
-            period_caption="Month",
-            value_caption="Count",
-        )
-
 
 # ── PO pivot sheet ────────────────────────────────────────────────────────────
-
-def _po_location_incharge_month_counts(main_df) -> tuple[list[tuple], list[str]]:
-    """Shared aggregation for the PO report's 'Main' pivot: one row per
-    (Location, Accounts Incharge, Month) with its distinct-PO count, plus the
-    months present in chronological order. Mirrors the dedup + groupby that
-    feeds the static table in _add_po_pivot_sheet below."""
-    required = {'PO Number', 'Location', 'Accounts Incharge', 'Month'}
-    if not required.issubset(main_df.columns) or main_df.empty:
-        return [], []
-
-    piv_src = main_df.drop_duplicates(
-        subset=['PO Number', 'Location', 'Accounts Incharge', 'Month'])
-
-    grouped = (
-        piv_src
-        .groupby(['Location', 'Accounts Incharge', 'Month'], sort=False)['PO Number']
-        .count()
-        .reset_index(name="Count")
-    )
-
-    def _month_key(m):
-        try:
-            return pd.to_datetime(m, format='%b-%y')
-        except Exception:
-            return pd.Timestamp('2099-01-01')
-
-    unique_months = sorted(set(grouped["Month"].astype(str)), key=_month_key)
-    rows = [
-        (str(loc), str(incharge), str(month), int(count))
-        for loc, incharge, month, count in grouped.itertuples(index=False, name=None)
-    ]
-    return rows, unique_months
-
 
 def _add_po_pivot_sheet(wb, main_df) -> None:
     """Insert a 'Main' pivot sheet at position 0 (first sheet) of *wb*.
@@ -977,23 +925,6 @@ def write_formatted_po_excel(
     wb.save(path)
     inject_cached_values(path, cached_values)
 
-    pivot_rows, unique_months = _po_location_incharge_month_counts(main_df)
-    if pivot_rows:
-        month_rank = {m: i for i, m in enumerate(unique_months)}
-        pivot_rows = sorted(pivot_rows, key=lambda r: month_rank.get(r[2], len(unique_months)))
-        try_attach_native_pivot(
-            attach_two_level_pivot,
-            path,
-            rows=pivot_rows,
-            target_sheet="Main",
-            sheet_position=0,
-            tab_color="1F3864",
-            dim1_caption="Location",
-            dim2_caption="Accounts Incharge",
-            period_caption="Month",
-            value_caption="Count",
-        )
-
 
 # ── Shared helpers for MRN pivot sheets ───────────────────────────────────────
 def _parse_mrn_period(p):
@@ -1138,7 +1069,7 @@ def _add_mrn_summary_sheet(wb, df: "pd.DataFrame") -> None:
     ws.column_dimensions["C"].width = 10
 
 
-def _add_vendorwise_pivot_sheet(wb, df: "pd.DataFrame") -> None:
+def _add_vendorwise_pivot_sheet(wb, df: "pd.DataFrame") -> tuple["pd.DataFrame", list[str]]:
     """Add a Supplier × Accounting-Period count pivot named 'Vendorwise Pivot'.
 
     Layout matches the reference PivotTable exactly:
@@ -1151,6 +1082,12 @@ def _add_vendorwise_pivot_sheet(wb, df: "pd.DataFrame") -> None:
 
     Location is stored in a hidden column A so the AutoFilter can filter by it.
     Visible data starts at column B (Supplier Name).
+
+    Returns (pivot, period_labels) - the exact supplier rows (in display
+    order) and period column captions just written, so a caller can attach a
+    genuine Excel PivotTable definition on top of this same, already-correct
+    grid (see vendorwise_pivot.attach_vendorwise_pivot) without needing to
+    recompute anything and risk it drifting from what's actually on screen.
     """
     # ── Build pivot data ──────────────────────────────────────────────────────
     work = df.copy()
@@ -1304,29 +1241,7 @@ def _add_vendorwise_pivot_sheet(wb, df: "pd.DataFrame") -> None:
         ws.column_dimensions[get_column_letter(3 + ci_off)].width = 11
     ws.column_dimensions[get_column_letter(gt_col)].width = 13
 
-
-def _mrn_location_incharge_period_counts(df: "pd.DataFrame") -> tuple[list[tuple], list[str]]:
-    """Shared aggregation for MRN's 'Locationwise Pivot': one row per
-    (Location, Accounts Incharge, Period) with its transaction count, plus
-    the periods present in chronological order. Mirrors the groupby that
-    feeds the static table in _add_locationwise_pivot_sheet below."""
-    work = df[df["Location"].astype(str).str.strip() != ""].copy()
-    if work.empty:
-        return [], []
-
-    all_periods = [str(p) for p in work[MRN_ANCHOR_COL].dropna().unique()]
-    periods     = sorted(all_periods, key=_mrn_period_sort_key)
-
-    grouped = (
-        work.groupby(["Location", "Accounts Incharge", MRN_ANCHOR_COL], sort=False)
-        .size()
-        .reset_index(name="Count")
-    )
-    rows = [
-        (str(loc), str(incharge), _fmt_mrn_period(period), int(count))
-        for loc, incharge, period, count in grouped.itertuples(index=False, name=None)
-    ]
-    return rows, [_fmt_mrn_period(p) for p in periods]
+    return pivot, period_labels
 
 
 def _add_locationwise_pivot_sheet(wb, df: "pd.DataFrame") -> None:
@@ -1467,12 +1382,8 @@ def _add_locationwise_pivot_sheet(wb, df: "pd.DataFrame") -> None:
 def write_formatted_mrn_excel(df: "pd.DataFrame", path: str) -> None:
     """Write Pending MRN df to formatted xlsx: data sheet + unmapped sites sheet."""
     # Order rows chronologically by accounting period (stable, so rows within
-    # the same period keep their original relative order). The native
-    # Vendorwise Pivot has no live Excel session to re-sort its period
-    # columns after opening (see native_pivots.py), so a PivotField without
-    # an explicit AutoSort shows new items in the order Excel first meets
-    # them while scanning the Summary sheet top-to-bottom - this is that
-    # order.
+    # the same period keep their original relative order), so the static
+    # Vendorwise Pivot's period columns come out in the right order too.
     if MRN_ANCHOR_COL in df.columns:
         df = (
             df.assign(_period_sort=df[MRN_ANCHOR_COL].map(_mrn_period_sort_key))
@@ -1679,10 +1590,10 @@ def write_formatted_mrn_excel(df: "pd.DataFrame", path: str) -> None:
         ws2.freeze_panes = "A5"
         ws2.sheet_properties.tabColor = "C0392B"
 
-    # ── Sheet 3: Vendorwise Pivot (static fallback) ───────────────────────────
-    _add_vendorwise_pivot_sheet(wb, df)
+    # ── Sheet 3: Vendorwise Pivot (always-correct static grid) ────────────────
+    vendorwise_pivot, vendorwise_period_labels = _add_vendorwise_pivot_sheet(wb, df)
 
-    # ── Sheet 4: Locationwise Pivot (static fallback) ─────────────────────────
+    # ── Sheet 4: Locationwise Pivot (static; source app never made this a pivot) ─
     _add_locationwise_pivot_sheet(wb, df)
 
     # ── Reorder sheets: Locationwise, Vendorwise, Summary, Unmapped Sites ──────
@@ -1698,10 +1609,17 @@ def write_formatted_mrn_excel(df: "pd.DataFrame", path: str) -> None:
     wb.save(path)
     inject_cached_values(path, cached_values)
 
-    pivot_rows, unique_periods = _mrn_location_incharge_period_counts(df)
-    if pivot_rows:
-        period_rank = {p: i for i, p in enumerate(unique_periods)}
-        pivot_rows = sorted(pivot_rows, key=lambda r: period_rank.get(r[2], len(unique_periods)))
-        try_attach_native_pivot(attach_pending_mrn_native_pivots, path, pivot_rows)
+    # Vendorwise Pivot is the one sheet the source desktop app always built as
+    # a genuine, refreshable Excel PivotTable (via live Excel COM automation -
+    # see the reference desktop app's _add_real_pivots). This adds the same
+    # kind of real PivotTable here, authored directly as OOXML so the server
+    # never runs Excel/COM, on top of the grid already saved above - so on any
+    # failure the already-correct static sheet just saved is left untouched.
+    try:
+        from .vendorwise_pivot import attach_vendorwise_pivot
+
+        attach_vendorwise_pivot(path, df, cols, vendorwise_pivot, vendorwise_period_labels)
+    except Exception:
+        logger.exception("Could not attach a real Vendorwise PivotTable; kept the static table")
 
 
