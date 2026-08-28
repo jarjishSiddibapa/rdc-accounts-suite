@@ -15,6 +15,7 @@ from app.routers import (
     admin_routes,
     auth_routes,
     closing_period,
+    creditors_ageing,
     erp_converter,
     gst_invoice_adder,
     iocl_balance,
@@ -139,6 +140,7 @@ app.include_router(gst_invoice_adder.router)
 app.include_router(ultrafine_payment_reminder.router)
 app.include_router(closing_period.router)
 app.include_router(iocl_balance.router)
+app.include_router(creditors_ageing.router)
 
 # Serve the built React app's JS/CSS bundles directly.
 app.mount("/assets", StaticFiles(directory=str(config.STATIC_DIR / "assets")), name="static-assets")

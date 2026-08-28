@@ -23,6 +23,8 @@ from app.services.unaccounted.models import (
     PoKeywordSettings,
     SiteOverride,
 )
+from app.services.creditors_ageing import mapping_store as creditors_ageing_mappings
+from app.services.creditors_ageing.models import VendorMapping as CreditorsAgeingVendorMapping
 
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
@@ -44,6 +46,7 @@ class MappingSeedTests(unittest.TestCase):
             PoKeyword,
             PoKeywordSettings,
             ExcludedPo,
+            CreditorsAgeingVendorMapping,
         )
         Base.metadata.create_all(
             bind=self.engine,
@@ -131,6 +134,49 @@ class MappingSeedTests(unittest.TestCase):
                 supplier_site="Delhi-Vinta Rea"
             ).one()
             self.assertTrue(archived.is_deleted)
+
+    def test_creditors_ageing_seed_is_additive_idempotent_and_archive_safe(self):
+        template = BACKEND_DIR / "seed_data" / "creditors-ageing-report-template.xlsx"
+        seed = creditors_ageing_mappings.parse_seed_template(template)
+        self.assertEqual(len(seed), 208)
+
+        preserved_key = next(iter(seed))
+        archived_key = next(key for key in seed if key != preserved_key)
+        with self.Session() as db:
+            db.add(CreditorsAgeingVendorMapping(
+                vendor_key=preserved_key,
+                vendor_name=seed[preserved_key]["vendor_name"],
+                location="ADMIN LOCATION",
+                vendor_type="Admin Type",
+                vendor_sub_type="Admin Sub Type",
+                intercompany=False,
+            ))
+            db.add(CreditorsAgeingVendorMapping(
+                vendor_key=archived_key,
+                vendor_name=seed[archived_key]["vendor_name"],
+                location="Archived",
+                vendor_type="",
+                vendor_sub_type="",
+                intercompany=False,
+                is_deleted=True,
+            ))
+            db.commit()
+
+            self.assertEqual(
+                creditors_ageing_mappings.seed_missing_from_template(db, template),
+                206,
+            )
+            self.assertEqual(
+                creditors_ageing_mappings.seed_missing_from_template(db, template),
+                0,
+            )
+            self.assertEqual(
+                db.query(CreditorsAgeingVendorMapping).filter_by(vendor_key=preserved_key).one().location,
+                "ADMIN LOCATION",
+            )
+            self.assertTrue(
+                db.query(CreditorsAgeingVendorMapping).filter_by(vendor_key=archived_key).one().is_deleted
+            )
 
 
 if __name__ == "__main__":

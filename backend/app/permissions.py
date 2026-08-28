@@ -19,7 +19,7 @@ APP_KEYS = [
     "erp-to-excel", "rdc-payables", "unaccounted", "trial-balance", "gstr2b-combinator",
     "unapplied-receipts", "ultrafine-balance-confirmation", "ultrafine-payment-reminder",
     "gst-invoice-adder", "closing-period-report",
-    "iocl-balance-monitor",
+    "iocl-balance-monitor", "creditors-ageing-report",
 ]
 RETIRED_APP_KEYS = {"dms"}
 
@@ -35,6 +35,7 @@ APP_LABELS = {
     "gst-invoice-adder": "GST Invoice Number Adder",
     "closing-period-report": "Closing Period Report Generator",
     "iocl-balance-monitor": "Ultrafine IOCL Balance Monitor",
+    "creditors-ageing-report": "Ultrafine Creditors Ageing Report Generator",
 }
 
 APP_COMPANIES = ("RDC", "Ultrafine")
@@ -45,6 +46,7 @@ _ULTRAFINE_APP_KEYS = {
     "ultrafine-balance-confirmation",
     "ultrafine-payment-reminder",
     "iocl-balance-monitor",
+    "creditors-ageing-report",
 }
 
 # Apps that actually send mail using an admin-managed, application-wide

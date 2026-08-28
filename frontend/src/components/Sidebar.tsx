@@ -25,6 +25,7 @@ import {
   PanelLeftOpen,
   X,
   WalletCards,
+  ChartNoAxesCombined,
 } from 'lucide-react'
 import { cn } from '@/utils/cn'
 import { useAuth } from '@/lib/auth-context'
@@ -64,6 +65,7 @@ const mainNav: NavItem[] = [
   { to: '/tools/gst-invoice-adder', label: 'GST Invoice Number Adder', icon: FileCheck2, appKey: 'gst-invoice-adder' },
   { to: '/tools/closing-period-report', label: 'Closing Period Report Generator', icon: PackageCheck, appKey: 'closing-period-report' },
   { to: '/tools/iocl-balance', label: 'Ultrafine IOCL Balance Monitor', icon: WalletCards, appKey: 'iocl-balance-monitor' },
+  { to: '/tools/creditors-ageing', label: 'Ultrafine Creditors Ageing Report Generator', icon: ChartNoAxesCombined, appKey: 'creditors-ageing-report' },
 ]
 
 interface SidebarProps {

@@ -23,6 +23,7 @@ LAN-hosted FastAPI and React application. The current suite contains:
 9. Ultrafine Payment Reminder sender
 10. Closing Period Report Generator
 11. Ultrafine IOCL Balance Monitor
+12. Ultrafine Creditors Ageing Report Generator
 
 It also contains authentication, user and application-access administration,
 central email settings/default recipients, mapping administration, audit logs,
@@ -42,6 +43,7 @@ The development machine has the original desktop projects at:
 - `E:\jarjish-projects\sneha-raman-unaccounted-transactions-report`
 - `E:\jarjish-projects\kishore-sir-closing-period-report-generator`
 - `E:\jarjish-projects\hitanshi-iocl-balance-alerts`
+- `E:\jarjish-projects\rakesh-sir-creditors-ageing`
 - `E:\jarjish-projects\sneha-raman-dms-document-downloader` (retired from suite)
 
 Use the desktop source and, when practical, identical representative input to
@@ -86,6 +88,22 @@ coverage lives in `backend/tests/test_iocl_balance_monitor.py`.
 statistics/log behavior and an Unaccounted mail attachment naming path. It is
 valuable regression coverage but is not an exhaustive certification of every
 desktop action.
+
+The Creditors Ageing web port lives in
+`backend/app/services/creditors_ageing/processor.py`; its reference is
+`rakesh-sir-creditors-ageing/main.py`. Preserve content-based TB/Bill Wise
+sheet discovery, Tally number-format-based Cr/Dr signs, report-date inference,
+previous-day ageing, eight ageing buckets, mapping insertion order for the
+Intercompany sheet, all five output sheets, and the unresolved-vendor flow.
+`backend/seed_data/creditors-ageing-report-template.xlsx` is both the immutable
+layout/formula template and the one-way source of the 208 existing vendor
+classifications (17 intercompany). Runtime mappings live only in
+`creditors_ageing_vendor_mappings`. Startup is additive and archive-safe. A
+real parity run against the reference `build/verification_raw_28.xlsx` matched
+194 TB ledgers, 1,202 Bill Wise rows, 111 Only Creditors, 66 Advances, 17
+Intercompany, and the same 31 new vendors; the only cell-text differences are
+the requested standardized `As on` wording. The web port additionally injects
+formula caches so all live-formula values are visible before Excel recalculates.
 
 ## 3. Architecture
 
@@ -403,6 +421,12 @@ The IOCL monitor migrations are:
 - `deployment/mysql/20260828_iocl_admin_owned_sender.sql` for the dedicated
   admin-owned sender fields and one-time encrypted sender backfill.
 
+The Creditors Ageing migration is
+`deployment/mysql/20260828_creditors_ageing_report.sql`. It creates the
+soft-delete mapping table and catalogue row; the following application startup
+additively seeds the packaged 208 mappings. Production does not need a mapping
+workbook copy or mapping import endpoint.
+
 Existing production installs that already ran the 27 August script need only
 run the 28 August script. It is idempotent and does not copy plaintext secrets.
 
@@ -472,7 +496,7 @@ and `TROUBLESHOOTING.md`), plus `SECURITY.md` and `CONTRIBUTING.md`. The
 screenshots in `docs/screenshots/` were captured from a disposable local
 database containing only synthetic `example.invalid` identities. Keep this
 documentation current when applications, migrations, or operating procedures
-change. The dashboard catalogue must continue to expose all 11 active tools;
+change. The dashboard catalogue must continue to expose all 12 active tools;
 the GST Invoice Number Adder is easy to omit because it is Oracle-backed.
 
 - `1e6e40f` — frontend design-system and interaction overhaul

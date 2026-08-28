@@ -324,6 +324,7 @@ def _init_db_unlocked():
     from app.services.unapplied_receipts import models as _unapplied_receipts_models  # noqa: F401
     from app.services.ultrafine_balance_confirmation import models as _ultrafine_bc_models  # noqa: F401
     from app.services.ultrafine_payment_reminder import models as _ultrafine_pr_models  # noqa: F401
+    from app.services.creditors_ageing import models as _creditors_ageing_models  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
     _apply_additive_schema_updates()
@@ -335,6 +336,7 @@ def _init_db_unlocked():
     from app.services.rdc_payables import mapping_store as payables_mappings
     from app.services.unaccounted import mappings as unaccounted_mappings
     from app.services.trial_balance import mapping_store as trial_balance_mappings
+    from app.services.creditors_ageing import mapping_store as creditors_ageing_mappings
 
     db = SessionLocal()
     try:
@@ -348,6 +350,7 @@ def _init_db_unlocked():
         payables_mappings.seed_missing_from_excel(db)
         unaccounted_mappings.seed_missing_from_json(db)
         trial_balance_mappings.seed_missing_from_excel(db)
+        creditors_ageing_mappings.seed_missing_from_template(db)
         # A database-backed semaphore prevents separate worker processes from
         # multiplying the GST tool's own eight-connection Oracle pool. Slots
         # are never deleted; reducing the configured limit soft-deletes only

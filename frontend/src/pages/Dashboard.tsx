@@ -13,6 +13,7 @@ import {
   PackageCheck,
   WalletCards,
   FilePlus2,
+  ChartNoAxesCombined,
 } from 'lucide-react'
 import { AppShell } from '@/components/AppShell'
 import { Reveal, RevealGroup } from '@/components/Reveal'
@@ -109,6 +110,14 @@ const tools = [
     icon: WalletCards,
     appKey: 'iocl-balance-monitor',
     category: 'Ultrafine treasury automation',
+  },
+  {
+    to: '/tools/creditors-ageing',
+    title: 'Ultrafine Creditors Ageing Report Generator',
+    description: 'Build classified creditors, advances and intercompany ageing schedules from a fresh Tally export.',
+    icon: ChartNoAxesCombined,
+    appKey: 'creditors-ageing-report',
+    category: 'Ultrafine payables reporting',
   },
 ]
 

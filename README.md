@@ -22,6 +22,7 @@ Oracle-backed reports, and scheduled email workflows.
 | GST Invoice Number Adder | Enrich GST workbooks with invoice numbers | Oracle |
 | Closing Period Report Generator | Combine closing-period HTML/XLS exports | None |
 | Ultrafine IOCL Balance Monitor | Watch CCMS balance and send scheduled alerts | Playwright + SMTP |
+| Ultrafine Creditors Ageing Report Generator | Build classified creditors, advances, and intercompany ageing schedules from Tally | None |
 
 The DMS Downloader is retired and intentionally not part of the catalogue.
 

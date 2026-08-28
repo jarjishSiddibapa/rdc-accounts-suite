@@ -49,3 +49,10 @@ arguments, logs, API responses, browser storage, or source control.
 - `backend/app/scheduler_runner.py`: scheduled work
 - `backend/app/database.py`: schema initialization and additive seed loading
 - `frontend/src/App.tsx`: client routing and shell
+
+The Creditors Ageing worker reloads its ordered vendor classification mapping
+from MySQL when the job begins, then uses the packaged five-sheet workbook only
+as an immutable layout/formula template. Uploaded Tally workbooks and generated
+outputs remain owner/tab-scoped scratch artifacts. The job injects cached values
+for its live formula cells without Excel COM, so Protected View does not show
+blank totals.

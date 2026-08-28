@@ -37,11 +37,35 @@ production database. They are repeatable and do not hard-delete business data.
   had the original concurrency migration)
 - `deployment/mysql/20260827_iocl_balance_monitor.sql`
 - `deployment/mysql/20260828_iocl_admin_owned_sender.sql`
+- `deployment/mysql/20260828_creditors_ageing_report.sql`
 
 If the production database is not named `rdc_accounts_suite`, change only the
 database name in the `CREATE DATABASE`/`USE` statements before running a script.
 The 28 August script adds the dedicated encrypted IOCL sender fields; it does
 not require or copy a plaintext password.
+
+### Creditors Ageing mapping transfer
+
+Run `20260828_creditors_ageing_report.sql` once in MySQL Workbench, then restart
+`start_all.bat`. Startup reads the version-controlled report template and adds
+the 208 existing desktop vendor classifications that have never existed in
+MySQL. This is additive and repeatable: it does not overwrite an edited row or
+revive an archived row. No mapping workbook needs to be copied to production,
+and there is intentionally no user-facing mapping import/export feature.
+
+Verify the transfer in Workbench after startup:
+
+```sql
+USE `rdc_accounts_suite`;
+SELECT COUNT(*) AS total_rows,
+       SUM(`is_deleted` = FALSE) AS active_rows,
+       SUM(`intercompany` = TRUE AND `is_deleted` = FALSE) AS active_intercompany_rows
+FROM `creditors_ageing_vendor_mappings`;
+```
+
+For the initial packaged data this returns 208 active rows, including 17
+intercompany rows. A later count can legitimately be different after users add
+or archive mappings in the centralized application.
 
 ## Configuration checklist
 

@@ -15,6 +15,12 @@ searchable suggestions while typing, but a new value can still be entered when
 appropriate. Exclusions and other growing lists use tables with search and
 pagination. Mapping workbook import/export is intentionally retired.
 
+The Ultrafine Creditors Ageing tool starts with all 208 mappings from the
+reference desktop application. Its Vendor mappings tab supports search,
+type-ahead reuse of existing classification values, additive entries, edits,
+soft archive, and restore. Startup seeds only natural keys that have never
+existed, so administrator changes always take precedence over packaged data.
+
 Email administration controls the default sender/recipients and templates used
 by the report applications. Users can edit a compose screen when the workflow
 allows it, but defaults remain centralized.

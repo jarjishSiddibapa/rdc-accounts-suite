@@ -18,6 +18,20 @@ Report mail defaults are editable where the workflow permits. In the Unaccounted
 workflow, one, two, or all three selected reports update the subject and body
 automatically before sending.
 
+### Ultrafine Creditors Ageing
+
+Upload the fresh Tally workbook containing the TB and Bill Wise data. Leave
+**Report as-on date** blank to detect it from the Tally period header, or choose
+an exact date with the calendar picker; ageing is calculated through the
+previous day. The output preserves live formulas and also includes cached
+values so totals are visible immediately when the workbook opens.
+
+If new vendors are detected, classify them in the result panel using searchable
+existing Location, Vendor Type, and Vendor Sub Type suggestions, save each
+mapping, and choose **Regenerate with updated mappings**. You can also download
+the unresolved-vendor CSV. The Vendor mappings tab is the shared source of
+truth for every user; archived mappings remain restorable.
+
 ## IOCL monitor
 
 Assigned users can select **Ultrafine IOCL Balance Monitor**, choose **Check
