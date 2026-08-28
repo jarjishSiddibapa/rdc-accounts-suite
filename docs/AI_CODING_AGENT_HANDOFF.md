@@ -72,6 +72,16 @@ Wallet Balance. Password and Playwright storage state are Fernet-encrypted in
 MySQL. Never copy the reference project's plaintext password or session JSON
 into this repository, logs, job arguments, or API responses.
 
+An expired XTRAPOWER storage state can briefly redirect away from the login
+route while Angular starts and then bounce back to `/account/login`. Do not
+treat the first non-login URL as authentication success: `_wait_until_logged_in`
+requires a stable redirect before proceeding. The portal also keeps hidden
+duplicate navigation labels in its DOM, so `_click_nav` must select a genuinely
+visible match and wait best-effort for the intermittent welcome modal and
+`.ngx-spinner-overlay`. Otherwise the checker searches the login page's hidden
+`Financials` template and reports a misleading navigation timeout. Regression
+coverage lives in `backend/tests/test_iocl_balance_monitor.py`.
+
 `backend/tests/test_desktop_parity.py` currently verifies selected payables
 statistics/log behavior and an Unaccounted mail attachment naming path. It is
 valuable regression coverage but is not an exhaustive certification of every

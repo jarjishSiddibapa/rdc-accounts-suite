@@ -296,26 +296,87 @@ def _click_login(frame) -> bool:
 
 
 def _wait_until_logged_in(page, timeout_seconds: int) -> bool:
-    deadline = time.monotonic() + timeout_seconds
-    while time.monotonic() < deadline:
-        if "/account/login" not in page.url.lower():
+    """Confirm that the portal has stayed away from the login route.
+
+    An expired XTRAPOWER session can briefly visit the SPA landing route while
+    its authentication guard is starting, then bounce back to ``/account/login``.
+    Treating the first away-from-login URL as success leaves the checker on the
+    login page, whose hidden Angular templates still contain labels such as
+    ``Financials``. Require three consecutive observations (about 1.5 seconds)
+    on an authenticated route before accepting the session or fresh login.
+    """
+    poll_ms = 500
+    required_stable_polls = 3
+    stable_polls = 0
+    max_polls = max(1, int(timeout_seconds * 1000 / poll_ms))
+    for _ in range(max_polls):
+        try:
+            away_from_login = "/account/login" not in page.url.lower()
+        except Exception:
+            away_from_login = False
+        stable_polls = stable_polls + 1 if away_from_login else 0
+        if stable_polls >= required_stable_polls:
             return True
-        page.wait_for_timeout(500)
+        page.wait_for_timeout(poll_ms)
     return False
 
 
+def _wait_for_overlays_gone(page, timeout_ms: int = 4000) -> None:
+    """Best-effort wait for the portal's intermittent blocking UI layers."""
+    _dismiss_welcome_popup(page, timeout_ms=min(timeout_ms, 800))
+    try:
+        page.locator(".ngx-spinner-overlay").first.wait_for(
+            state="hidden",
+            timeout=timeout_ms,
+        )
+    except Exception:
+        pass
+
+
+def _find_visible_nav_link(page, label: str, timeout_ms: int):
+    """Return the first genuinely visible element matching `label`.
+
+    The portal's nav renders more than one element containing this text at
+    once (e.g. a collapsed/duplicate menu the SPA keeps in the DOM but
+    hidden) - plain get_by_text(...).first grabs whichever one comes first
+    in DOM order regardless of visibility, so it can latch onto a match
+    that is permanently hidden and wait_for(state="visible") on it times
+    out even though a visible one exists elsewhere on the page. Poll all
+    matches each pass and pick the first one that is actually visible,
+    matching the same pattern already used in _find_login_fields/_click_login.
+    """
+    candidates = page.get_by_text(label, exact=False)
+    deadline = time.monotonic() + timeout_ms / 1000
+    while True:
+        try:
+            count = candidates.count()
+            for index in range(count):
+                candidate = candidates.nth(index)
+                if candidate.is_visible():
+                    return candidate
+        except Exception:
+            pass
+        if time.monotonic() >= deadline:
+            return None
+        page.wait_for_timeout(200)
+
+
 def _click_nav(page, label: str, timeout_ms: int = 8000) -> None:
-    link = page.get_by_text(label, exact=False).first
-    link.wait_for(state="visible", timeout=timeout_ms)
-    _dismiss_welcome_popup(page)
+    _wait_for_overlays_gone(page, timeout_ms=min(timeout_ms, 3000))
+    link = _find_visible_nav_link(page, label, timeout_ms)
+    if link is None:
+        raise RuntimeError(f"No visible '{label}' navigation link was found")
     last_error = None
     for _ in range(3):
         try:
+            _wait_for_overlays_gone(page, timeout_ms=2000)
             link.click(timeout=4000)
             return
         except Exception as exc:  # overlay may have appeared between wait and click
             last_error = exc
-            _dismiss_welcome_popup(page)
+            replacement = _find_visible_nav_link(page, label, 2000)
+            if replacement is not None:
+                link = replacement
     raise RuntimeError(f"Could not open {label}") from last_error
 
 

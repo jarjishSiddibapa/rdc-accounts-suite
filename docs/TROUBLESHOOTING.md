@@ -26,6 +26,12 @@ timeout, and network access to the portal. CAPTCHA/session expiry may require a
 new sanitized-by-policy Playwright storage state. Check the complete history for
 the error and retry manually.
 
+If older logs say `get_by_text("Financials").first` timed out on a hidden span,
+update to the release containing stable saved-session validation and visible-nav
+selection. That error commonly means an expired session briefly left the login
+URL and then returned; it does not by itself mean the Financials feature or the
+stored credentials are unavailable.
+
 ## Mail is not delivered
 
 Verify the administrator-owned sender is ready, app-password authentication is
