@@ -4,8 +4,12 @@ import unittest
 from pathlib import Path
 
 import openpyxl
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
 
-from app.services.creditors_ageing import processor
+from app.database import Base
+from app.services.creditors_ageing import mapping_store, processor
+from app.services.creditors_ageing.models import VendorMapping
 
 
 class CreditorsAgeingTests(unittest.TestCase):
@@ -90,6 +94,129 @@ class CreditorsAgeingTests(unittest.TestCase):
             openpyxl.Workbook().save(path)
             with self.assertRaisesRegex(processor.AgeingReportError, "Could not identify"):
                 processor.read_tb_export(str(path))
+
+
+class VendorMappingStoreTests(unittest.TestCase):
+    """Direct coverage of mapping_store.upsert_mapping's rename/duplicate/
+    archived-conflict handling — previously exercised only indirectly
+    through the router, with no unit test of its own anywhere in the suite."""
+
+    def setUp(self):
+        self.engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(bind=self.engine, tables=[VendorMapping.__table__])
+        self.Session = sessionmaker(bind=self.engine, expire_on_commit=False)
+
+    def tearDown(self):
+        self.engine.dispose()
+
+    def test_add_new_mapping(self):
+        with self.Session() as db:
+            mapping_store.upsert_mapping(
+                db, original_name=None, vendor_name="Acme Traders",
+                location="Goa", vendor_type="Expenses", vendor_sub_type="Freight",
+                intercompany=False,
+            )
+            row = db.query(VendorMapping).filter_by(vendor_key="ACME TRADERS").one()
+            self.assertEqual(row.location, "Goa")
+            self.assertFalse(row.is_deleted)
+
+    def test_edit_without_rename_updates_the_same_row(self):
+        with self.Session() as db:
+            mapping_store.upsert_mapping(
+                db, original_name=None, vendor_name="Acme Traders",
+                location="Goa", vendor_type="", vendor_sub_type="", intercompany=False,
+            )
+            mapping_store.upsert_mapping(
+                db, original_name="Acme Traders", vendor_name="Acme Traders",
+                location="Wada", vendor_type="Expenses", vendor_sub_type="", intercompany=False,
+            )
+            rows = db.query(VendorMapping).filter_by(vendor_key="ACME TRADERS").all()
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0].location, "Wada")
+
+    def test_rename_archives_the_old_key_and_activates_the_new_one(self):
+        with self.Session() as db:
+            mapping_store.upsert_mapping(
+                db, original_name=None, vendor_name="Acme Traders",
+                location="Goa", vendor_type="", vendor_sub_type="", intercompany=False,
+            )
+            mapping_store.upsert_mapping(
+                db, original_name="Acme Traders", vendor_name="Acme Traders Pvt Ltd",
+                location="Goa", vendor_type="", vendor_sub_type="", intercompany=False,
+            )
+            old = db.query(VendorMapping).filter_by(vendor_key="ACME TRADERS").one()
+            new = db.query(VendorMapping).filter_by(vendor_key="ACME TRADERS PVT LTD").one()
+            self.assertTrue(old.is_deleted)
+            self.assertFalse(new.is_deleted)
+
+    def test_rename_onto_an_existing_active_vendor_is_rejected(self):
+        with self.Session() as db:
+            mapping_store.upsert_mapping(
+                db, original_name=None, vendor_name="Acme Traders",
+                location="Goa", vendor_type="", vendor_sub_type="", intercompany=False,
+            )
+            mapping_store.upsert_mapping(
+                db, original_name=None, vendor_name="Beta Traders",
+                location="Wada", vendor_type="", vendor_sub_type="", intercompany=False,
+            )
+            with self.assertRaises(mapping_store.DuplicateMappingError):
+                mapping_store.upsert_mapping(
+                    db, original_name="Acme Traders", vendor_name="Beta Traders",
+                    location="Goa", vendor_type="", vendor_sub_type="", intercompany=False,
+                )
+            # Neither row should have moved.
+            self.assertFalse(db.query(VendorMapping).filter_by(vendor_key="ACME TRADERS").one().is_deleted)
+            self.assertEqual(db.query(VendorMapping).filter_by(vendor_key="BETA TRADERS").one().location, "Wada")
+
+    def test_rename_onto_an_archived_vendor_is_rejected(self):
+        with self.Session() as db:
+            mapping_store.upsert_mapping(
+                db, original_name=None, vendor_name="Acme Traders",
+                location="Goa", vendor_type="", vendor_sub_type="", intercompany=False,
+            )
+            mapping_store.upsert_mapping(
+                db, original_name=None, vendor_name="Old Vendor",
+                location="Goa", vendor_type="", vendor_sub_type="", intercompany=False,
+            )
+            mapping_store.archive_mapping(db, "Old Vendor")
+            with self.assertRaises(mapping_store.ArchivedMappingError):
+                mapping_store.upsert_mapping(
+                    db, original_name="Acme Traders", vendor_name="Old Vendor",
+                    location="Goa", vendor_type="", vendor_sub_type="", intercompany=False,
+                )
+
+    def test_adding_a_name_that_matches_an_archived_row_is_rejected(self):
+        with self.Session() as db:
+            mapping_store.upsert_mapping(
+                db, original_name=None, vendor_name="Old Vendor",
+                location="Goa", vendor_type="", vendor_sub_type="", intercompany=False,
+            )
+            mapping_store.archive_mapping(db, "Old Vendor")
+            with self.assertRaises(mapping_store.ArchivedMappingError):
+                mapping_store.upsert_mapping(
+                    db, original_name=None, vendor_name="Old Vendor",
+                    location="Wada", vendor_type="", vendor_sub_type="", intercompany=False,
+                )
+
+    def test_archive_then_restore_round_trip(self):
+        with self.Session() as db:
+            mapping_store.upsert_mapping(
+                db, original_name=None, vendor_name="Acme Traders",
+                location="Goa", vendor_type="", vendor_sub_type="", intercompany=True,
+            )
+            self.assertTrue(mapping_store.archive_mapping(db, "Acme Traders"))
+            self.assertEqual(mapping_store.list_rows(db), [])
+            self.assertEqual(len(mapping_store.list_rows(db, archived=True)), 1)
+
+            self.assertTrue(mapping_store.restore_mapping(db, "Acme Traders"))
+            active = mapping_store.list_rows(db)
+            self.assertEqual(len(active), 1)
+            self.assertEqual(active[0]["intercompany"], "Yes")
+
+    def test_archiving_an_unknown_vendor_is_a_no_op(self):
+        with self.Session() as db:
+            self.assertFalse(mapping_store.archive_mapping(db, "Nobody"))
+            self.assertFalse(mapping_store.restore_mapping(db, "Nobody"))
 
 
 if __name__ == "__main__":
