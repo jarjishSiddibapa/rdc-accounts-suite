@@ -39,11 +39,20 @@ production database. They are repeatable and do not hard-delete business data.
 - `deployment/mysql/20260828_iocl_admin_owned_sender.sql`
 - `deployment/mysql/20260828_creditors_ageing_report.sql`
 - `deployment/mysql/20260829_ultrafine_trial_balance_formatter.sql`
+- `deployment/mysql/20260829_add_missing_foreign_keys.sql`
 
 If the production database is not named `rdc_accounts_suite`, change only the
 database name in the `CREATE DATABASE`/`USE` statements before running a script.
 The 28 August script adds the dedicated encrypted IOCL sender fields; it does
 not require or copy a plaintext password.
+
+The foreign-key migration checks each relationship for orphaned rows before
+adding its constraint and skips (printing a warning row, not an error) any
+constraint whose data doesn't satisfy it yet, so it never fails outright and
+never deletes or modifies business data. If Workbench's output shows a
+`SKIPPED ...` warning, look at the named table's data before re-running the
+script to add that one constraint later - every other constraint in the file
+still gets applied normally.
 
 ### Creditors Ageing mapping transfer
 

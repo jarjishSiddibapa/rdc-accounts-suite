@@ -115,7 +115,7 @@ class ApplicationEmailRecipient(Base):
     )
 
     id = Column(Integer, primary_key=True)
-    app_key = Column(String(64), index=True, nullable=False)
+    app_key = Column(String(64), ForeignKey("applications.key"), index=True, nullable=False)
     recipient_type = Column(String(8), nullable=False)  # 'to' or 'cc'
     email = Column(String(255), nullable=False)
     is_deleted = Column(Boolean, default=False, nullable=False)
@@ -276,7 +276,7 @@ class BackgroundJob(Base):
     __tablename__ = "background_jobs"
 
     id = Column(String(36), primary_key=True)
-    owner_id = Column(Integer, nullable=False, index=True)
+    owner_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     task_name = Column(String(255), nullable=False)
     args_json = Column(LONGTEXT, nullable=False)
     kwargs_json = Column(LONGTEXT, nullable=False)
@@ -313,7 +313,7 @@ class BackgroundJobAction(Base):
 
     id = Column(BigInteger, primary_key=True, autoincrement=True)
     job_id = Column(String(36), ForeignKey("background_jobs.id"), nullable=False, index=True)
-    owner_id = Column(Integer, nullable=False, index=True)
+    owner_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     action = Column(String(100), nullable=False)
     status = Column(String(20), nullable=False)  # in_progress/completed/failed
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
@@ -332,7 +332,7 @@ class BackgroundResourceSlot(Base):
     id = Column(Integer, primary_key=True, autoincrement=True)
     resource_key = Column(String(64), nullable=False, index=True)
     slot_number = Column(Integer, nullable=False)
-    job_id = Column(String(36), nullable=True, index=True)
+    job_id = Column(String(36), ForeignKey("background_jobs.id"), nullable=True, index=True)
     lease_owner = Column(String(128), nullable=True)
     lease_expires_at = Column(DateTime, nullable=True, index=True)
     updated_at = Column(DateTime, default=datetime.utcnow, nullable=False)
@@ -356,7 +356,7 @@ class TrialBalanceUploadToken(Base):
     __tablename__ = "trial_balance_upload_tokens"
 
     token = Column(String(36), primary_key=True)
-    owner_id = Column(Integer, nullable=False, index=True)
+    owner_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
     input_path = Column(Text, nullable=False)
     parsed_path = Column(Text, nullable=False)
     download_filename = Column(String(255), nullable=False)
