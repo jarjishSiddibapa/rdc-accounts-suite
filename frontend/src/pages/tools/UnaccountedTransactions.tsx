@@ -1843,6 +1843,10 @@ interface UnaccountedMappingConfig {
   columns: MappingColumn[]
   idField: string
   buildBody: (row: MappingRow) => Record<string, unknown>
+  /** True for tables where Accounts Incharge should be derived from
+   * Location → Incharge instead of typed manually, once that Location is
+   * mapped there. */
+  deriveInchargeFromLocation?: boolean
 }
 
 const UNACCOUNTED_MAPPING_CONFIGS: UnaccountedMappingConfig[] = [
@@ -1875,6 +1879,7 @@ const UNACCOUNTED_MAPPING_CONFIGS: UnaccountedMappingConfig[] = [
       location: row.location ?? '',
       accounts_incharge: row.accounts_incharge ?? '',
     }),
+    deriveInchargeFromLocation: true,
   },
   {
     key: 'creator',
@@ -1891,6 +1896,7 @@ const UNACCOUNTED_MAPPING_CONFIGS: UnaccountedMappingConfig[] = [
       location: row.location ?? '',
       accounts_incharge: row.accounts_incharge ?? '',
     }),
+    deriveInchargeFromLocation: true,
   },
 ]
 
@@ -1900,6 +1906,7 @@ function UnaccountedMappingSection({ config }: { config: UnaccountedMappingConfi
   const [error, setError] = useState<string | null>(null)
   const [archivedRows, setArchivedRows] = useState<MappingRow[]>([])
   const [archivedLoading, setArchivedLoading] = useState(false)
+  const [locationIncharge, setLocationIncharge] = useState<Record<string, string>>({})
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -1917,6 +1924,19 @@ function UnaccountedMappingSection({ config }: { config: UnaccountedMappingConfi
   useEffect(() => {
     void load()
   }, [load])
+
+  useEffect(() => {
+    if (!config.deriveInchargeFromLocation) return
+    void get<MappingRow[]>(`${BASE}/mappings/location-incharge`)
+      .then((data) => {
+        setLocationIncharge(
+          Object.fromEntries(data.map((row) => [row.location ?? '', row.accounts_incharge ?? ''])),
+        )
+      })
+      .catch(() => {
+        // Non-critical: falls back to manual Accounts Incharge entry.
+      })
+  }, [config.deriveInchargeFromLocation])
 
   async function handleAdd(row: MappingRow) {
     await post(`${BASE}/mappings/${config.key}`, config.buildBody(row))
@@ -1980,6 +2000,18 @@ function UnaccountedMappingSection({ config }: { config: UnaccountedMappingConfi
             onOpen: loadArchived,
             onRestore: handleRestore,
           }}
+          deriveColumn={
+            config.deriveInchargeFromLocation
+              ? {
+                  targetKey: 'accounts_incharge',
+                  sourceKey: 'location',
+                  sourceLabel: 'Location',
+                  lookup: (location) => locationIncharge[location] || undefined,
+                  fallbackHint:
+                    "This Location isn't in Location → Incharge yet - add it there for automatic assignment, or enter an Accounts Incharge here for now.",
+                }
+              : undefined
+          }
         />
       )}
     </div>

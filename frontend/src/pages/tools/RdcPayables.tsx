@@ -67,6 +67,9 @@ interface MappingConfig {
   columns: MappingColumn[]
   buildKey: (row: MappingRow) => string
   buildBody: (row: MappingRow) => Record<string, unknown>
+  /** True for tables where Accounts Incharge should be derived from
+   * Region Incharge instead of typed manually, once that Region is mapped. */
+  deriveInchargeFromRegion?: boolean
 }
 
 function compositeKey(vendor: string, invoice: string): string {
@@ -89,6 +92,7 @@ const MAPPING_CONFIGS: MappingConfig[] = [
       region: row.region ?? '',
       accounts_incharge: row.accounts_incharge || undefined,
     }),
+    deriveInchargeFromRegion: true,
   },
   {
     key: 'location-codes',
@@ -105,6 +109,7 @@ const MAPPING_CONFIGS: MappingConfig[] = [
       region: row.region ?? '',
       accounts_incharge: row.accounts_incharge || undefined,
     }),
+    deriveInchargeFromRegion: true,
   },
   {
     key: 'row-exclusions',
@@ -137,6 +142,7 @@ const MAPPING_CONFIGS: MappingConfig[] = [
       region: row.region ?? '',
       accounts_incharge: row.accounts_incharge || undefined,
     }),
+    deriveInchargeFromRegion: true,
   },
   {
     key: 'region-incharge',
@@ -174,6 +180,7 @@ function MappingSection({ config }: { config: MappingConfig }) {
   const [rows, setRows] = useState<MappingRow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [regionIncharge, setRegionIncharge] = useState<Record<string, string>>({})
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -191,6 +198,19 @@ function MappingSection({ config }: { config: MappingConfig }) {
   useEffect(() => {
     void load()
   }, [load])
+
+  useEffect(() => {
+    if (!config.deriveInchargeFromRegion) return
+    void get<MappingRow[]>(`${BASE}/region-incharge`)
+      .then((data) => {
+        setRegionIncharge(
+          Object.fromEntries(data.map((row) => [row.region ?? '', row.accounts_incharge ?? ''])),
+        )
+      })
+      .catch(() => {
+        // Non-critical: falls back to manual Accounts Incharge entry.
+      })
+  }, [config.deriveInchargeFromRegion])
 
   async function handleAdd(row: MappingRow) {
     await post(`${BASE}/${config.key}`, config.buildBody(row))
@@ -227,6 +247,18 @@ function MappingSection({ config }: { config: MappingConfig }) {
           onAdd={handleAdd}
           onEdit={handleEdit}
           onDelete={handleDelete}
+          deriveColumn={
+            config.deriveInchargeFromRegion
+              ? {
+                  targetKey: 'accounts_incharge',
+                  sourceKey: 'region',
+                  sourceLabel: 'Region',
+                  lookup: (region) => regionIncharge[region] || undefined,
+                  fallbackHint:
+                    "This Region isn't in Region Incharge yet - add it there for automatic assignment, or enter an Accounts Incharge here for now.",
+                }
+              : undefined
+          }
         />
       )}
     </div>
@@ -250,6 +282,7 @@ export default function RdcPayables() {
 
   const [knownRegions, setKnownRegions] = useState<string[]>([])
   const [knownIncharges, setKnownIncharges] = useState<string[]>([])
+  const [regionIncharge, setRegionIncharge] = useState<Record<string, string>>({})
 
   const [activeMappingTab, setActiveMappingTab] = useState(0)
 
@@ -260,10 +293,13 @@ export default function RdcPayables() {
       get<MappingRow[]>(`${BASE}/location-codes`),
       get<MappingRow[]>(`${BASE}/invoice-overrides`),
     ])
-      .then((tables) => {
-        const rows = tables.flat()
+      .then(([regionIncharges, ...tables]) => {
+        const rows = [regionIncharges, ...tables].flat()
         setKnownRegions([...new Set(rows.map((row) => row.region).filter(Boolean))])
         setKnownIncharges([...new Set(rows.map((row) => row.accounts_incharge).filter(Boolean))])
+        setRegionIncharge(
+          Object.fromEntries(regionIncharges.map((row) => [row.region ?? '', row.accounts_incharge ?? ''])),
+        )
       })
       .catch(() => {
         // Non-critical: the mapping inputs still accept new free-text values.
@@ -446,13 +482,14 @@ export default function RdcPayables() {
                     </h4>
                   </div>
                   <p className="text-sm text-ink-dim">
-                    These Vendor Site Codes had no Region mapped. Assign a Region (and optionally
-                    an Accounts Incharge) for each, then regenerate the report.
+                    Assign a Region for each. Accounts Incharge is filled in automatically once
+                    that Region is in Region Incharge - otherwise you can enter one manually.
                   </p>
                   <div className="flex flex-col gap-2">
                     {unmappedPagination.pagedItems.map((site) => {
                       const form = fixForms[site] ?? { region: '', accounts_incharge: '' }
                       const fixed = Boolean(fixedSites[site])
+                      const derivedIncharge = regionIncharge[form.region.trim()] || ''
                       return (
                         <div
                           key={site}
@@ -476,21 +513,27 @@ export default function RdcPayables() {
                             suggestionLabel="Existing regions"
                             className="w-full sm:w-48"
                           />
-                          <CreatableCombobox
-                            placeholder="Accounts Incharge (optional)"
-                            value={form.accounts_incharge}
-                            options={knownIncharges}
-                            disabled={fixed}
-                            onChange={(value) =>
-                              setFixForms((prev) => ({
-                                ...prev,
-                                [site]: { ...form, accounts_incharge: value },
-                              }))
-                            }
-                            ariaLabel={`Accounts Incharge for vendor site ${site}`}
-                            suggestionLabel="Existing incharges"
-                            className="w-full sm:w-64"
-                          />
+                          {derivedIncharge ? (
+                            <span className="field-control flex w-full items-center bg-bg-soft/60 text-sm text-ink-dim sm:w-64">
+                              {derivedIncharge}
+                            </span>
+                          ) : (
+                            <CreatableCombobox
+                              placeholder="Accounts Incharge (optional)"
+                              value={form.accounts_incharge}
+                              options={knownIncharges}
+                              disabled={fixed}
+                              onChange={(value) =>
+                                setFixForms((prev) => ({
+                                  ...prev,
+                                  [site]: { ...form, accounts_incharge: value },
+                                }))
+                              }
+                              ariaLabel={`Accounts Incharge for vendor site ${site}`}
+                              suggestionLabel="Existing incharges"
+                              className="w-full sm:w-64"
+                            />
+                          )}
                           {fixed ? (
                             <span className="inline-flex items-center gap-1 text-sm text-emerald-500">
                               <CheckCircle2 className="h-4 w-4" /> Saved

@@ -292,9 +292,13 @@ def fix_mapping(payload: MappingFixRequest, db: Session = Depends(get_db),
         raise HTTPException(status_code=400, detail="vendor_site_code and region are required")
 
     # Same rule as _MissingPopup._resolve_selected in main.py: Accounts
-    # Incharge is derived from the Region Incharge Map, not entered
-    # directly, unless the caller explicitly supplies one.
-    incharge = (payload.accounts_incharge or "").strip() or mapping_store.get_region_incharge(db, region)
+    # Incharge is derived from the Region Incharge Map whenever this Region
+    # has one - the master always wins over a manually supplied value, same
+    # precedence as report generation (processor.py's "Region -> Accounts
+    # Incharge" step) and as the other mapping write endpoints below - so a
+    # region's incharge can't drift out of sync depending on which mapping
+    # table it was last edited through.
+    incharge = mapping_store.get_region_incharge(db, region) or (payload.accounts_incharge or "").strip()
     mapping_store.upsert_vendor_site_code(db, site, region, incharge)
     return {"ok": True, "vendor_site_code": site, "region": region, "accounts_incharge": incharge}
 
@@ -303,10 +307,14 @@ def fix_mapping(payload: MappingFixRequest, db: Session = Depends(get_db),
 
 @router.get("/vendor-site-codes")
 def list_vendor_site_codes(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    mapping, *_ = mapping_store.load_all(db)
+    """Accounts Incharge is resolved live against the Region Incharge Map
+    (same precedence report generation uses - see processor.py's "Region ->
+    Accounts Incharge" step) rather than the value stored on this row, so
+    editing a region's incharge is reflected here immediately."""
+    mapping, _, _, _, region_incharge_map, _ = mapping_store.load_all(db)
     return [
         {"vendor_site_code": e.get("_key", k), "region": e.get("Region", ""),
-         "accounts_incharge": e.get("Accounts Incharge", "")}
+         "accounts_incharge": region_incharge_map.get(e.get("Region", "")) or e.get("Accounts Incharge", "")}
         for k, e in sorted(mapping.items())
     ]
 
@@ -318,7 +326,9 @@ def add_vendor_site_code(body: VendorSiteCodeBody, db: Session = Depends(get_db)
     region = body.region.strip()
     if not site:
         raise HTTPException(status_code=400, detail="vendor_site_code is required")
-    incharge = (body.accounts_incharge or "").strip() or mapping_store.get_region_incharge(db, region)
+    # The Region Incharge Map always wins when this Region has an entry -
+    # see fix_mapping's comment above for why.
+    incharge = mapping_store.get_region_incharge(db, region) or (body.accounts_incharge or "").strip()
     mapping_store.upsert_vendor_site_code(db, site, region, incharge)
     return {"ok": True, "vendor_site_code": site, "region": region, "accounts_incharge": incharge}
 
@@ -328,7 +338,9 @@ def edit_vendor_site_code(key: str, body: VendorSiteCodeBody, db: Session = Depe
                            user: User = Depends(get_current_user)):
     new_site = body.vendor_site_code.strip()
     region = body.region.strip()
-    incharge = (body.accounts_incharge or "").strip() or mapping_store.get_region_incharge(db, region)
+    # The Region Incharge Map always wins when this Region has an entry -
+    # see fix_mapping's comment above for why.
+    incharge = mapping_store.get_region_incharge(db, region) or (body.accounts_incharge or "").strip()
 
     if new_site.upper() != key.strip().upper():
         if not mapping_store.delete_vendor_site_code(db, key):
@@ -349,10 +361,12 @@ def delete_vendor_site_code(key: str, db: Session = Depends(get_db),
 
 @router.get("/location-codes")
 def list_location_codes(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    _, loc_code_map, *_ = mapping_store.load_all(db)
+    """Same live resolution as list_vendor_site_codes above - see its
+    docstring."""
+    _, loc_code_map, _, _, region_incharge_map, _ = mapping_store.load_all(db)
     return [
         {"location_code": code, "region": e.get("Region", ""),
-         "accounts_incharge": e.get("Accounts Incharge", "")}
+         "accounts_incharge": region_incharge_map.get(e.get("Region", "")) or e.get("Accounts Incharge", "")}
         for code, e in sorted(loc_code_map.items())
     ]
 
@@ -364,7 +378,9 @@ def add_location_code(body: LocationCodeBody, db: Session = Depends(get_db),
     region = body.region.strip()
     if not code:
         raise HTTPException(status_code=400, detail="location_code is required")
-    incharge = (body.accounts_incharge or "").strip() or mapping_store.get_region_incharge(db, region)
+    # The Region Incharge Map always wins when this Region has an entry -
+    # see fix_mapping's comment above for why.
+    incharge = mapping_store.get_region_incharge(db, region) or (body.accounts_incharge or "").strip()
     mapping_store.upsert_location_code(db, code, region, incharge)
     return {"ok": True, "location_code": code, "region": region, "accounts_incharge": incharge}
 
@@ -374,7 +390,9 @@ def edit_location_code(key: str, body: LocationCodeBody, db: Session = Depends(g
                         user: User = Depends(get_current_user)):
     new_code = body.location_code.strip()
     region = body.region.strip()
-    incharge = (body.accounts_incharge or "").strip() or mapping_store.get_region_incharge(db, region)
+    # The Region Incharge Map always wins when this Region has an entry -
+    # see fix_mapping's comment above for why.
+    incharge = mapping_store.get_region_incharge(db, region) or (body.accounts_incharge or "").strip()
 
     if new_code != key:
         if not mapping_store.delete_location_code(db, key):
@@ -439,10 +457,13 @@ def delete_row_exclusion(key: str, db: Session = Depends(get_db),
 
 @router.get("/invoice-overrides")
 def list_invoice_overrides(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    _, _, _, invoice_overrides, *_ = mapping_store.load_all(db)
+    """Same live resolution as list_vendor_site_codes above - see its
+    docstring."""
+    _, _, _, invoice_overrides, region_incharge_map, _ = mapping_store.load_all(db)
     return [
         {"vendor_number": vn, "invoice_number": inv,
-         "region": e.get("Region", ""), "accounts_incharge": e.get("Accounts Incharge", "")}
+         "region": e.get("Region", ""),
+         "accounts_incharge": region_incharge_map.get(e.get("Region", "")) or e.get("Accounts Incharge", "")}
         for (vn, inv), e in sorted(invoice_overrides.items())
     ]
 
@@ -455,7 +476,9 @@ def add_invoice_override(body: InvoiceOverrideBody, db: Session = Depends(get_db
     region = body.region.strip()
     if not vn:
         raise HTTPException(status_code=400, detail="vendor_number is required")
-    incharge = (body.accounts_incharge or "").strip() or mapping_store.get_region_incharge(db, region)
+    # The Region Incharge Map always wins when this Region has an entry -
+    # see fix_mapping's comment above for why.
+    incharge = mapping_store.get_region_incharge(db, region) or (body.accounts_incharge or "").strip()
     mapping_store.upsert_invoice_override(db, vn, inv, region, incharge)
     return {"ok": True, "vendor_number": vn, "invoice_number": inv,
             "region": region, "accounts_incharge": incharge}
@@ -470,7 +493,9 @@ def edit_invoice_override(key: str, body: InvoiceOverrideBody, db: Session = Dep
     new_vn = body.vendor_number.strip().upper()
     new_inv = (body.invoice_number or "").strip().upper()
     region = body.region.strip()
-    incharge = (body.accounts_incharge or "").strip() or mapping_store.get_region_incharge(db, region)
+    # The Region Incharge Map always wins when this Region has an entry -
+    # see fix_mapping's comment above for why.
+    incharge = mapping_store.get_region_incharge(db, region) or (body.accounts_incharge or "").strip()
 
     if (new_vn, new_inv) != (old_vn, old_inv):
         if not mapping_store.delete_invoice_override(db, old_vn, old_inv):

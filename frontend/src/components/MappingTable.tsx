@@ -32,6 +32,23 @@ export interface MappingArchiveConfig {
   onRestore: (index: number) => void | Promise<void>
 }
 
+export interface MappingDeriveColumn {
+  /** Column key whose value comes from a master mapping instead of manual
+   * entry, e.g. "accounts_incharge". */
+  targetKey: string
+  /** Column key that determines it, e.g. "location" or "region". */
+  sourceKey: string
+  /** Given the current source value, return the master-table value for it,
+   * or undefined/empty when that source value isn't in the master table
+   * yet (falls back to manual entry so old/unmapped rows keep working). */
+  lookup: (sourceValue: string) => string | undefined
+  /** Label of the source column, used in the auto-derived helper text. */
+  sourceLabel: string
+  /** Shown under the field while no master value exists yet and manual
+   * entry is required. */
+  fallbackHint?: string
+}
+
 interface MappingTableProps {
   columns: MappingColumn[]
   rows: MappingRow[]
@@ -43,6 +60,11 @@ interface MappingTableProps {
   /** When provided, adds a "View archived" toggle. Soft-deleted rows can
    * be restored, but never permanently deleted. */
   archive?: MappingArchiveConfig
+  /** When provided, one column's value is derived from another column's
+   * master mapping instead of being freely typed - e.g. Accounts Incharge
+   * derived from Location once that Location is mapped, so the same value
+   * can't drift out of sync in two places. */
+  deriveColumn?: MappingDeriveColumn
 }
 
 /**
@@ -60,6 +82,7 @@ export function MappingTable({
   title,
   addLabel = 'Add',
   archive,
+  deriveColumn,
 }: MappingTableProps) {
   const [search, setSearch] = useState('')
   const [sortKey, setSortKey] = useState<string | null>(null)
@@ -131,10 +154,17 @@ export function MappingTable({
   async function handleSubmit() {
     setBusy(true)
     try {
+      let payload = form
+      if (deriveColumn) {
+        const derived = deriveColumn.lookup(form[deriveColumn.sourceKey] ?? '')
+        if (derived) {
+          payload = { ...form, [deriveColumn.targetKey]: derived }
+        }
+      }
       if (modalMode === 'add') {
-        await onAdd(form)
+        await onAdd(payload)
       } else if (modalMode === 'edit' && editIndex !== null) {
-        await onEdit(editIndex, form)
+        await onEdit(editIndex, payload)
       }
       setModalMode(null)
     } finally {
@@ -319,16 +349,40 @@ export function MappingTable({
             void handleSubmit()
           }}
         >
-          {columns.map((c) => (
-            <label key={c.key} className="flex flex-col gap-1.5 text-sm">
-              <span className="font-medium text-ink-dim">{c.label}</span>
-              <CreatableCombobox
-                value={form[c.key] ?? ''}
-                options={optionsByColumn[c.key] ?? []}
-                onChange={(value) => setForm((current) => ({ ...current, [c.key]: value }))}
-              />
-            </label>
-          ))}
+          {columns.map((c) => {
+            const isDerived = deriveColumn?.targetKey === c.key
+            const derivedValue = isDerived
+              ? deriveColumn?.lookup(form[deriveColumn.sourceKey] ?? '')
+              : undefined
+
+            return (
+              <label key={c.key} className="flex flex-col gap-1.5 text-sm">
+                <span className="font-medium text-ink-dim">{c.label}</span>
+                {isDerived && derivedValue ? (
+                  <>
+                    <div className="field-control flex items-center bg-bg-soft/60 text-ink-dim">
+                      {derivedValue}
+                    </div>
+                    <span className="text-xs text-ink-faint">
+                      Set automatically from {deriveColumn!.sourceLabel} → {c.label}. Change it there
+                      to update it everywhere it's used.
+                    </span>
+                  </>
+                ) : (
+                  <>
+                    <CreatableCombobox
+                      value={form[c.key] ?? ''}
+                      options={optionsByColumn[c.key] ?? []}
+                      onChange={(value) => setForm((current) => ({ ...current, [c.key]: value }))}
+                    />
+                    {isDerived && deriveColumn?.fallbackHint && (
+                      <span className="text-xs text-ink-faint">{deriveColumn.fallbackHint}</span>
+                    )}
+                  </>
+                )}
+              </label>
+            )
+          })}
           <div className="mt-2 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
             <Button type="button" variant="secondary" onClick={() => setModalMode(null)}>
               Cancel
