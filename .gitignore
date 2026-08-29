@@ -31,3 +31,11 @@ sneha-existing-applications-mappings/
 
 # This tool's own analysis output, unrelated to the application.
 graphify-out/
+
+# Confidential trial-balance parity fixtures supplied on the development PC.
+# The automated test uses them when present but skips cleanly in Git/production.
+/Raw Trial Balance *.xlsx
+/Ultrafine Trial Balance as on *.xlsx
+/backend/_test_output.xlsx
+/backend/tmp_artifact_tb/
+/backend/tmp_style.xlsx

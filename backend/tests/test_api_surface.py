@@ -1,7 +1,7 @@
 import unittest
 
 from app.main import app
-from app.routers import auth_routes, creditors_ageing, erp_converter, iocl_balance, job_control, unaccounted_txn
+from app.routers import auth_routes, creditors_ageing, erp_converter, iocl_balance, job_control, trial_balance_formatter, unaccounted_txn
 
 
 class RemovedApiSurfaceTests(unittest.TestCase):
@@ -137,6 +137,18 @@ class RemovedApiSurfaceTests(unittest.TestCase):
         self.assertIn("/api/tools/creditors-ageing/mappings", route_paths)
         self.assertIn("/api/tools/creditors-ageing/mappings/archived", route_paths)
         self.assertIn("/api/tools/creditors-ageing/mappings/{vendor_name}/restore", route_paths)
+        self.assertFalse(any(path.endswith("/import") or path.endswith("/export") for path in route_paths))
+
+    def test_trial_balance_formatter_routes_include_soft_delete_restore_and_no_bulk_import_export(self):
+        route_paths = {
+            route.path
+            for route in trial_balance_formatter.router.routes
+            if getattr(route, "path", None) is not None
+        }
+        self.assertIn("/api/tools/trial-balance-formatter/process", route_paths)
+        self.assertIn("/api/tools/trial-balance-formatter/mappings", route_paths)
+        self.assertIn("/api/tools/trial-balance-formatter/mappings/archived", route_paths)
+        self.assertIn("/api/tools/trial-balance-formatter/mappings/{ledger_name}/restore", route_paths)
         self.assertFalse(any(path.endswith("/import") or path.endswith("/export") for path in route_paths))
 
 

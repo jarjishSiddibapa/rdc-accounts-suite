@@ -17,6 +17,7 @@ const TOOL_APP_KEYS: Record<string, string> = {
   '/tools/ultrafine-balance-confirmation': 'ultrafine-balance-confirmation',
   '/tools/ultrafine-payment-reminder': 'ultrafine-payment-reminder',
   '/tools/creditors-ageing': 'creditors-ageing-report',
+  '/tools/trial-balance-formatter': 'trial-balance-formatter',
 }
 
 export function Footer() {

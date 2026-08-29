@@ -23,6 +23,7 @@ const GstInvoiceAdder = lazy(() => import('@/pages/tools/GstInvoiceAdder'))
 const ClosingPeriodReport = lazy(() => import('@/pages/tools/ClosingPeriodReport'))
 const IoclBalanceMonitor = lazy(() => import('@/pages/tools/IoclBalanceMonitor'))
 const CreditorsAgeing = lazy(() => import('@/pages/tools/CreditorsAgeing'))
+const TrialBalanceFormatter = lazy(() => import('@/pages/tools/TrialBalanceFormatter'))
 
 function ScrollToTop() {
   const { pathname } = useLocation()
@@ -197,6 +198,12 @@ export default function App() {
             path="/tools/creditors-ageing"
             element={
               protectedPage(<AppGuard appKey="creditors-ageing-report"><CreditorsAgeing /></AppGuard>)
+            }
+          />
+          <Route
+            path="/tools/trial-balance-formatter"
+            element={
+              protectedPage(<AppGuard appKey="trial-balance-formatter"><TrialBalanceFormatter /></AppGuard>)
             }
           />
 

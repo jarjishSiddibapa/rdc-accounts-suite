@@ -23,6 +23,7 @@ Oracle-backed reports, and scheduled email workflows.
 | Closing Period Report Generator | Combine closing-period HTML/XLS exports | None |
 | Ultrafine IOCL Balance Monitor | Watch CCMS balance and send scheduled alerts | Playwright + SMTP |
 | Ultrafine Creditors Ageing Report Generator | Build classified creditors, advances, and intercompany ageing schedules from Tally | None |
+| Ultrafine Trial Balance Formatter | Reproduce the approved Ultrafine trial-balance layout from a raw Tally export | None |
 
 The DMS Downloader is retired and intentionally not part of the catalogue.
 

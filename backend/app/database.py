@@ -127,6 +127,23 @@ def _apply_additive_schema_updates() -> None:
                     text("ALTER TABLE `applications` ADD COLUMN `collaborator` VARCHAR(255) NULL")
                 )
 
+    # The formatter was briefly exercised on development before subgroup
+    # classification became an explicit centralized mapping field.  Keep the
+    # upgrade additive for that early table as well as for normal production.
+    if "trial_balance_formatter_ledger_natures" in existing_tables:
+        formatter_columns = {
+            column["name"]
+            for column in inspector.get_columns("trial_balance_formatter_ledger_natures")
+        }
+        if "is_subgroup" not in formatter_columns:
+            with engine.begin() as connection:
+                connection.execute(
+                    text(
+                        "ALTER TABLE `trial_balance_formatter_ledger_natures` "
+                        "ADD COLUMN `is_subgroup` BOOLEAN NOT NULL DEFAULT FALSE"
+                    )
+                )
+
     # backup_settings.scratch_cleanup_hours predates the migration helper too.
     if "backup_settings" in existing_tables:
         backup_columns = {column["name"] for column in inspector.get_columns("backup_settings")}
@@ -325,6 +342,7 @@ def _init_db_unlocked():
     from app.services.ultrafine_balance_confirmation import models as _ultrafine_bc_models  # noqa: F401
     from app.services.ultrafine_payment_reminder import models as _ultrafine_pr_models  # noqa: F401
     from app.services.creditors_ageing import models as _creditors_ageing_models  # noqa: F401
+    from app.services.trial_balance_formatter import models as _trial_balance_formatter_models  # noqa: F401
 
     Base.metadata.create_all(bind=engine)
     _apply_additive_schema_updates()
@@ -337,6 +355,7 @@ def _init_db_unlocked():
     from app.services.unaccounted import mappings as unaccounted_mappings
     from app.services.trial_balance import mapping_store as trial_balance_mappings
     from app.services.creditors_ageing import mapping_store as creditors_ageing_mappings
+    from app.services.trial_balance_formatter import mapping_store as trial_balance_formatter_mappings
 
     db = SessionLocal()
     try:
@@ -351,6 +370,7 @@ def _init_db_unlocked():
         unaccounted_mappings.seed_missing_from_json(db)
         trial_balance_mappings.seed_missing_from_excel(db)
         creditors_ageing_mappings.seed_missing_from_template(db)
+        trial_balance_formatter_mappings.seed_missing_from_json(db)
         # A database-backed semaphore prevents separate worker processes from
         # multiplying the GST tool's own eight-connection Oracle pool. Slots
         # are never deleted; reducing the configured limit soft-deletes only

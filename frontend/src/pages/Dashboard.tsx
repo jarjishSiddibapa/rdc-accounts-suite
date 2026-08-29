@@ -1,3 +1,4 @@
+import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   FileSpreadsheet,
@@ -22,6 +23,8 @@ import { formatIndianNumber, getIndianHour } from '@/lib/regional'
 import { getUserGreetingName } from '@/lib/user'
 import { cn } from '@/utils/cn'
 
+type Company = 'RDC' | 'Ultrafine'
+
 const tools = [
   {
     to: '/tools/erp-converter',
@@ -30,6 +33,7 @@ const tools = [
     icon: FileSpreadsheet,
     appKey: 'erp-to-excel',
     category: 'Data preparation',
+    company: 'RDC' as Company,
   },
   {
     to: '/tools/rdc-payables',
@@ -38,6 +42,7 @@ const tools = [
     icon: Receipt,
     appKey: 'rdc-payables',
     category: 'Payables reporting',
+    company: 'RDC' as Company,
   },
   {
     to: '/tools/unaccounted-transactions',
@@ -46,6 +51,7 @@ const tools = [
     icon: ListChecks,
     appKey: 'unaccounted',
     category: 'Exception reporting',
+    company: 'RDC' as Company,
   },
   {
     to: '/tools/trial-balance',
@@ -54,6 +60,7 @@ const tools = [
     icon: Scale,
     appKey: 'trial-balance',
     category: 'Financial reporting',
+    company: 'RDC' as Company,
   },
   {
     to: '/tools/gstr2b-combinator',
@@ -62,6 +69,7 @@ const tools = [
     icon: Combine,
     appKey: 'gstr2b-combinator',
     category: 'Tax reporting',
+    company: 'RDC' as Company,
   },
   {
     to: '/tools/unapplied-receipts',
@@ -70,6 +78,7 @@ const tools = [
     icon: Banknote,
     appKey: 'unapplied-receipts',
     category: 'AR reconciliation',
+    company: 'RDC' as Company,
   },
   {
     to: '/tools/ultrafine-balance-confirmation',
@@ -78,6 +87,7 @@ const tools = [
     icon: ShieldCheck,
     appKey: 'ultrafine-balance-confirmation',
     category: 'Ultrafine customer communication',
+    company: 'Ultrafine' as Company,
   },
   {
     to: '/tools/ultrafine-payment-reminder',
@@ -86,6 +96,7 @@ const tools = [
     icon: BellRing,
     appKey: 'ultrafine-payment-reminder',
     category: 'Ultrafine customer communication',
+    company: 'Ultrafine' as Company,
   },
   {
     to: '/tools/gst-invoice-adder',
@@ -94,6 +105,7 @@ const tools = [
     icon: FilePlus2,
     appKey: 'gst-invoice-adder',
     category: 'Tax data enrichment',
+    company: 'RDC' as Company,
   },
   {
     to: '/tools/closing-period-report',
@@ -102,6 +114,7 @@ const tools = [
     icon: PackageCheck,
     appKey: 'closing-period-report',
     category: 'Inventory reporting',
+    company: 'RDC' as Company,
   },
   {
     to: '/tools/iocl-balance',
@@ -110,6 +123,7 @@ const tools = [
     icon: WalletCards,
     appKey: 'iocl-balance-monitor',
     category: 'Ultrafine treasury automation',
+    company: 'Ultrafine' as Company,
   },
   {
     to: '/tools/creditors-ageing',
@@ -118,14 +132,42 @@ const tools = [
     icon: ChartNoAxesCombined,
     appKey: 'creditors-ageing-report',
     category: 'Ultrafine payables reporting',
+    company: 'Ultrafine' as Company,
   },
+  {
+    to: '/tools/trial-balance-formatter',
+    title: 'Ultrafine Trial Balance Formatter',
+    description: 'Convert a raw Tally trial balance into the approved Ultrafine workbook format.',
+    icon: FileSpreadsheet,
+    appKey: 'trial-balance-formatter',
+    category: 'Ultrafine financial reporting',
+    company: 'Ultrafine' as Company,
+  },
+]
+
+const COMPANY_FILTERS: Array<{ value: 'All' | Company; label: string }> = [
+  { value: 'All', label: 'All Applications' },
+  { value: 'RDC', label: 'RDC Applications' },
+  { value: 'Ultrafine', label: 'Ultrafine Applications' },
 ]
 
 export default function Dashboard() {
   const { user } = useAuth()
+  const [companyFilter, setCompanyFilter] = useState<'All' | Company>('All')
 
-  const visibleTools = tools.filter(
-    (tool) => user?.allowed_apps == null || user.allowed_apps.includes(tool.appKey),
+  const accessibleTools = useMemo(
+    () =>
+      tools.filter(
+        (tool) => user?.allowed_apps == null || user.allowed_apps.includes(tool.appKey),
+      ),
+    [user],
+  )
+  const visibleTools = useMemo(
+    () =>
+      companyFilter === 'All'
+        ? accessibleTools
+        : accessibleTools.filter((tool) => tool.company === companyFilter),
+    [accessibleTools, companyFilter],
   )
 
   const hour = getIndianHour()
@@ -153,7 +195,7 @@ export default function Dashboard() {
                 <span className="grid h-10 w-10 place-items-center rounded-xl bg-accent/10 text-accent">
                   <LayoutGrid className="h-4 w-4" strokeWidth={1.9} />
                 </span>
-                <span data-numeric className="font-display text-2xl font-semibold text-ink">{formatIndianNumber(visibleTools.length)}</span>
+                <span data-numeric className="font-display text-2xl font-semibold text-ink">{formatIndianNumber(accessibleTools.length)}</span>
                 <span className="text-xs leading-4 text-ink-faint">applications<br />available</span>
               </div>
               <div className="flex items-center gap-3 px-3.5 py-2.5 text-xs text-ink-dim">
@@ -165,12 +207,28 @@ export default function Dashboard() {
         </section>
       </Reveal>
 
-      <div className="mt-8 flex flex-col justify-between gap-2 sm:flex-row sm:items-end">
+      <div className="mt-8 flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
         <div>
           <p className="text-sm font-semibold text-accent">Applications</p>
           <h2 className="mt-1.5 font-display text-2xl font-semibold tracking-[-0.02em] text-ink">Choose what you want to do</h2>
         </div>
-        <p className="text-sm text-ink-faint">Select an application to begin</p>
+        <div className="flex flex-wrap items-center gap-2">
+          {COMPANY_FILTERS.map((filter) => (
+            <button
+              key={filter.value}
+              type="button"
+              onClick={() => setCompanyFilter(filter.value)}
+              className={cn(
+                'rounded-full border px-4 py-2 text-sm font-semibold transition',
+                companyFilter === filter.value
+                  ? 'border-accent bg-accent text-white'
+                  : 'border-border bg-surface text-ink-dim hover:border-accent/50 hover:text-ink',
+              )}
+            >
+              {filter.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       <RevealGroup className="dashboard-tools-grid mt-5">
@@ -204,7 +262,13 @@ export default function Dashboard() {
           </Reveal>
         ))}
       </RevealGroup>
-      {visibleTools.length === 0 && (
+      {visibleTools.length === 0 && accessibleTools.length > 0 && (
+        <div className="glass mt-8 rounded-2xl p-8 text-center">
+          <h2 className="font-display text-lg font-semibold text-ink">No applications in this filter</h2>
+          <p className="mt-1 text-sm text-ink-dim">Try "All Applications", or pick a different company filter above.</p>
+        </div>
+      )}
+      {accessibleTools.length === 0 && (
         <div className="glass mt-8 rounded-2xl p-8 text-center">
           <h2 className="font-display text-lg font-semibold text-ink">No applications assigned</h2>
           <p className="mt-1 text-sm text-ink-dim">Ask an administrator to grant access to an application.</p>

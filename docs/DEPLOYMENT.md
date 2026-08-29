@@ -38,6 +38,7 @@ production database. They are repeatable and do not hard-delete business data.
 - `deployment/mysql/20260827_iocl_balance_monitor.sql`
 - `deployment/mysql/20260828_iocl_admin_owned_sender.sql`
 - `deployment/mysql/20260828_creditors_ageing_report.sql`
+- `deployment/mysql/20260829_ultrafine_trial_balance_formatter.sql`
 
 If the production database is not named `rdc_accounts_suite`, change only the
 database name in the `CREATE DATABASE`/`USE` statements before running a script.
@@ -66,6 +67,26 @@ FROM `creditors_ageing_vendor_mappings`;
 For the initial packaged data this returns 208 active rows, including 17
 intercompany rows. A later count can legitimately be different after users add
 or archive mappings in the centralized application.
+
+### Trial Balance Formatter mapping transfer
+
+Run `20260829_ultrafine_trial_balance_formatter.sql` in MySQL Workbench and
+restart `start_all.bat`. Startup additively loads the 202 packaged ledger
+classifications, including six subgroup-total rows. No reference workbook is
+copied to production and no mapping import/export action is exposed.
+
+Verify after startup:
+
+```sql
+USE `rdc_accounts_suite`;
+SELECT COUNT(*) AS total_rows,
+       SUM(`is_deleted` = FALSE) AS active_rows,
+       SUM(`is_subgroup` = TRUE AND `is_deleted` = FALSE) AS active_subgroup_rows
+FROM `trial_balance_formatter_ledger_natures`;
+```
+
+For an untouched initial installation this returns 202 active rows and six
+active subgroup rows. Later counts may change through the centralized editor.
 
 ## Configuration checklist
 

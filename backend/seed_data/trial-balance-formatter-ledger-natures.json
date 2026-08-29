@@ -1,0 +1,810 @@
+{
+  "Capital Account": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "Reserves & Surplus": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "Equity Share Capital": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "Loans (Liability)": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "Secured Loans": {
+    "nature": "Cr",
+    "is_subgroup": true
+  },
+  "HDFC Term Loan": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "ICICI Term Loan": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "Non Current Borrowings (IND AS)": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "SBI Term Loan": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "Hella Infra Market Private Limited -ICD": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "RDC CONCRETE (INDIA) Pvt Ltd -ICD": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "ROBO SILICON PRIVATE LIMITED - ICD": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "Current Liabilities": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "Duties & Taxes": {
+    "nature": "Dr",
+    "is_subgroup": true
+  },
+  "192B TDS on Salary": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "194A TDS on Interest": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "194C TDS on Contractor": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "194H TDS on Brokerage and Commssion": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "194I TDS on Rent": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "194J TDS on Professional Fees": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "194Q TDS Payable": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "Cess": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "GST Not Paid by Vendor": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "GST Payable": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Input CGST": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Input IGST": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Input SGST": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Output CGST": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "Output IGST": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "Output SGST": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "Payable - Professional Tax": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "PF PAYABLE": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "RCM Input IGST": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "RCM Output CGST": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "RCM Output IGST": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "RCM Output SGST": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "RDC Concrete - Payable to Related Parties": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "VAT 22% Input": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Sundry Creditors": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "Advance From Customers": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "ESOP Expenses Provision": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "Interest Accrued But Not Due": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "Lease Liability Current (INDAS)": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "Lease Liability Non Current (INDAS)": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "Payable Labour Welfare Fund - PWF": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "Payable - NPS": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "Provision for Exps (Liability)": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "Provision for Gratuity": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "Provision for Incentive": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "Provision for Leave Encashment": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "Provision for Taxation": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "Provision for Variable Pay": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "Salary Payable": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Sundry Creditors for Expenses": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Fixed Assets": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Accumulated Depereciation - Software": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "Accumulated Depreciation-Computers and Peripherals": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "Accumulated Depreciation-Electric Installation": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "Accumulated Depreciation-Factory Building": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "Accumulated Depreciation-Furniture and Fittings": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "Accumulated Depreciation of Air Conditioners": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "Accumulated Depreciation-Office Equipment": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "Accumulated Depreciation-Plant and Machiney": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "Accumulated Depreciation-Vehicles": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "Air Conditioners": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Capital Work in Progress": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Capital Work in Progress (INDAS)": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "Computers and Peripherals": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Electric Installation": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Factory Building": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Furniture and Fittings": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Office Equipment": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Plant and Machinery": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "PPE (INDAS)": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Preoperative Exps": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Purchase of Fixed Assets": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "ROU Asset Net (INDAS)": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Software": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Vehicle": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Current Assets": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Opening Stock": {
+    "nature": "Dr",
+    "is_subgroup": true
+  },
+  "Inventory": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Sundry Debtors": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Bank Accounts": {
+    "nature": "Cr",
+    "is_subgroup": true
+  },
+  "HDFC Bank Limited 5924": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "HDFC BANK LTD -CC 4944": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "State Bank of India": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Duties and Taxes (Asset)": {
+    "nature": "Dr",
+    "is_subgroup": true
+  },
+  "Advance Tax FY- (25-26)": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Balance with government authorities": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "TCS RECEIVABLE FY-20-21": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "TCS RECEIVABLE FY- 21-22": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "TCS RECEIVABLE FY- 23-24": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "TCS RECEIVABLE FY-24-25": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "TCS RECEIVABLE FY-25-26": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "Advance Recoverable in Cashkind/value to Be Receive": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Deferred Tax Assets": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Fixed Deposit - Bank": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Income Tax Payment ( FY 2024-25 )": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Inventory Closing Stock": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "Prepaid Expenses": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Prepaid Expenses (IND AS)": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "Prepaid Insurance": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Provision for Doubtful Debts (B/S)": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "Provision for Expected Credit Losses (BS) INDAS": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "RCM Input CGST": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "RCM Input SGST": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Security Deposit": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Security Deposit (INDAS)": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "TDS Receivable FY 20-21": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "TDS Receivable FY 21-22": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "TDS Receivable FY 22-23": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "TDS Receivable FY 23-24": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "TDS Receivable FY 24-25": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "TDS Receivable FY 25-26": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "TDS Receivable FY 26-27": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Sales Accounts": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "Inter Company Sales": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Other Income Scrap Sale": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "Rate of Difference  - Sale": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Sales GST": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "Sales of Fixed Assets": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Sales Return": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Purchase Accounts": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Inter Company Purchase": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "Purchase Gst A/c": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Stores & Spares": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "Direct Incomes": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "Commission Income": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "Profit/Loss on Sale of Fixed Asset": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "Transportation Charges - Income": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "Direct Expenses": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Salaries & Wages": {
+    "nature": "Dr",
+    "is_subgroup": true
+  },
+  "Salaries and Wages": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Salaries and Wages - Administration Charges to PF/FPF": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Salaries and Wages - Variable pay": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "Auto Leasing": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Contract Labour Charges": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Cost Of Goods Sold Account": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "Diesel Expenses": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Electricity Expenses": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Equipment Hire Charges": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Freight & Forwarding Charges": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Guest House Rent": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "JCB Hire Charges": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Lease on Movable Assets": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "LOADING & UNLOADING CHARGES": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Octroi Charges/Entry Tax/Toll Tax": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "PACKING EXPENSES": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Processing Charges": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Raw Material Transport": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Rent Factory": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Rent on Machinery and Equipments": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Repairs and Maintenance": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Safety Equipments": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Salaries and Wages - Gratuity": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Salaries and Wages - Leave Encashment": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Sales and Marketing Expenses": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Security Charges": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Staff Welfare Exp": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Testing and Inspection Expenses": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Transportation Charges": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Water & Maintaince Charges": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Indirect Incomes": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "Interest Received": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "Indirect Expenses": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Bad Debts Written Off": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Bank Charges": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Brokerage and Commission": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Consultancy Charges": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Depreciation-Air Conditioners": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Depreciation-Computers and Peripherals": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Depreciation-Electric Installation": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Depreciation-Factory Building": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Depreciation-Furniture and Fittings": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Depreciation (INDAS)": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Depreciation-Office Equipment": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Depreciation-Plant and Machinery": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Depreciation- Vehicles": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Insurance of Plant and Machinery": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Insurance-Vehicle": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Interest Cost (INDAS)": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Interest on Others": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Interest on Term Loan": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Interest Paid on ICD": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Legal and Professional Fees": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Miscellaneous and General Expenses": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Office Maintanance - IT Related Expenses": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Office & Maintenace": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Postage and Courier Expenses": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Printing & Stationery": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Professional Fees": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Provision for Doubtful Debts (P&L)": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Rates and Taxes Others": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Rent Paid (INDAS)": {
+    "nature": "Cr",
+    "is_subgroup": false
+  },
+  "Round Off": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Sales Promotion Expenses": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Staff Welfare Expenses": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Telephone Expenses": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Travelling Expenses": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Travelling Expenses of Staff": {
+    "nature": "Dr",
+    "is_subgroup": false
+  },
+  "Profit & Loss A/c": {
+    "nature": "Cr",
+    "is_subgroup": false
+  }
+}

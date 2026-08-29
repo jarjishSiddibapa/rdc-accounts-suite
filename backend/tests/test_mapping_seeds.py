@@ -25,6 +25,8 @@ from app.services.unaccounted.models import (
 )
 from app.services.creditors_ageing import mapping_store as creditors_ageing_mappings
 from app.services.creditors_ageing.models import VendorMapping as CreditorsAgeingVendorMapping
+from app.services.trial_balance_formatter import mapping_store as trial_balance_formatter_mappings
+from app.services.trial_balance_formatter.models import LedgerNature as TrialBalanceFormatterLedgerNature
 
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
@@ -47,6 +49,7 @@ class MappingSeedTests(unittest.TestCase):
             PoKeywordSettings,
             ExcludedPo,
             CreditorsAgeingVendorMapping,
+            TrialBalanceFormatterLedgerNature,
         )
         Base.metadata.create_all(
             bind=self.engine,
@@ -176,6 +179,33 @@ class MappingSeedTests(unittest.TestCase):
             )
             self.assertTrue(
                 db.query(CreditorsAgeingVendorMapping).filter_by(vendor_key=archived_key).one().is_deleted
+            )
+
+    def test_trial_balance_formatter_seed_is_additive_idempotent_and_archive_safe(self):
+        seed_path = BACKEND_DIR / "seed_data" / "trial-balance-formatter-ledger-natures.json"
+        with self.Session() as db:
+            db.add(TrialBalanceFormatterLedgerNature(
+                ledger_key="CAPITAL ACCOUNT",
+                ledger_name="Capital Account",
+                nature="Dr",
+            ))
+            db.add(TrialBalanceFormatterLedgerNature(
+                ledger_key="SECURED LOANS",
+                ledger_name="Secured Loans",
+                nature="Cr",
+                is_subgroup=True,
+                is_deleted=True,
+            ))
+            db.commit()
+
+            self.assertEqual(trial_balance_formatter_mappings.seed_missing_from_json(db, seed_path), 200)
+            self.assertEqual(trial_balance_formatter_mappings.seed_missing_from_json(db, seed_path), 0)
+            self.assertEqual(
+                db.query(TrialBalanceFormatterLedgerNature).filter_by(ledger_key="CAPITAL ACCOUNT").one().nature,
+                "Dr",
+            )
+            self.assertTrue(
+                db.query(TrialBalanceFormatterLedgerNature).filter_by(ledger_key="SECURED LOANS").one().is_deleted
             )
 
 

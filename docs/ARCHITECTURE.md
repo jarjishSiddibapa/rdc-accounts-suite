@@ -56,3 +56,11 @@ as an immutable layout/formula template. Uploaded Tally workbooks and generated
 outputs remain owner/tab-scoped scratch artifacts. The job injects cached values
 for its live formula cells without Excel COM, so Protected View does not show
 blank totals.
+
+The Trial Balance Formatter follows the same durable job boundary and reloads
+the 202-row central ledger-nature mapping from MySQL when its worker begins.
+It copies the uploaded Tally cell styles into a fresh current-period workbook,
+then applies the verified Ultrafine layout, hierarchy fills, signed formulas,
+and cached formula results in pure Python. The confidential raw/finished parity
+pair is optional test evidence on the development machine and is not packaged
+or copied to production.

@@ -21,6 +21,12 @@ type-ahead reuse of existing classification values, additive entries, edits,
 soft archive, and restore. Startup seeds only natural keys that have never
 existed, so administrator changes always take precedence over packaged data.
 
+The Ultrafine Trial Balance Formatter starts with the 202 ledger natures and
+six subgroup-total decisions verified against the supplied finished report.
+Its searchable Ledger mappings tab supports add, edit, soft archive, and
+restore. Startup adds only missing normalized ledger keys; it does not overwrite
+an administrator's classification or implicitly revive an archived row.
+
 Email administration controls the default sender/recipients and templates used
 by the report applications. Users can edit a compose screen when the workflow
 allows it, but defaults remain centralized.

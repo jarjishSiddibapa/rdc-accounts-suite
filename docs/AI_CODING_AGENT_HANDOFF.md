@@ -1,6 +1,6 @@
 # AI Coding Agent Handoff
 
-Last reviewed: 28 August 2026
+Last reviewed: 29 August 2026
 
 This document explains the current state of RDC Accounts Suite for future AI
 coding agents. Read it before changing behavior. `README.md` remains the
@@ -24,6 +24,7 @@ LAN-hosted FastAPI and React application. The current suite contains:
 10. Closing Period Report Generator
 11. Ultrafine IOCL Balance Monitor
 12. Ultrafine Creditors Ageing Report Generator
+13. Ultrafine Trial Balance Formatter
 
 It also contains authentication, user and application-access administration,
 central email settings/default recipients, mapping administration, audit logs,
@@ -104,6 +105,26 @@ real parity run against the reference `build/verification_raw_28.xlsx` matched
 Intercompany, and the same 31 new vendors; the only cell-text differences are
 the requested standardized `As on` wording. The web port additionally injects
 formula caches so all live-formula values are visible before Excel recalculates.
+
+The Trial Balance Formatter web port lives in
+`backend/app/services/trial_balance_formatter/processor.py`. Its development-
+only parity fixtures are `Raw Trial Balance June 2026.xlsx` and `Ultrafine Trial
+Balance as on 30th June 2026.xlsx` in the repository root; they are confidential,
+ignored by Git, and not required in production. The visible `June26` reference
+sheet is asserted cell-by-cell when those files are present: values/formulas,
+formula caches, fonts, fills, borders, number formats, alignment, merges, widths,
+print orientation, and selection. The unrelated hidden historical `March26`
+sheet is not derivable from the raw June input and is intentionally not copied
+into newly generated workbooks.
+
+All 202 observed ledger classifications and six subgroup-total decisions are
+packaged in `backend/seed_data/trial-balance-formatter-ledger-natures.json` and
+stored at runtime in `trial_balance_formatter_ledger_natures`. Treat MySQL as
+authoritative. Startup seeds missing normalized keys only, never overwrites an
+edit, and never revives an archived row. New ledgers are generated with an
+explicit provisional result and surfaced for review rather than silently
+pretending the classification is proven. Output formulas retain cached values
+without Excel COM.
 
 ## 3. Architecture
 
@@ -427,6 +448,12 @@ soft-delete mapping table and catalogue row; the following application startup
 additively seeds the packaged 208 mappings. Production does not need a mapping
 workbook copy or mapping import endpoint.
 
+The Trial Balance Formatter migration is
+`deployment/mysql/20260829_ultrafine_trial_balance_formatter.sql`. It creates
+the soft-delete ledger classification table, safely adds `is_subgroup` to an
+early development table when needed, and adds the application catalogue row.
+The next startup additively seeds the packaged 202 mappings.
+
 Existing production installs that already ran the 27 August script need only
 run the 28 August script. It is idempotent and does not copy plaintext secrets.
 
@@ -496,7 +523,7 @@ and `TROUBLESHOOTING.md`), plus `SECURITY.md` and `CONTRIBUTING.md`. The
 screenshots in `docs/screenshots/` were captured from a disposable local
 database containing only synthetic `example.invalid` identities. Keep this
 documentation current when applications, migrations, or operating procedures
-change. The dashboard catalogue must continue to expose all 12 active tools;
+change. The dashboard catalogue must continue to expose all 13 active tools;
 the GST Invoice Number Adder is easy to omit because it is Oracle-backed.
 
 - `1e6e40f` — frontend design-system and interaction overhaul
