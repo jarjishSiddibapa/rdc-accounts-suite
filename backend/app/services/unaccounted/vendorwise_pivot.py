@@ -247,12 +247,11 @@ def attach_vendorwise_pivot(
 
     n_suppliers = len(suppliers)
     n_periods = len(period_labels)
-    # B=Supplier Name (col 2), then one column per period, then Grand Total -
-    # matches _add_vendorwise_pivot_sheet's own gt_col exactly (that static
-    # sheet's gt_col also counts its extra hidden Location column A, which
-    # this pivot's <location> deliberately starts after, at B).
-    gt_col = 3 + n_periods
-    location_ref = f"B3:{get_column_letter(gt_col)}{5 + n_suppliers}"
+    # A=Supplier Name (col 1), then one column per period, then Grand Total -
+    # matches _add_vendorwise_pivot_sheet's own gt_col exactly, and matches
+    # the reference desktop app's own real PivotTable destination cell "A3".
+    gt_col = 2 + n_periods
+    location_ref = f"A3:{get_column_letter(gt_col)}{5 + n_suppliers}"
     pivot_table_xml = _build_pivot_table_xml(cols, suppliers, period_labels, location_ref, len(locations))
 
     _inject_pivot_parts(output_path, cache_definition_xml, cache_records_xml, pivot_table_xml)

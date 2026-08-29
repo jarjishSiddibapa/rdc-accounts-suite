@@ -79,8 +79,8 @@ class VendorwisePivotStructureTests(unittest.TestCase):
         wb = openpyxl.load_workbook(self.out, data_only=False)
         ws = wb["Vendorwise Pivot"]
         pivot = ws._pivots[0]
-        # 3 suppliers -> rows 5,6,7 + grand total row 8; 2 periods -> cols C,D + Grand Total E
-        self.assertEqual(pivot.location.ref, "B3:E8")
+        # 3 suppliers -> rows 5,6,7 + grand total row 8; 2 periods -> cols B,C + Grand Total D
+        self.assertEqual(pivot.location.ref, "A3:D8")
 
     def test_mail_body_preview_shows_real_data_not_placeholder(self):
         html = mailer_shared.sheet_to_html(self.out, "Vendorwise Pivot")
@@ -123,6 +123,45 @@ class VendorwisePivotStructureTests(unittest.TestCase):
         self.assertEqual(len(wb["Vendorwise Pivot"]._pivots), 1)
         html = mailer_shared.sheet_to_html(out, "Vendorwise Pivot")
         self.assertIn('Acme & "Sons" Traders', html)
+
+    def test_supplier_used_from_multiple_locations_collapses_to_one_row(self):
+        """Regression test for a real production bug: a supplier ordering
+        from several different locations (e.g. a marketplace vendor like
+        Amazon) used to get one row per (Location, Supplier) pair instead of
+        one aggregated row - which also duplicated its name in the real
+        PivotTable's row-field cache, and real Excel then repaired the file
+        by stripping the PivotTable entirely, leaving exactly the flawed flat
+        table behind (reproduced against the actual generated report - see
+        vendorwise_pivot.py's module docstring)."""
+        df = pd.DataFrame({
+            "SUPPLIER SITE": [f"SITE-{i}" for i in range(1, 6)],
+            "SUPPLIER NAME": ["Amazon Wholesale (India) Private Limited"] * 4 + ["Bharat Steel"],
+            "ACCOUNTING PERIOD": ["JUL-2026", "JUL-2026", "AUG-2026", "AUG-2026", "JUL-2026"],
+            "Location": ["Mumbai Plant", "Chennai Plant", "Pune Plant", "Delhi Plant", "Chennai Plant"],
+            "Accounts Incharge": ["Rakesh D", "Priya S", "Sneha R", "Divya M", "Priya S"],
+            "MRN Number": [f"MRN-{i}" for i in range(1, 6)],
+        })
+        out = str(Path(self._tmp.name) / "mrn_multi_location_supplier.xlsx")
+        pivot_df, _ = excel_writers._add_vendorwise_pivot_sheet(openpyxl.Workbook(), df)
+        rows = pivot_df[pivot_df["SUPPLIER NAME"] == "Amazon Wholesale (India) Private Limited"]
+        self.assertEqual(len(rows), 1, "one supplier across 4 locations must collapse to one row")
+        self.assertEqual(rows.iloc[0]["Grand Total"], 4)
+
+        excel_writers.write_formatted_mrn_excel(df, out)
+        wb = openpyxl.load_workbook(out, data_only=False)
+        self.assertEqual(len(wb["Vendorwise Pivot"]._pivots), 1)
+
+        with zipfile.ZipFile(out) as zf:
+            cache_xml = zf.read("xl/pivotCache/pivotCacheDefinition1.xml").decode("utf-8")
+        supplier_names = re.findall(
+            r'<cacheField name="SUPPLIER NAME"[^>]*><sharedItems count="\d+">(.*?)</sharedItems>',
+            cache_xml, re.DOTALL,
+        )[0]
+        items = re.findall(r'<s v="(.*?)"/>', supplier_names)
+        self.assertEqual(
+            len(items), len(set(items)),
+            "the pivot cache's SUPPLIER NAME axis must contain only distinct values",
+        )
 
 
 @unittest.skipUnless(_EXCEL_AVAILABLE, "pywin32/Excel not available - this check is dev-machine-only")
@@ -201,6 +240,30 @@ class VendorwisePivotRealExcelRoundTripTests(unittest.TestCase):
         before, after = self._open_refresh_and_read(out)
         self.assertEqual(before, after)
         self.assertEqual(after[-1][-1], 8.0)  # Grand Total of all 8 rows
+
+    def test_supplier_spanning_many_locations_opens_without_repair(self):
+        """The real-Excel counterpart to
+        test_supplier_used_from_multiple_locations_collapses_to_one_row: a
+        supplier repeated across many distinct locations used to produce
+        duplicate <s v="..."/> entries in the pivot cache's SUPPLIER NAME
+        sharedItems, which real Excel considers invalid and silently repairs
+        by stripping the PivotTable - _open_refresh_and_read's own
+        `pivots.Count == 1` assertion is what catches that regression, since
+        a repaired-away PivotTable would make that count 0."""
+        df = pd.DataFrame({
+            "SUPPLIER SITE": [f"SITE-{i}" for i in range(1, 18)],
+            "SUPPLIER NAME": ["Amazon Wholesale (India) Private Limited"] * 17,
+            "ACCOUNTING PERIOD": (["JUL-2026"] * 6 + ["AUG-2026"] * 6 + ["SEP-2026"] * 5),
+            "Location": [f"Location-{i}" for i in range(1, 18)],
+            "Accounts Incharge": ["Rakesh D"] * 17,
+            "MRN Number": [f"MRN-{i}" for i in range(1, 18)],
+        })
+        out = str(Path(self._tmp.name) / "mrn_many_locations.xlsx")
+        excel_writers.write_formatted_mrn_excel(df, out)
+
+        before, after = self._open_refresh_and_read(out)
+        self.assertEqual(before, after)
+        self.assertEqual(after[-1][-1], 17.0)  # Grand Total: all 17 rows, one supplier
 
 
 if __name__ == "__main__":

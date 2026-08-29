@@ -39,3 +39,9 @@ graphify-out/
 /backend/_test_output.xlsx
 /backend/tmp_artifact_tb/
 /backend/tmp_style.xlsx
+
+# Real production report exports dropped at the repo root for debugging
+# (contain real vendor/customer names) - never commit these.
+/Pending MRN*.xlsx
+/Unaccounted Transactions*.xlsx
+/Uninvoiced Expense PO*.xlsx

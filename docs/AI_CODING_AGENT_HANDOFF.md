@@ -246,25 +246,92 @@ Python libraries. Do not reintroduce `win32com` without a proven, explicitly
 approved requirement.
 
 Pending MRN is the one reference workflow that produced a genuine native Excel
-PivotTable: `Vendorwise Pivot`. The web suite preserves that behavior without
-runtime COM by loading the sanitized synthetic template at
-`backend/app/services/unaccounted/pivot_templates/pending_mrn_vendorwise.xlsx`,
-copying the newly generated ordinary report sheets into it, pointing the pivot
-cache at the new workbook's `Summary` range, and setting a clean open-time
-refresh. The embedded cache contains only an explicit synthetic placeholder;
-`missingItemsLimit = 0` removes it on refresh. Keep the template sanitized and
-retain formula-cache injection after the template merge. The other pivot-named
-desktop sheets were static pandas/openpyxl summaries, not native PivotTables
-(confirmed by the desktop source's own `_add_real_pivots` comment: "Locationwise
-Pivot is kept as a plain openpyxl static table"). At the user's later request,
-the web suite upgrades the Pending MRN `Locationwise Pivot`, Unaccounted `Main`,
-and Uninvoiced Expense PO `Main` sheets to genuine refreshable PivotTables too.
-They use the sanitized generic template at
-`backend/app/services/unaccounted/pivot_templates/location_incharge_period.xlsx`
-and a hidden `_PivotSrc` data sheet. The already-written formula-driven static
-sheet remains the safe fallback if a template attachment ever fails. Both
-templates and their generated workbooks have been opened and refreshed through
-real Excel during development, but Excel/COM is not used by the deployed app.
+PivotTable: `Vendorwise Pivot`. Per `vendorwise_pivot.py`'s own module
+docstring, it is "the ONLY sheet across Unaccounted/MRN/PO that the source
+app ever built as a real pivot; everything else there is - and stays - a
+static table" (confirmed by the desktop source's own `_add_real_pivots`
+comment: "Locationwise Pivot is kept as a plain openpyxl static table"). Do
+not assume a template-based mechanism or a `location_incharge_period.xlsx` /
+`_PivotSrc` upgrade path exists for Locationwise Pivot or any other
+Unaccounted/PO sheet — no such files or code exist in this repository; if a
+past revision of this handoff described one, it was aspirational and never
+actually built. Verify against the code before relying on any such claim.
+
+The current mechanism (`backend/app/services/unaccounted/vendorwise_pivot.py`)
+does not use a template at all: it hand-authors the `pivotCacheDefinition`,
+`pivotCacheRecords`, and `pivotTableDefinition` OOXML parts directly and
+splices them into the already-saved workbook's zip, additively, alongside the
+already-correct static grid `_add_vendorwise_pivot_sheet` wrote (never
+touching those cells). `refreshOnLoad="1"` means any reader that does trigger
+a refresh (a live Excel session) recomputes from the same underlying raw
+`Summary` rows and should reach the same numbers already shown; readers that
+never refresh (openpyxl, the mail-body HTML preview, Excel's Protected View)
+still see correct data immediately because the grid was already right.
+`excel_writers.py`'s call site wraps this in `try/except Exception`, so any
+future failure here falls back to the plain static sheet rather than
+corrupting the file — but see the caution below on why the corrupt file this
+was meant to protect against slipped through anyway.
+
+**Row-field axis must be built from genuinely distinct values, never from a
+pre-aggregated staging table that mixed in another dimension.** A real
+production report ("Pending MRN till Jul-26") came back from a user marked
+`[Repaired]` in Excel's title bar, with the PivotTable silently stripped by
+Excel's repair process, leaving only the (correct) static grid behind. Root
+cause: `_add_vendorwise_pivot_sheet` grouped by `["Location", "SUPPLIER
+NAME"]` for its staging table (one row per supplier *per location*), and
+`attach_vendorwise_pivot` fed that same table's `SUPPLIER NAME` column
+straight into the pivot cache's row-field `sharedItems` without
+deduplicating. A supplier appearing at 17 different locations (a real
+marketplace vendor) therefore produced 17 separate `<s v="...">` entries for
+the identical text in a field's shared-items list — invalid per Excel's own
+pivot-cache expectations (each entry must be a genuinely distinct category)
+— which is exactly what triggered the repair. It also meant the *visible*
+static table showed the same supplier as 17 separate partial-total rows
+instead of one properly summed row, independent of the pivot bug.
+
+The fix (see git history around `_add_vendorwise_pivot_sheet` and
+`attach_vendorwise_pivot`) groups only by `["SUPPLIER NAME", "ACCOUNTING
+PERIOD"]` — one row per distinct supplier, summed across every location —
+matching what the reference desktop app's real PivotTable shows by default
+with its Location "Report Filter" left at "(All)" (see `_add_real_pivots` in
+the reference desktop source: `Location` is `XL_PAGE`, `SUPPLIER NAME` is the
+only `XL_ROW` field, and `TableDestination` is cell `"A3"` — the web port's
+grid now starts at column A to match, with no hidden Location column). The
+reference app never hit this bug because it discards its own equivalent
+staging table the instant win32com builds the real PivotTable straight from
+raw `Summary` rows; the web port has no live Excel to paper over a flawed
+staging table, so that table must itself already be the correct aggregate.
+Per-location filtering remains the live PivotTable's Report Filter's job —
+its cache is still built from the raw per-transaction `Summary` rows, each
+correctly tagged with its own `Location` (see `attach_vendorwise_pivot`'s
+`_PAGE_FIELD` handling, unaffected by this fix).
+
+This class of bug (an axis meant to hold genuinely distinct values built from
+something other than `.unique()`/`dict.fromkeys()` on the raw data) was
+checked across every other `.pivot_table()`/`.groupby()` call in
+`backend/app/services/` at the time of this fix — none of the others are
+building a real Excel PivotTable cache (Vendorwise Pivot is still the only
+one), and every other summary/"Main"/"Locationwise" table's row key (e.g.
+`["Location", "Accounts Incharge"]` in Unaccounted's Main sheet, Locationwise
+Pivot, and PO's Main sheet; `["Region", "Accounts Incharge"]` in RDC
+Payables' Pivot Summary sheet) is an intentional multi-dimension breakdown
+where every axis genuinely belongs in the row identity, not an incidental
+dimension accidentally fragmenting what should be one row per entity. If a
+similar report-summary table is added later, check that its row-grouping key
+matches exactly what should visually be one row, and that any real pivot
+cache's categorical axes are built from distinct source values, not a
+pre-aggregated table that folds in an extra dimension.
+`backend/tests/test_vendorwise_pivot.py`'s
+`test_supplier_used_from_multiple_locations_collapses_to_one_row` and
+`test_supplier_spanning_many_locations_opens_without_repair` are the
+regression coverage for this exact failure mode - both reproduce a supplier
+spanning many distinct locations and assert against a plain-openpyxl read and
+a real-Excel-COM open+refresh respectively.
+
+This has been opened and refreshed through real Excel during development
+(this dev machine has pywin32 + Excel available, so
+`VendorwisePivotRealExcelRoundTripTests` actually runs rather than being
+skipped), but Excel/COM is not used by the deployed app.
 
 The desktop app's real pivot also re-sorted its ACCOUNTING PERIOD column
 chronologically and reformatted captions every time it ran, via COM

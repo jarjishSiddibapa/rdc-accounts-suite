@@ -1072,7 +1072,9 @@ def _add_mrn_summary_sheet(wb, df: "pd.DataFrame") -> None:
 def _add_vendorwise_pivot_sheet(wb, df: "pd.DataFrame") -> tuple["pd.DataFrame", list[str]]:
     """Add a Supplier × Accounting-Period count pivot named 'Vendorwise Pivot'.
 
-    Layout matches the reference PivotTable exactly:
+    Layout matches the reference PivotTable exactly (reference desktop app's
+    _add_real_pivots: TableDestination "A3", Location on XL_PAGE, SUPPLIER
+    NAME as the only XL_ROW field):
       Row 1 : "Location" label  |  "(All)" — Report Filter simulation
       Row 2 : empty
       Row 3 : "Count of Location" label
@@ -1080,8 +1082,22 @@ def _add_vendorwise_pivot_sheet(wb, df: "pd.DataFrame") -> tuple["pd.DataFrame",
       Row 5… : data rows, sorted descending by Grand Total
       Last   : SUBTOTAL footer row
 
-    Location is stored in a hidden column A so the AutoFilter can filter by it.
-    Visible data starts at column B (Supplier Name).
+    One row per DISTINCT supplier, summed across every Location - matching
+    what the "(All)" Report Filter state actually shows in a real PivotTable.
+    Location is intentionally NOT part of the row grouping here: an earlier
+    version grouped by (Location, SUPPLIER NAME), so a supplier operating out
+    of several locations produced one row per location instead of one
+    aggregated row - which also fed the same duplicated names into the real
+    PivotTable's row-field cache (see vendorwise_pivot.py), which real Excel
+    then flagged as corrupt on open ("[Repaired]") and silently stripped,
+    leaving exactly this flawed flat table behind. The reference desktop app
+    never hit this because it discards its own equivalent staging table the
+    moment win32com builds the real PivotTable straight from the raw Summary
+    rows; the web port has no live Excel to paper over the same staging table,
+    so the table written here must itself already be the correct aggregate.
+    Per-location filtering is the live PivotTable's Report Filter's job (its
+    cache is still built from the raw per-transaction Summary rows, each
+    correctly tagged with its own Location - see attach_vendorwise_pivot).
 
     Returns (pivot, period_labels) - the exact supplier rows (in display
     order) and period column captions just written, so a caller can attach a
@@ -1091,19 +1107,18 @@ def _add_vendorwise_pivot_sheet(wb, df: "pd.DataFrame") -> tuple["pd.DataFrame",
     """
     # ── Build pivot data ──────────────────────────────────────────────────────
     work = df.copy()
-    work["Location"] = work["Location"].astype(str).str.strip().replace("", "Unmapped")
 
     all_periods = [str(p) for p in work[MRN_ANCHOR_COL].dropna().unique()]
     periods     = sorted(all_periods, key=_mrn_period_sort_key)
 
     grouped = (
-        work.groupby(["Location", "SUPPLIER NAME", MRN_ANCHOR_COL], sort=False)
+        work.groupby(["SUPPLIER NAME", MRN_ANCHOR_COL], sort=False)
         .size()
         .reset_index(name="Count")
     )
 
     pivot = grouped.pivot_table(
-        index=["Location", "SUPPLIER NAME"],
+        index=["SUPPLIER NAME"],
         columns=MRN_ANCHOR_COL,
         values="Count",
         aggfunc="sum",
@@ -1112,18 +1127,16 @@ def _add_vendorwise_pivot_sheet(wb, df: "pd.DataFrame") -> tuple["pd.DataFrame",
     pivot.columns.name = None
 
     present = [p for p in periods if p in pivot.columns]
-    pivot   = pivot[["Location", "SUPPLIER NAME"] + present]
+    pivot   = pivot[["SUPPLIER NAME"] + present]
     pivot["Grand Total"] = pivot[present].sum(axis=1)
     pivot = pivot.sort_values("Grand Total", ascending=False).reset_index(drop=True)
 
     period_labels = [_fmt_mrn_period(p) for p in present]
 
-    # col A = Location (hidden), col B = Supplier Name, col C+ = periods, last = Grand Total
-    n_visible   = 1 + len(present) + 1      # Supplier Name + periods + Grand Total
-    n_cols      = 1 + n_visible              # incl. hidden Location col A
+    # col A = Supplier Name, col B+ = periods, last = Grand Total
+    n_cols      = 1 + len(present) + 1      # Supplier Name + periods + Grand Total
     gt_col      = n_cols                     # Grand Total column (1-based)
-    # visible header row values (col A excluded from display but in AutoFilter)
-    hdr_values  = ["Location", "Supplier Name"] + period_labels + ["Grand Total"]
+    hdr_values  = ["Supplier Name"] + period_labels + ["Grand Total"]
 
     # ── Sheet setup ───────────────────────────────────────────────────────────
     ws = wb.create_sheet("Vendorwise Pivot")
@@ -1164,7 +1177,7 @@ def _add_vendorwise_pivot_sheet(wb, df: "pd.DataFrame") -> tuple["pd.DataFrame",
     hdr_font = Font(name="Calibri", size=11, bold=True, color=HDR_FG)
     hdr_fill = PatternFill("solid", fgColor=HDR_BG)
     for ci, h in enumerate(hdr_values, 1):
-        is_num = ci > 2                      # periods + Grand Total are numeric
+        is_num = ci > 1                      # periods + Grand Total are numeric
         c           = ws.cell(row=4, column=ci, value=h)
         c.font      = hdr_font
         c.fill      = hdr_fill
@@ -1174,10 +1187,7 @@ def _add_vendorwise_pivot_sheet(wb, df: "pd.DataFrame") -> tuple["pd.DataFrame",
             vertical="center", indent=0 if is_num else 1)
 
     ws.auto_filter.ref = f"A4:{get_column_letter(n_cols)}4"
-    ws.freeze_panes    = "B5"               # freeze at Supplier Name; rows 1-4 frozen
-
-    # Hide Location column so it doesn't clutter the view but stays filterable
-    ws.column_dimensions["A"].hidden = True
+    ws.freeze_panes    = "B5"               # freeze at periods; rows 1-4 frozen
 
     # ── Data rows ─────────────────────────────────────────────────────────────
     plain   = Font(name="Calibri", size=11)
@@ -1186,19 +1196,17 @@ def _add_vendorwise_pivot_sheet(wb, df: "pd.DataFrame") -> tuple["pd.DataFrame",
 
     data_start = 5
     for ri, row in enumerate(pivot.itertuples(index=False), data_start):
-        # col A: Location (hidden, for AutoFilter)
-        ws.cell(row=ri, column=1, value=row[0]).font = plain
-        # col B: Supplier Name
-        c2 = ws.cell(row=ri, column=2, value=row[1])
-        c2.font = plain; c2.alignment = txt_aln; c2.border = bdr
-        # col C+: period counts
-        for ci_off, val in enumerate(row[2 : 2 + len(present)]):
-            ci = 3 + ci_off
+        # col A: Supplier Name
+        c1 = ws.cell(row=ri, column=1, value=row[0])
+        c1.font = plain; c1.alignment = txt_aln; c1.border = bdr
+        # col B+: period counts
+        for ci_off, val in enumerate(row[1 : 1 + len(present)]):
+            ci = 2 + ci_off
             c  = ws.cell(row=ri, column=ci, value=int(val) if val else 0)
             c.font = plain; c.alignment = num_aln; c.border = bdr
             c.number_format = INDIAN_FMT
         # last col: Grand Total - live SUM over this row's own period columns
-        period_range = f"{get_column_letter(3)}{ri}:{get_column_letter(2 + len(present))}{ri}"
+        period_range = f"{get_column_letter(2)}{ri}:{get_column_letter(1 + len(present))}{ri}"
         c_gt = ws.cell(row=ri, column=gt_col, value=f"=SUM({period_range})")
         c_gt.font          = Font(name="Calibri", size=11, bold=True)
         c_gt.alignment     = num_aln; c_gt.border = bdr
@@ -1211,13 +1219,13 @@ def _add_vendorwise_pivot_sheet(wb, df: "pd.DataFrame") -> tuple["pd.DataFrame",
     foot_fill = PatternFill("solid", fgColor=FOOT_BG)
     foot_aln  = Alignment(horizontal="right", vertical="center")
 
-    # col B footer label
-    c2 = ws.cell(row=foot_row, column=2, value="Grand Total")
-    c2.font = foot_font; c2.fill = foot_fill; c2.border = bdr
-    c2.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+    # col A footer label
+    c1 = ws.cell(row=foot_row, column=1, value="Grand Total")
+    c1.font = foot_font; c1.fill = foot_fill; c1.border = bdr
+    c1.alignment = Alignment(horizontal="left", vertical="center", indent=1)
 
     for ci_off in range(len(present)):
-        ci    = 3 + ci_off
+        ci    = 2 + ci_off
         col_l = get_column_letter(ci)
         c     = ws.cell(row=foot_row, column=ci,
                         value=f"=SUBTOTAL(9,{col_l}{data_start}:{col_l}{last_data})")
@@ -1230,15 +1238,15 @@ def _add_vendorwise_pivot_sheet(wb, df: "pd.DataFrame") -> tuple["pd.DataFrame",
     c_gt.font = foot_font; c_gt.fill = foot_fill; c_gt.border = bdr; c_gt.alignment = foot_aln
     c_gt.number_format = INDIAN_FMT
 
-    # ── Borders: full grid over header + data + footer (visible cols 2..gt) ───
+    # ── Borders: full grid over header + data + footer ────────────────────────
     for r in range(4, foot_row + 1):
-        for c in range(2, gt_col + 1):
+        for c in range(1, gt_col + 1):
             ws.cell(row=r, column=c).border = bdr
 
     # ── Column widths ─────────────────────────────────────────────────────────
-    ws.column_dimensions["B"].width = 40   # Supplier Name
+    ws.column_dimensions["A"].width = 40   # Supplier Name
     for ci_off in range(len(present)):
-        ws.column_dimensions[get_column_letter(3 + ci_off)].width = 11
+        ws.column_dimensions[get_column_letter(2 + ci_off)].width = 11
     ws.column_dimensions[get_column_letter(gt_col)].width = 13
 
     return pivot, period_labels
