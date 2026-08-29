@@ -56,6 +56,7 @@ _SUFFIX_MULTIPLIERS = {
     "CR": Decimal("10000000"),
 }
 _AMOUNT = r"([\d,]+(?:\.\d{1,2})?)\s*(K|L|Cr)?"
+CHECK_MAX_ATTEMPTS = 3
 
 
 def _utcnow() -> datetime:
@@ -82,6 +83,7 @@ def seed_settings(db: Session) -> None:
             alerts_enabled=True,
             alert_start_amount=Decimal("500000"),
             alert_step_amount=Decimal("50000"),
+            alert_repeat_hours=30,
             alert_to="[]",
             alert_cc="[]",
             alert_subject_template=DEFAULT_ALERT_SUBJECT,
@@ -207,28 +209,27 @@ def format_threshold(value: Decimal) -> str:
     return f"{rendered} {unit}"
 
 
-def crossed_thresholds(
+def threshold_reminder_due(
+    *,
     previous: Decimal | None,
     current: Decimal,
-    start: Decimal,
-    step: Decimal,
-) -> list[Decimal]:
-    if step <= 0 or start < 0 or current > start:
-        return []
-    thresholds: list[Decimal] = []
-    threshold = start
-    while threshold >= 0:
-        thresholds.append(threshold)
-        threshold -= step
-    if thresholds[-1] != 0:
-        thresholds.append(Decimal("0"))
+    threshold: Decimal,
+    last_notification_at: datetime | None,
+    repeat_hours: int,
+    now: datetime,
+) -> bool:
+    """Return whether this check should create one below-threshold reminder.
 
-    if previous is None:
-        eligible = [threshold for threshold in thresholds if threshold >= current]
-        return [min(eligible)] if eligible else []
-    if current >= previous:
-        return []
-    return [threshold for threshold in thresholds if current <= threshold < previous]
+    A newly entered below-threshold episode alerts immediately. While the
+    balance remains below the threshold, reminders are spaced by the
+    administrator-configured interval. A recovery to the threshold or above
+    stops reminders and permits an immediate alert on a later drop.
+    """
+    if current >= threshold:
+        return False
+    if previous is None or previous >= threshold or last_notification_at is None:
+        return True
+    return last_notification_at <= now - timedelta(hours=max(1, repeat_hours))
 
 
 def _dismiss_welcome_popup(page, timeout_ms: int = 800) -> None:
@@ -453,11 +454,61 @@ def fetch_balance(
             browser.close()
 
 
+def fetch_balance_with_retries(snapshot: dict[str, Any], progress_cb=None):
+    """Try a portal balance check at most three times.
+
+    The first attempt may reuse the encrypted Playwright storage state. Later
+    attempts deliberately start with a fresh browser login so an expired or
+    partially corrupted portal session cannot poison every retry.
+    """
+    last_error: Exception | None = None
+    for attempt in range(1, CHECK_MAX_ATTEMPTS + 1):
+        if progress_cb:
+            progress_cb(
+                0.05 + (attempt - 1) * 0.12,
+                f"Opening the secure IOCL portal (attempt {attempt} of {CHECK_MAX_ATTEMPTS})",
+            )
+        attempt_snapshot = dict(snapshot)
+        if attempt > 1:
+            attempt_snapshot["saved_session"] = None
+        try:
+            balance, session_state = fetch_balance(**attempt_snapshot)
+            return balance, session_state, attempt
+        except Exception as exc:  # noqa: BLE001 - each portal failure is retryable
+            last_error = exc
+            logger.warning(
+                "IOCL portal attempt %s of %s failed: %s",
+                attempt,
+                CHECK_MAX_ATTEMPTS,
+                str(exc)[:500],
+            )
+    message = str(last_error) if last_error is not None else "Unknown portal error"
+    raise RuntimeError(
+        f"IOCL balance check failed after {CHECK_MAX_ATTEMPTS} attempts. Last error: {message}"
+    ) from last_error
+
+
 def _render(template: str, balance: Decimal, threshold: Decimal | None = None) -> str:
     values = {
         "date": format_business_date(),
         "balance": format_amount(balance),
         "balance_number": format_indian_number(balance, 2),
+        "threshold": format_threshold(threshold or Decimal("0")),
+        "threshold_number": format_indian_number(threshold or Decimal("0"), 2),
+    }
+    return template.format_map(values)
+
+
+def _render_html_body(
+    template: str,
+    balance: Decimal,
+    threshold: Decimal | None = None,
+) -> str:
+    """Render the configured body with every balance placeholder bold."""
+    values = {
+        "date": format_business_date(),
+        "balance": f"<strong>{format_amount(balance)}</strong>",
+        "balance_number": f"<strong>{format_indian_number(balance, 2)}</strong>",
         "threshold": format_threshold(threshold or Decimal("0")),
         "threshold_number": format_indian_number(threshold or Decimal("0"), 2),
     }
@@ -474,7 +525,9 @@ def render_preview(
     Settings page's "Send test mail" buttons - lets someone see the real
     rendered wording before saving, without waiting for an actual balance
     check or threshold crossing."""
-    return _render(subject_template, balance, threshold), _render(body_template, balance, threshold)
+    return _render(subject_template, balance, threshold), _render_html_body(
+        body_template, balance, threshold
+    )
 
 
 def _add_or_refresh_daily_notification(
@@ -496,7 +549,7 @@ def _add_or_refresh_daily_notification(
         check_id=check.id,
         balance=balance,
         subject=_render(settings.daily_subject_template, balance),
-        body=_render(settings.daily_body_template, balance),
+        body=_render_html_body(settings.daily_body_template, balance),
         to_recipients=settings.daily_to or "[]",
         cc_recipients=settings.daily_cc or "[]",
     )
@@ -524,27 +577,36 @@ def _add_threshold_notifications(
 ) -> None:
     if not settings.alerts_enabled:
         return
-    for threshold in crossed_thresholds(
-        previous,
-        balance,
-        Decimal(settings.alert_start_amount),
-        Decimal(settings.alert_step_amount),
+    threshold = Decimal(settings.alert_start_amount)
+    last_notification = db.query(IoclBalanceNotification).filter(
+        IoclBalanceNotification.notification_type == "threshold",
+        IoclBalanceNotification.is_deleted.is_(False),
+    ).order_by(IoclBalanceNotification.created_at.desc()).first()
+    now = _utcnow()
+    if not threshold_reminder_due(
+        previous=previous,
+        current=balance,
+        threshold=threshold,
+        last_notification_at=(last_notification.created_at if last_notification else None),
+        repeat_hours=settings.alert_repeat_hours,
+        now=now,
     ):
-        key = f"threshold:{check.id}:{int(threshold * 100)}"
-        db.add(
-            IoclBalanceNotification(
-                notification_key=key,
-                check_id=check.id,
-                notification_type="threshold",
-                threshold_amount=threshold,
-                balance=balance,
-                subject=_render(settings.alert_subject_template, balance, threshold),
-                body=_render(settings.alert_body_template, balance, threshold),
-                to_recipients=settings.alert_to or "[]",
-                cc_recipients=settings.alert_cc or "[]",
-                status="pending",
-            )
+        return
+    db.add(
+        IoclBalanceNotification(
+            notification_key=f"threshold-reminder:{check.id}",
+            check_id=check.id,
+            notification_type="threshold",
+            threshold_amount=threshold,
+            balance=balance,
+            subject=_render(settings.alert_subject_template, balance, threshold),
+            body=_render_html_body(settings.alert_body_template, balance, threshold),
+            to_recipients=settings.alert_to or "[]",
+            cc_recipients=settings.alert_cc or "[]",
+            status="pending",
+            created_at=now,
         )
+    )
 
 
 def _send_from_configured_sender(
@@ -684,15 +746,23 @@ def run_check_job(trigger: str = "scheduled", progress_cb=None) -> dict:
             "login_timeout_seconds": settings.login_timeout_seconds,
         }
         settings.check_lock_token = token
-        settings.check_lock_expires_at = now + timedelta(minutes=15)
+        # Three complete portal attempts can legitimately outlive the old
+        # fixed 15-minute lease when the administrator chooses the maximum
+        # login timeout. Keep the database lease longer than the bounded
+        # worst case so another worker cannot overlap the same portal account.
+        lease_seconds = max(
+            15 * 60,
+            CHECK_MAX_ATTEMPTS * (settings.login_timeout_seconds + 120),
+        )
+        settings.check_lock_expires_at = now + timedelta(seconds=lease_seconds)
         db.commit()
     finally:
         db.close()
 
     try:
-        if progress_cb:
-            progress_cb(0.08, "Opening the secure IOCL portal")
-        balance, session_state = fetch_balance(**snapshot)
+        balance, session_state, attempt_count = fetch_balance_with_retries(
+            snapshot, progress_cb=progress_cb
+        )
         if progress_cb:
             progress_cb(0.72, "CCMS balance detected; evaluating notifications")
 
@@ -743,12 +813,18 @@ def run_check_job(trigger: str = "scheduled", progress_cb=None) -> dict:
             progress_cb(1.0, "IOCL balance check complete")
         audit_middleware.log_event(
             "iocl.balance.checked",
-            details={"trigger": trigger, "check_id": check_id, "notifications": len(deliveries)},
+            details={
+                "trigger": trigger,
+                "check_id": check_id,
+                "attempts": attempt_count,
+                "notifications": len(deliveries),
+            },
         )
         return {
             "check_id": check_id,
             "balance": float(balance),
             "checked_at": _utcnow().isoformat(),
+            "attempts": attempt_count,
             "notifications": deliveries,
         }
     except Exception as exc:

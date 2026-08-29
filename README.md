@@ -35,7 +35,7 @@ The DMS Downloader is retired and intentionally not part of the catalogue.
 - MySQL-backed job leases, tab ownership, rate limits, resource slots, audit history, and idempotent mail actions.
 - Centralized mappings with searchable suggestions, pagination, soft deletion, and administrator-controlled defaults.
 - Oracle work is coordinated through the shared `oracle-gst` resource slot; report generation does not require Excel COM.
-- IOCL has one encrypted, administrator-owned sender configuration. Regular users can check the balance and read history only.
+- IOCL has one encrypted, administrator-owned sender configuration. Regular users can check the balance and read history only. Portal checks try at most three times; below-threshold alerts repeat on an administrator-configured hourly interval until the balance recovers.
 
 ## Screenshots
 

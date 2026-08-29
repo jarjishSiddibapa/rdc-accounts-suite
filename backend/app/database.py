@@ -266,6 +266,14 @@ def _apply_additive_schema_updates() -> None:
                         "ADD COLUMN `sender_app_password_encrypted` TEXT NULL"
                     )
                 )
+        if "alert_repeat_hours" not in iocl_columns:
+            with engine.begin() as connection:
+                connection.execute(
+                    text(
+                        "ALTER TABLE `iocl_balance_settings` "
+                        "ADD COLUMN `alert_repeat_hours` INT NOT NULL DEFAULT 30"
+                    )
+                )
         if needs_iocl_sender_backfill:
             # One-time migration only: never repopulate a sender that an
             # administrator deliberately cleared after the schema upgrade.

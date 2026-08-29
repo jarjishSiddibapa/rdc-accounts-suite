@@ -214,7 +214,11 @@ class IoclBalanceSettings(Base):
 
     alerts_enabled = Column(Boolean, default=True, nullable=False)
     alert_start_amount = Column(Numeric(14, 2), default=500000, nullable=False)
+    # alert_step_amount is retained for non-destructive compatibility with
+    # the first threshold-crossing release. Runtime behavior now uses a
+    # time-based reminder while the balance remains below the threshold.
     alert_step_amount = Column(Numeric(14, 2), default=50000, nullable=False)
+    alert_repeat_hours = Column(Integer, default=30, nullable=False)
     alert_to = Column(Text, nullable=True)
     alert_cc = Column(Text, nullable=True)
     alert_subject_template = Column(Text, nullable=False)

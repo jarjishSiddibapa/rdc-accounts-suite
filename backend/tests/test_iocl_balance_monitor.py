@@ -1,6 +1,7 @@
 import unittest
-from datetime import date
+from datetime import date, datetime, timedelta
 from decimal import Decimal
+from unittest.mock import patch
 
 from app.services.iocl_balance import monitor
 
@@ -23,35 +24,43 @@ class IoclBalanceParsingTests(unittest.TestCase):
 
 
 class IoclThresholdTests(unittest.TestCase):
-    def test_first_observation_emits_only_nearest_reached_threshold(self):
-        self.assertEqual(
-            monitor.crossed_thresholds(None, Decimal("380000"), Decimal("500000"), Decimal("50000")),
-            [Decimal("400000")],
-        )
+    def setUp(self):
+        self.now = datetime(2026, 8, 29, 12, 0)
 
-    def test_one_drop_can_cross_multiple_thresholds(self):
-        self.assertEqual(
-            monitor.crossed_thresholds(
-                Decimal("510000"), Decimal("440000"), Decimal("500000"), Decimal("50000")
-            ),
-            [Decimal("500000"), Decimal("450000")],
+    def due(self, **overrides):
+        values = dict(
+            previous=Decimal("600000"),
+            current=Decimal("490000"),
+            threshold=Decimal("500000"),
+            last_notification_at=None,
+            repeat_hours=30,
+            now=self.now,
         )
+        values.update(overrides)
+        return monitor.threshold_reminder_due(**values)
 
-    def test_rising_or_unchanged_balance_does_not_alert(self):
-        self.assertEqual(
-            monitor.crossed_thresholds(
-                Decimal("450000"), Decimal("475000"), Decimal("500000"), Decimal("50000")
-            ),
-            [],
-        )
+    def test_entering_below_threshold_alerts_immediately(self):
+        self.assertTrue(self.due())
 
-    def test_zero_is_an_explicit_threshold(self):
-        self.assertEqual(
-            monitor.crossed_thresholds(
-                Decimal("25000"), Decimal("0"), Decimal("500000"), Decimal("50000")
-            ),
-            [Decimal("0")],
-        )
+    def test_remaining_below_threshold_waits_for_repeat_interval(self):
+        self.assertFalse(self.due(
+            previous=Decimal("480000"),
+            last_notification_at=self.now - timedelta(hours=29, minutes=59),
+        ))
+        self.assertTrue(self.due(
+            previous=Decimal("480000"),
+            last_notification_at=self.now - timedelta(hours=30),
+        ))
+
+    def test_recovery_stops_reminders(self):
+        self.assertFalse(self.due(current=Decimal("500000")))
+        self.assertFalse(self.due(current=Decimal("550000")))
+
+    def test_a_new_drop_after_recovery_alerts_even_if_previous_mail_is_recent(self):
+        self.assertTrue(self.due(
+            previous=Decimal("550000"),
+            last_notification_at=self.now - timedelta(hours=1),
+        ))
 
     def test_human_threshold_labels(self):
         cases = {
@@ -88,6 +97,67 @@ class IoclTemplateTests(unittest.TestCase):
         rendered = monitor._render(monitor.DEFAULT_DAILY_BODY, Decimal("500000"))
         self.assertIn("is Rs. 5,00,000.00.", rendered)
         self.assertNotIn("Rs. Rs.", rendered)
+
+    def test_balance_is_bold_in_daily_and_alert_email_bodies(self):
+        _, daily_body = monitor.render_preview(
+            monitor.DEFAULT_DAILY_SUBJECT,
+            monitor.DEFAULT_DAILY_BODY,
+            Decimal("500000"),
+        )
+        _, alert_body = monitor.render_preview(
+            monitor.DEFAULT_ALERT_SUBJECT,
+            monitor.DEFAULT_ALERT_BODY,
+            Decimal("450000"),
+            Decimal("500000"),
+        )
+        self.assertIn("<strong>Rs. 5,00,000.00</strong>", daily_body)
+        self.assertIn("<strong>Rs. 4,50,000.00</strong>", alert_body)
+
+
+class IoclRetryTests(unittest.TestCase):
+    def test_succeeds_on_third_attempt_and_discards_saved_session_after_first(self):
+        snapshot = {
+            "login_url": "https://example.test/login",
+            "username": "user",
+            "password": "secret",
+            "saved_session": {"cookies": [{"name": "old"}]},
+            "login_timeout_seconds": 60,
+        }
+        with patch.object(
+            monitor,
+            "fetch_balance",
+            side_effect=[
+                RuntimeError("stale session"),
+                RuntimeError("portal still loading"),
+                (Decimal("450000"), {"cookies": [{"name": "fresh"}]}),
+            ],
+        ) as mocked:
+            balance, session, attempts = monitor.fetch_balance_with_retries(snapshot)
+
+        self.assertEqual(balance, Decimal("450000"))
+        self.assertEqual(session["cookies"][0]["name"], "fresh")
+        self.assertEqual(attempts, 3)
+        self.assertEqual(mocked.call_count, 3)
+        self.assertEqual(mocked.call_args_list[0].kwargs["saved_session"], snapshot["saved_session"])
+        self.assertIsNone(mocked.call_args_list[1].kwargs["saved_session"])
+        self.assertIsNone(mocked.call_args_list[2].kwargs["saved_session"])
+
+    def test_fails_only_after_three_attempts(self):
+        snapshot = {
+            "login_url": "https://example.test/login",
+            "username": "user",
+            "password": "secret",
+            "saved_session": None,
+            "login_timeout_seconds": 60,
+        }
+        with patch.object(
+            monitor,
+            "fetch_balance",
+            side_effect=RuntimeError("Financials unavailable"),
+        ) as mocked:
+            with self.assertRaisesRegex(RuntimeError, "failed after 3 attempts"):
+                monitor.fetch_balance_with_retries(snapshot)
+        self.assertEqual(mocked.call_count, 3)
 
 
 class _FakeNavElement:

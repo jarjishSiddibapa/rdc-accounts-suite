@@ -75,6 +75,17 @@ Wallet Balance. Password and Playwright storage state are Fernet-encrypted in
 MySQL. Never copy the reference project's plaintext password or session JSON
 into this repository, logs, job arguments, or API responses.
 
+Each IOCL balance job makes at most three complete portal attempts before it
+is recorded as failed. The first attempt may reuse the encrypted saved browser
+session; later attempts deliberately use a fresh credential login. Do not turn
+this into an unbounded retry loop or create a separate history row per attempt.
+Below-threshold mail is time-based: send immediately on entering the configured
+below-threshold range, then once per `alert_repeat_hours` (30 hours by default)
+while the balance remains below it. Recovery to the threshold or above stops
+the reminders. The legacy `alert_step_amount` column remains only for
+non-destructive schema compatibility and must not drive new notifications.
+Both daily and threshold email HTML bold the rendered balance value.
+
 An expired XTRAPOWER storage state can briefly redirect away from the login
 route while Angular starts and then bounce back to `/account/login`. Do not
 treat the first non-login URL as authentication success: `_wait_until_logged_in`
@@ -567,7 +578,9 @@ The IOCL monitor migrations are:
 
 - `deployment/mysql/20260827_iocl_balance_monitor.sql` for the original tables;
 - `deployment/mysql/20260828_iocl_admin_owned_sender.sql` for the dedicated
-  admin-owned sender fields and one-time encrypted sender backfill.
+  admin-owned sender fields and one-time encrypted sender backfill;
+- `deployment/mysql/20260829_iocl_recurring_threshold_reminders.sql` for the
+  editable recurring below-threshold reminder interval.
 
 The Creditors Ageing migration is
 `deployment/mysql/20260828_creditors_ageing_report.sql`. It creates the

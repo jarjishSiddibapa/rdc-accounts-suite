@@ -54,7 +54,7 @@ class SettingsBody(BaseModel):
     daily_body_template: str = Field(min_length=1, max_length=20_000)
     alerts_enabled: bool
     alert_start_amount: Decimal = Field(ge=0, le=Decimal("1000000000"))
-    alert_step_amount: Decimal = Field(gt=0, le=Decimal("1000000000"))
+    alert_repeat_hours: int = Field(ge=1, le=720)
     alert_to: list[EmailStr]
     alert_cc: list[EmailStr]
     alert_subject_template: str = Field(min_length=1, max_length=1000)
@@ -122,7 +122,7 @@ def _settings_dict(row: IoclBalanceSettings) -> dict:
         "daily_body_template": row.daily_body_template,
         "alerts_enabled": row.alerts_enabled,
         "alert_start_amount": float(row.alert_start_amount),
-        "alert_step_amount": float(row.alert_step_amount),
+        "alert_repeat_hours": row.alert_repeat_hours,
         "alert_to": monitor.parse_recipients(row.alert_to),
         "alert_cc": monitor.parse_recipients(row.alert_cc),
         "alert_subject_template": row.alert_subject_template,
@@ -212,7 +212,7 @@ def put_settings(
     row.daily_body_template = body.daily_body_template
     row.alerts_enabled = body.alerts_enabled
     row.alert_start_amount = body.alert_start_amount
-    row.alert_step_amount = body.alert_step_amount
+    row.alert_repeat_hours = body.alert_repeat_hours
     row.alert_to = json.dumps([str(value) for value in body.alert_to])
     row.alert_cc = json.dumps([str(value) for value in body.alert_cc])
     row.alert_subject_template = body.alert_subject_template

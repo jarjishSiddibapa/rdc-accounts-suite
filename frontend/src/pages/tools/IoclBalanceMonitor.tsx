@@ -55,7 +55,7 @@ interface Settings extends MonitorStatus {
   daily_body_template: string
   alerts_enabled: boolean
   alert_start_amount: number
-  alert_step_amount: number
+  alert_repeat_hours: number
   alert_to: string[]
   alert_cc: string[]
   alert_subject_template: string
@@ -67,6 +67,7 @@ interface CheckResult {
   check_id?: number
   balance?: number
   checked_at?: string
+  attempts?: number
   skipped?: boolean
   message?: string
 }
@@ -323,7 +324,7 @@ export default function IoclBalanceMonitor() {
               <div>
                 <p className="text-sm font-semibold text-accent">Ultrafine treasury automation</p>
                 <h2 className="mt-1.5 font-display text-2xl font-semibold tracking-[-0.03em] text-ink">IOCL balance, watched automatically</h2>
-                <p className="mt-2 max-w-2xl text-sm leading-6 text-ink-dim">Checks the IOCL CCMS balance on a schedule, sends a morning balance mail, and alerts whenever the balance drops past a threshold.</p>
+                <p className="mt-2 max-w-2xl text-sm leading-6 text-ink-dim">Checks the IOCL CCMS balance on a schedule, sends a morning balance mail, and repeats reminders while the balance remains below your threshold.</p>
               </div>
             </div>
             <Button icon={<RefreshCw className="h-4 w-4" />} loading={checking} onClick={() => void checkNow()}>Check balance now</Button>
@@ -366,7 +367,8 @@ export default function IoclBalanceMonitor() {
             onDone={(result) => {
               setChecking(false)
               setJobId(null)
-              setMessage({ ok: true, text: result?.skipped ? result.message ?? 'A check is already running.' : `Balance check completed${result?.balance == null ? '.' : `: ${formatIndianCurrency(result.balance)}.`}` })
+              const attemptNote = (result?.attempts ?? 1) > 1 ? ` after ${result?.attempts} attempts` : ''
+              setMessage({ ok: true, text: result?.skipped ? result.message ?? 'A check is already running.' : `Balance check completed${attemptNote}${result?.balance == null ? '.' : `: ${formatIndianCurrency(result.balance)}.`}` })
               void refreshAfterCheck()
             }}
             onError={(error) => { setChecking(false); setJobId(null); setMessage({ ok: false, text: error }); void refreshAfterCheck() }}
@@ -424,11 +426,11 @@ export default function IoclBalanceMonitor() {
           </GlassCard>
 
           <GlassCard padding="lg" className="flex flex-col gap-5">
-            <div className="flex items-center gap-3"><Mail className="h-5 w-5 text-accent" /><div><h2 className="font-display text-lg font-semibold text-ink">Threshold alerts</h2><p className="text-sm text-ink-dim">A mail every time the balance drops past another step, down to zero.</p></div></div>
-            <label className="flex items-center gap-3 text-sm font-medium text-ink"><input type="checkbox" className="h-4 w-4 accent-accent" checked={settings.alerts_enabled} onChange={(event) => setSettings({ ...settings, alerts_enabled: event.target.checked })} />Alert when the balance drops</label>
+            <div className="flex items-center gap-3"><Mail className="h-5 w-5 text-accent" /><div><h2 className="font-display text-lg font-semibold text-ink">Threshold reminders</h2><p className="text-sm text-ink-dim">Send an immediate alert below the threshold, then keep reminding until the balance recovers.</p></div></div>
+            <label className="flex items-center gap-3 text-sm font-medium text-ink"><input type="checkbox" className="h-4 w-4 accent-accent" checked={settings.alerts_enabled} onChange={(event) => setSettings({ ...settings, alerts_enabled: event.target.checked })} />Send reminders while the balance is below the threshold</label>
             <div className="grid gap-4 sm:grid-cols-2">
               <Field label="Start alerting below (₹)"><input type="number" min={0} step={1000} className="field-control" value={settings.alert_start_amount} onChange={(event) => setSettings({ ...settings, alert_start_amount: Number(event.target.value) })} /></Field>
-              <Field label="Repeat every drop of (₹)"><input type="number" min={1} step={1000} className="field-control" value={settings.alert_step_amount} onChange={(event) => setSettings({ ...settings, alert_step_amount: Number(event.target.value) })} /></Field>
+              <Field label="Repeat reminder every (hours)" hint="1–720 hours. The default is 30 hours."><input type="number" min={1} max={720} step={1} className="field-control" value={settings.alert_repeat_hours} onChange={(event) => setSettings({ ...settings, alert_repeat_hours: Number(event.target.value) })} /></Field>
             </div>
             <Field label="To" hint="One address per line, or comma-separated."><textarea className="field-control min-h-24" value={alertTo} onChange={(event) => setAlertTo(event.target.value)} /></Field>
             <Field label="Cc"><textarea className="field-control min-h-20" value={alertCc} onChange={(event) => setAlertCc(event.target.value)} /></Field>
@@ -449,7 +451,7 @@ export default function IoclBalanceMonitor() {
         </GlassCard>
 
         <GlassCard padding="lg">
-          <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div className="flex items-center gap-3"><Mail className="h-5 w-5 text-accent" /><div><h2 className="font-display text-lg font-semibold text-ink">Complete notification history</h2><p className="text-sm text-ink-dim">Every morning balance mail and threshold alert, with delivery result and any error.</p></div></div><div className="flex flex-wrap gap-2"><select className="field-control min-w-36" value={notificationType} onChange={(event) => { setNotificationType(event.target.value); setNotificationPage(1) }} aria-label="Filter emails by type"><option value="">All mail types</option><option value="daily">Morning balance</option><option value="threshold">Threshold alert</option></select><select className="field-control min-w-36" value={notificationStatus} onChange={(event) => { setNotificationStatus(event.target.value); setNotificationPage(1) }} aria-label="Filter emails by status"><option value="">All statuses</option><option value="pending">Pending</option><option value="sending">Sending</option><option value="sent">Sent</option><option value="failed">Failed</option></select></div></div>
+          <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div className="flex items-center gap-3"><Mail className="h-5 w-5 text-accent" /><div><h2 className="font-display text-lg font-semibold text-ink">Complete notification history</h2><p className="text-sm text-ink-dim">Every morning balance mail and below-threshold reminder, with delivery result and any error.</p></div></div><div className="flex flex-wrap gap-2"><select className="field-control min-w-36" value={notificationType} onChange={(event) => { setNotificationType(event.target.value); setNotificationPage(1) }} aria-label="Filter emails by type"><option value="">All mail types</option><option value="daily">Morning balance</option><option value="threshold">Threshold reminder</option></select><select className="field-control min-w-36" value={notificationStatus} onChange={(event) => { setNotificationStatus(event.target.value); setNotificationPage(1) }} aria-label="Filter emails by status"><option value="">All statuses</option><option value="pending">Pending</option><option value="sending">Sending</option><option value="sent">Sent</option><option value="failed">Failed</option></select></div></div>
           <div className="mt-4 overflow-x-auto"><table className="w-full min-w-[62rem] text-left text-sm"><thead><tr className="border-b border-border text-xs text-ink-faint"><th className="px-2 py-3">Created at (IST)</th><th className="px-2 py-3">Mail</th><th className="px-2 py-3">Subject</th><th className="px-2 py-3">Balance</th><th className="px-2 py-3">Status</th><th className="px-2 py-3">Delivery details</th></tr></thead><tbody>{notifications.map((row) => <tr key={row.id} className="border-b border-border/60 align-top"><td className="whitespace-nowrap px-2 py-3 text-ink-dim">{formatIndianDateTime(row.created_at)}</td><td className="px-2 py-3 text-ink">{row.notification_type === 'daily' ? 'Morning balance' : `Below ${formatIndianCurrency(row.threshold_amount ?? 0)}`}</td><td className="max-w-xs px-2 py-3 text-ink-dim">{row.subject}</td><td className="px-2 py-3 font-semibold text-ink">{formatIndianCurrency(row.balance)}</td><td className="px-2 py-3"><StatusBadge status={row.status} /></td><td className="max-w-sm px-2 py-3 text-xs leading-5 text-ink-dim">{row.error_message || (row.sent_at ? `Sent ${formatIndianDateTime(row.sent_at)}` : 'Awaiting delivery')}</td></tr>)}</tbody></table>{notifications.length === 0 && <p className="py-8 text-center text-sm text-ink-faint">No emails match these filters.</p>}</div>
           <Pagination className="mt-4" page={notificationPage} pageCount={Math.max(1, Math.ceil(notificationTotal / notificationPageSize))} pageSize={notificationPageSize} totalItems={notificationTotal} itemLabel="emails" pageSizeOptions={[10, 25, 50, 100]} onPageChange={setNotificationPage} onPageSizeChange={(size) => { setNotificationPageSize(size); setNotificationPage(1) }} />
         </GlassCard>
