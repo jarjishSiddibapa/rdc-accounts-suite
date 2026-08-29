@@ -167,6 +167,16 @@ leases, heartbeat while running, recover stale leases, persist results/errors,
 and retry transient MySQL deadlocks/lock timeouts. Public API status preserves
 the frontend's existing polling contract.
 
+`background_jobs.owner_id`, `background_job_actions.owner_id`, and
+`trial_balance_upload_tokens.owner_id` are real foreign keys to `users.id`;
+`background_job_actions.job_id` and `background_resource_slots.job_id` are
+real foreign keys to `background_jobs.id`; `application_email_recipients.
+app_key` is a real foreign key to `applications.key`. These were added by
+`deployment/mysql/20260829_add_missing_foreign_keys.sql` after being
+validated only in the application layer for a while — see that file's
+idempotent, orphan-checking pattern before adding any other implicit
+relationship as a bare unconstrained column.
+
 Job functions must be module-level and registered in the allowlist in
 `backend/app/jobs.py`. Arguments/results pass through its lossless JSON codec.
 Do not enqueue closures, open file objects, database sessions, Oracle
@@ -329,6 +339,56 @@ If seed sources change, update the packaged seed, seeding logic, and
 `backend/tests/test_mapping_seeds.py` together. Never overwrite an admin's
 existing row merely because a seed contains a different value.
 
+### Derived mapping fields (Accounts Incharge)
+
+Several per-tool mapping tables store their own `accounts_incharge` column
+even though a separate table in the same app already owns that value once a
+Location/Region is known:
+
+- Unaccounted: `unaccounted_site_overrides` and `unaccounted_creator_mapping`
+  each carry `accounts_incharge`, but `unaccounted_location_incharge`
+  (Location -> Incharge) is the master once a Location is mapped there.
+- RDC Payables: `rdc_vendor_site_mapping`, `rdc_location_code_map`, and
+  `rdc_invoice_override` each carry `accounts_incharge`, but
+  `rdc_region_incharge_map` (Region -> Incharge) is the master once a Region
+  is mapped there.
+
+This is intentional, inherited from the original desktop apps (not a porting
+mistake): the column exists so a row created before its Location/Region was
+ever added to the master table still has a usable fallback value. The
+invariant is that **the master always wins once it has an entry**, everywhere
+that value is read or written:
+
+- Report generation resolves it live — see `processing._resolve_incharge()`
+  (Unaccounted) and `processor.py`'s "Region -> Accounts Incharge" step
+  (RDC Payables) — never trusting the stored column once the master covers
+  that key.
+- The admin Mappings list endpoints (`GET /mappings/site-overrides`,
+  `GET /mappings/creator` in `unaccounted_txn.py`; `GET /vendor-site-codes`,
+  `GET /location-codes`, `GET /invoice-overrides` in `rdc_payables.py`) must
+  resolve the same way before returning rows, not return the stored column
+  directly — otherwise the UI shows a stale incharge after the master is
+  edited even though the next report would already be correct.
+- The write endpoints let the master value win over a client-supplied one
+  whenever the Location/Region already has a master entry (see
+  `rdc_payables.py`'s `add_vendor_site_code`/`edit_vendor_site_code` etc. and
+  their inline comments) — a manually typed value only survives when there is
+  no master entry yet.
+- The frontend's shared `frontend/src/components/MappingTable.tsx` has a
+  `deriveColumn` prop for exactly this pattern: given a row's source field
+  (e.g. Location, Region), if a master lookup returns a value, the target
+  field (Accounts Incharge) renders read-only and that resolved value is what
+  actually gets submitted; otherwise it falls back to normal manual entry.
+  Reuse this prop rather than hand-rolling another derived-field UI if a
+  similar situation is found in another tool.
+
+Trial Balance and Unapplied Receipts do not have this pattern — neither
+stores Accounts Incharge on more than one table, so there is nothing to
+resolve. Creditors Ageing and Trial Balance Formatter have no Location/
+Region -> Incharge concept at all. Regression coverage:
+`backend/tests/test_unaccounted_mappings.py`,
+`backend/tests/test_rdc_payables_mappings.py`.
+
 ## 5. Email behavior
 
 Default recipients and other system mail configuration are managed centrally
@@ -457,6 +517,17 @@ The next startup additively seeds the packaged 202 mappings.
 Existing production installs that already ran the 27 August script need only
 run the 28 August script. It is idempotent and does not copy plaintext secrets.
 
+The referential-integrity migration is
+`deployment/mysql/20260829_add_missing_foreign_keys.sql`. It adds the 5
+foreign keys listed in the "Durable concurrency" subsection above. It is
+idempotent and defensive: before adding each constraint it checks for
+orphaned rows and skips just that one constraint (printing a `SKIPPED ...`
+warning row, not an error) if any are found, rather than failing the whole
+script or touching business data. A warning means that one relationship's
+data needs a manual look before it can be enforced; every other constraint in
+the file still applies normally. This was verified with a real dry run before
+being written up here, not assumed from reading the SQL.
+
 Normal production update sequence:
 
 1. `git pull origin main`
@@ -526,6 +597,12 @@ documentation current when applications, migrations, or operating procedures
 change. The dashboard catalogue must continue to expose all 13 active tools;
 the GST Invoice Number Adder is easy to omit because it is Oracle-backed.
 
+- `80a2f28` — added the 5 missing foreign keys described in "Durable
+  concurrency" and "Database and production deployment" above
+- `fd025fc` — extended live Accounts Incharge resolution to RDC Payables and
+  added the frontend `deriveColumn` mechanism (see "Derived mapping fields")
+- `b582342` — fixed Unaccounted's Supplier Site Overrides / Created-By tabs
+  showing a stale Accounts Incharge after Location -> Incharge was edited
 - `1e6e40f` — frontend design-system and interaction overhaul
 - `c9120fd` — durable MySQL multi-process job runtime and supervisor
 - `cfd8678` — UI polish and multi-user workflow hardening
