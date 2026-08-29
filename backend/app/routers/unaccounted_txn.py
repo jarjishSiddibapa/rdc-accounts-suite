@@ -483,9 +483,19 @@ class SiteOverrideBody(BaseModel):
 
 @router.get("/mappings/site-overrides")
 def list_site_overrides(user=Depends(get_current_user), db: Session = Depends(get_db)):
+    """Accounts Incharge is resolved live against the Location <-> Incharge
+    map (same precedence as report generation - see
+    processing._resolve_incharge) rather than returned from the stored
+    snapshot on this row, so editing a location's incharge is reflected here
+    immediately instead of only in the next generated report."""
     site_overrides, _ = mappings._load_custom_mappings(db)
+    loc_inc = mappings._load_location_incharge(db)
     return [
-        {"supplier_site": k, "location": v[0], "accounts_incharge": v[1]}
+        {
+            "supplier_site": k,
+            "location": v[0],
+            "accounts_incharge": processing._resolve_incharge(v[0], v[1], loc_inc),
+        }
         for k, v in sorted(site_overrides.items())
     ]
 
@@ -537,9 +547,16 @@ class CreatorMappingBody(BaseModel):
 
 @router.get("/mappings/creator")
 def list_creator_mappings(user=Depends(get_current_user), db: Session = Depends(get_db)):
+    """Same live resolution as list_site_overrides above - see its
+    docstring."""
     _, creator_map = mappings._load_custom_mappings(db)
+    loc_inc = mappings._load_location_incharge(db)
     return [
-        {"created_by": k, "location": v[0], "accounts_incharge": v[1]}
+        {
+            "created_by": k,
+            "location": v[0],
+            "accounts_incharge": processing._resolve_incharge(v[0], v[1], loc_inc),
+        }
         for k, v in sorted(creator_map.items())
     ]
 
