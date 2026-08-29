@@ -231,7 +231,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      <RevealGroup className="dashboard-tools-grid mt-5">
+      <RevealGroup key={companyFilter} className="dashboard-tools-grid mt-5">
         {visibleTools.map((tool, index) => (
           <Reveal key={tool.to}>
             <Link to={tool.to} className="group block h-full rounded-[1.25rem] focus-visible:outline-none">
