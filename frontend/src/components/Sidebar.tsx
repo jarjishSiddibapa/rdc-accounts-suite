@@ -207,7 +207,7 @@ export function Sidebar({
       </div>
 
       <motion.nav
-        className="flex flex-1 flex-col gap-1.5 overflow-y-auto py-1"
+        className="sidebar-nav-scroll flex min-w-0 flex-1 flex-col gap-1.5 overflow-x-hidden overflow-y-auto py-1"
         initial={reduceMotion ? false : { opacity: 0, x: -10 }}
         animate={{ opacity: 1, x: 0 }}
         transition={{ duration: 0.45, delay: 0.08, ease: [0.16, 1, 0.3, 1] }}
@@ -309,7 +309,7 @@ function SidebarLink({
       title={item.label}
       className={({ isActive }) =>
         cn(
-          'group relative flex min-h-11 items-center gap-3 overflow-hidden rounded-xl border px-3 py-2.5 text-sm font-semibold transition duration-200 hover:translate-x-0.5 active:scale-[0.985]',
+          'group relative flex min-h-11 min-w-0 items-center gap-3 overflow-hidden rounded-xl border px-3 py-2.5 text-sm font-semibold transition duration-200 active:scale-[0.985]',
           collapsed && 'xl:justify-center xl:px-0',
           isActive
             ? 'border-transparent text-accent'

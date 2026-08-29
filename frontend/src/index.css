@@ -395,6 +395,11 @@
     -webkit-mask-image: linear-gradient(to bottom, black, transparent 48%);
   }
 
+  .sidebar-nav-scroll {
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+  }
+
   .app-topbar::after {
     position: absolute;
     right: 1.25rem;
