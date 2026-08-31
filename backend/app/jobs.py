@@ -14,7 +14,9 @@ import importlib
 import inspect
 import json
 import logging
+import multiprocessing
 import os
+import queue as queue_module
 import threading
 import time
 import uuid
@@ -139,6 +141,65 @@ def _get_cpu_executor() -> ProcessPoolExecutor:
     return _cpu_executor
 
 
+_progress_manager: multiprocessing.managers.SyncManager | None = None
+_progress_manager_lock = threading.Lock()
+
+
+def _get_progress_manager() -> multiprocessing.managers.SyncManager:
+    """Lazily started, reused for the life of the worker process. A
+    ``Manager`` runs its own tiny helper process and proxies picklable
+    ``Queue`` objects into/out of the CPU pool's worker processes - the
+    only way to relay progress across a ``ProcessPoolExecutor`` boundary
+    without changing that pool's own worker startup.
+    """
+    global _progress_manager
+    if _progress_manager is None:
+        with _progress_manager_lock:
+            if _progress_manager is None:
+                _progress_manager = multiprocessing.Manager()
+                atexit.register(_progress_manager.shutdown)
+    return _progress_manager
+
+
+class _QueueProgress:
+    """Picklable stand-in for a plain ``progress_cb(frac, phase)`` callable
+    that instead posts updates onto a cross-process queue. Passed into the
+    CPU pool worker in place of the real callback, which cannot itself
+    cross the process boundary."""
+
+    def __init__(self, queue):
+        self._queue = queue
+
+    def __call__(self, frac, phase) -> None:
+        try:
+            self._queue.put_nowait((frac, phase))
+        except Exception:
+            pass
+
+
+def _drain_progress(queue, progress_cb) -> None:
+    """Apply only the most recent queued update - intermediate ones are
+    superseded and not worth a separate `_update_progress` DB write each."""
+    latest = None
+    while True:
+        try:
+            latest = queue.get_nowait()
+        except (queue_module.Empty, EOFError, OSError):
+            break
+    if latest is not None:
+        try:
+            progress_cb(*latest)
+        except Exception:
+            logger.exception("progress_cb failed while draining CPU phase progress")
+
+
+def _fn_accepts_progress_cb(fn) -> bool:
+    try:
+        return "progress_cb" in inspect.signature(fn).parameters
+    except (TypeError, ValueError):
+        return False
+
+
 def _abort_cpu_executor() -> None:
     """Terminate the current worker's CPU children after client cancellation.
 
@@ -166,22 +227,41 @@ def _current_cancel_event() -> threading.Event | None:
     return getattr(_execution_context, "cancel_event", None)
 
 
-def run_cpu_phase(fn, *args, **kwargs):
+def run_cpu_phase(fn, *args, progress_cb=None, **kwargs):
+    """Run ``fn`` in the CPU process pool and block until it finishes.
+
+    When the caller passes ``progress_cb`` *and* ``fn`` itself declares a
+    ``progress_cb`` parameter, a cross-process queue is wired in its place
+    so ``fn``'s own fine-grained progress reporting (bytes parsed, rows
+    written, ...) reaches the caller's callback in near-real time instead
+    of the phase appearing frozen until the whole call returns. Callers
+    that omit ``progress_cb`` see no behavioural change.
+    """
+    queue = None
+    if progress_cb is not None and _fn_accepts_progress_cb(fn):
+        queue = _get_progress_manager().Queue()
+        kwargs = {**kwargs, "progress_cb": _QueueProgress(queue)}
     future = _get_cpu_executor().submit(fn, *args, **kwargs)
     while True:
         try:
-            return future.result(timeout=0.25)
+            result = future.result(timeout=0.25)
         except FutureTimeoutError:
+            if queue is not None:
+                _drain_progress(queue, progress_cb)
             cancel_event = _current_cancel_event()
             if cancel_event is not None and cancel_event.is_set():
                 _abort_cpu_executor()
                 raise JobCancelled("Job cancelled after browser tab closed")
+            continue
         except Exception as exc:
             cancel_event = _current_cancel_event()
             if cancel_event is not None and cancel_event.is_set():
                 _abort_cpu_executor()
                 raise JobCancelled("Job cancelled after browser tab closed") from exc
             raise
+        if queue is not None:
+            _drain_progress(queue, progress_cb)
+        return result
 
 
 async def run_cpu_phase_async(fn, *args, **kwargs):

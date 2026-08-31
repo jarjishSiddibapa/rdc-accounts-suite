@@ -13,6 +13,7 @@ Oracle report outputs come in three shapes in practice:
 import os
 import shutil
 
+from .errors import ConversionError
 from .html_table_parser import HtmlReportParser
 from .xlsx_writer import XlsxWriter
 from .io_retry import with_retry
@@ -20,9 +21,7 @@ from .io_retry import with_retry
 XLS_OLE_SIGNATURE = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
 XLSX_ZIP_SIGNATURE = b"PK\x03\x04"
 
-
-class ConversionError(Exception):
-    pass
+__all__ = ["ConversionError", "convert_file", "detect_kind"]
 
 
 def _read_head(path):

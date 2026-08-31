@@ -23,7 +23,9 @@ from openpyxl.cell import WriteOnlyCell
 from openpyxl.utils import get_column_letter
 from openpyxl.styles.cell_style import StyleArray
 from openpyxl.styles.numbers import BUILTIN_FORMATS_REVERSE, BUILTIN_FORMATS_MAX_SIZE
+from openpyxl.worksheet.cell_range import CellRange, MultiCellRange
 
+from .errors import ConversionError
 from .style_map import StyleCache, resolve_cell_style
 from .value_parser import parse_value
 from .html_table_parser import TableBlock, TextBlock
@@ -32,6 +34,15 @@ from .io_retry import with_retry
 _MAX_COL_WIDTH = 60
 _MIN_COL_WIDTH = 8
 _MAX_TRACKED_COLS = 500  # safety cap; reports rarely exceed a few dozen columns
+
+# Excel's hard per-sheet limits (XLSX format spec, unrelated to openpyxl).
+# write-only mode has no idea these exist and will happily keep writing
+# past them, producing a file that Excel then refuses to open cleanly
+# ("unreadable content... repair") - checked as we go so a report that
+# would exceed the limit fails fast with a clear, actionable message
+# instead of silently shipping a corrupt-on-open output.
+_MAX_EXCEL_ROWS = 1_048_576
+_MAX_EXCEL_COLS = 16_384
 
 _EMPTY_PROPS = {}  # shared singleton so blank/filler cells share one cache identity
 
@@ -64,6 +75,14 @@ class XlsxWriter:
         # majority of cells in a report down to a handful of distinct
         # style computations.
         self._bundle_cache = {}
+
+        # (font_idx, fill_idx, border_idx, numfmt_idx, align_idx) -> the one
+        # StyleArray instance for that exact combination. ERP reports only
+        # ever have a handful of distinct combinations, so reusing the same
+        # object for every matching cell (instead of allocating a fresh
+        # 9-int array per cell) cuts allocation/GC pressure across the
+        # million-cell reports these files can contain.
+        self._style_array_cache = {}
 
     # ------------------------------------------------------------ id-based interning
     def _reg(self, cache, coll, obj):
@@ -118,8 +137,13 @@ class XlsxWriter:
             props, bold, italic, underline, valign, wrap)
         numfmt_idx = self._numfmt_index(numfmt)
         if font_idx or fill_idx or border_idx or align_idx or numfmt_idx:
-            cell._style = StyleArray(
-                [font_idx, fill_idx, border_idx, numfmt_idx, 0, align_idx, 0, 0, 0])
+            style_key = (font_idx, fill_idx, border_idx, numfmt_idx, align_idx)
+            style_array = self._style_array_cache.get(style_key)
+            if style_array is None:
+                style_array = StyleArray(
+                    [font_idx, fill_idx, border_idx, numfmt_idx, 0, align_idx, 0, 0, 0])
+                self._style_array_cache[style_key] = style_array
+            cell._style = style_array
         return cell
 
     def _track_width(self, col_index, length):
@@ -131,9 +155,26 @@ class XlsxWriter:
 
     def _spacer_if_needed(self):
         if self._wrote_any:
+            self._check_row_capacity()
             self.ws.append([])
             self.current_row += 1
         self._wrote_any = True
+
+    def _check_row_capacity(self):
+        if self.current_row + 1 > _MAX_EXCEL_ROWS:
+            raise ConversionError(
+                f"This report converts to more than {_MAX_EXCEL_ROWS:,} rows, "
+                "which exceeds Excel's per-sheet limit. Split the source "
+                "export into smaller date ranges or batches and convert "
+                "each one separately."
+            )
+
+    def _check_col_capacity(self, ncols):
+        if ncols > _MAX_EXCEL_COLS:
+            raise ConversionError(
+                f"This report has more than {_MAX_EXCEL_COLS:,} columns, "
+                "which exceeds Excel's per-sheet limit."
+            )
 
     # ------------------------------------------------------------- write
     def write_blocks(self, blocks_iter):
@@ -149,6 +190,7 @@ class XlsxWriter:
         if blk.text == "":
             return
         self._spacer_if_needed()
+        self._check_row_capacity()
         cell = self._make_cell(blk.text, None, blk.props, bold=blk.bold,
                                 italic=blk.italic, underline=blk.underline,
                                 wrap="\n" in blk.text)
@@ -160,6 +202,14 @@ class XlsxWriter:
     def _write_table_block(self, blk: TableBlock):
         if blk.nrows == 0 or blk.ncols == 0:
             return
+        self._check_col_capacity(blk.ncols)
+        if self.current_row + blk.nrows > _MAX_EXCEL_ROWS:
+            raise ConversionError(
+                f"This report converts to more than {_MAX_EXCEL_ROWS:,} rows, "
+                "which exceeds Excel's per-sheet limit. Split the source "
+                "export into smaller date ranges or batches and convert "
+                "each one separately."
+            )
         self._spacer_if_needed()
         base_row = self.current_row  # rows already written before this block (0-based)
         for r in range(blk.nrows):
@@ -198,12 +248,19 @@ class XlsxWriter:
 
     # ------------------------------------------------------------- finish
     def finalize(self, output_path):
-        for (r1, c1, r2, c2) in self.merges:
-            try:
-                self.ws.merge_cells(start_row=r1, start_column=c1,
-                                     end_row=r2, end_column=c2)
-            except Exception:
-                pass
+        # WriteOnlyWorksheet doesn't inherit merge_cells()/self.merged_cells
+        # from the regular Worksheet class (it's absent from the small set
+        # of methods write-only mode copies over) - calling ws.merge_cells()
+        # here has always raised AttributeError, silently swallowed by a
+        # bare except, so colspan/rowspan cells were never actually merged
+        # in any converted output. WorksheetWriter.write_tail() does read
+        # ws.merged_cells if present, so setting it directly (bypassing the
+        # missing method) is enough to make merges reach the file.
+        if self.merges:
+            self.ws.merged_cells = MultiCellRange(
+                CellRange(min_col=c1, min_row=r1, max_col=c2, max_row=r2)
+                for (r1, c1, r2, c2) in self.merges
+            )
         for col_index, length in self.col_max_len.items():
             width = max(_MIN_COL_WIDTH, min(_MAX_COL_WIDTH, length + 2))
             self.ws.column_dimensions[get_column_letter(col_index + 1)].width = width

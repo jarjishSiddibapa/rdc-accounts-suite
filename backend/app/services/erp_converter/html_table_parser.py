@@ -73,6 +73,12 @@ class TextBlock:
 def _clean_text(text):
     if not text:
         return ""
+    # Fast path: the overwhelming majority of ERP report cells are a
+    # single short line (a number, code, or label) with no embedded
+    # newline - skip the split/join/pop machinery entirely for those,
+    # since this function runs once per cell across million-cell reports.
+    if "\n" not in text and "\xa0" not in text:
+        return _WS_RE.sub(" ", text).strip()
     text = text.replace("\xa0", " ")
     lines = [_WS_RE.sub(" ", ln).strip() for ln in text.split("\n")]
     while lines and lines[0] == "":

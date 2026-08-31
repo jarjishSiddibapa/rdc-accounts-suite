@@ -9,9 +9,11 @@ from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
 from app import auth, config, jobs
+from app.jobs import JobUserError
 from app.models import User
 from app.permissions import require_app_access
 from app.services.erp_converter import converter
+from app.services.erp_converter.errors import ConversionError
 from app.uploads import save_upload
 
 router = APIRouter(
@@ -28,17 +30,23 @@ def _job_convert(
 ):
     """100% CPU work (HTML/xlrd parsing + openpyxl writing), so it runs on
     the CPU process pool for real multi-core throughput instead of a GIL-
-    bound thread. Trade-off: convert_file's own progress_cb (which reports
-    fine-grained "Parsing report NN%" progress for large HTML exports) can't
-    cross the process boundary, so the UI shows a single "Converting..."
-    phase for the whole call instead of a live percentage - a cosmetic
-    regression for very large files, not a correctness one; cancellation
-    still works, just only takes effect once this file's conversion
-    finishes rather than mid-parse."""
+    bound thread. convert_file's own progress_cb (which reports
+    fine-grained "Parsing report NN%" / "Writing workbook" progress for
+    large HTML exports) is relayed across the process boundary via
+    run_cpu_phase's progress queue, so large-file conversions show real,
+    moving progress instead of appearing frozen for the whole call.
+    Cancellation still only takes effect once this file's conversion
+    finishes rather than mid-parse - the underlying CPU work itself isn't
+    checkpointed."""
     if progress_cb:
-        progress_cb(0.02, "Converting...")
+        progress_cb(0.0, "Starting conversion...")
     try:
-        kind = jobs.run_cpu_phase(converter.convert_file, input_path, output_path)
+        try:
+            kind = jobs.run_cpu_phase(
+                converter.convert_file, input_path, output_path, progress_cb=progress_cb,
+            )
+        except ConversionError as exc:
+            raise JobUserError(str(exc)) from exc
         return {
             "kind": kind,
             "output_path": output_path,
