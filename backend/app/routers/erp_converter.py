@@ -1,11 +1,12 @@
 """ERP HTML/XLS -> Excel conversion tool routes."""
 
-import io
+import uuid
 import zipfile
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
-from fastapi.responses import FileResponse, Response
+from fastapi.responses import FileResponse
+from starlette.background import BackgroundTask
 from pydantic import BaseModel
 
 from app import auth, config, jobs
@@ -133,33 +134,42 @@ def download_all(body: DownloadAllBody, user: User = Depends(auth.get_current_us
     if len(body.job_ids) > 100:
         raise HTTPException(status_code=400, detail="At most 100 jobs can be downloaded together")
 
-    output = io.BytesIO()
-    used_names: set[str] = set()
-    with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
-        for job_id in body.job_ids:
-            job = jobs.get_job(job_id, owner_id=user.id)
-            if job is None:
-                raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
-            if job["status"] != "done":
-                raise HTTPException(status_code=409, detail="Every selected job must be finished")
-            info = job.get("result") or {}
-            if not isinstance(info, dict):
-                raise HTTPException(status_code=404, detail="Output file not found")
-            path = Path(info.get("output_path", ""))
-            if not path.is_file():
-                raise HTTPException(status_code=404, detail="Output file not found")
+    # Zips of up to 100 already-converted workbooks: written straight to a
+    # scratch file rather than an in-memory BytesIO, so bundling many large
+    # conversions together can't hold the whole combined archive (and then
+    # a second full copy via .getvalue()) resident in RAM at once.
+    zip_path = config.SCRATCH_DIR / f"{uuid.uuid4()}_ERP_Excel_Conversions.zip"
+    try:
+        used_names: set[str] = set()
+        with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+            for job_id in body.job_ids:
+                job = jobs.get_job(job_id, owner_id=user.id)
+                if job is None:
+                    raise HTTPException(status_code=404, detail=f"Job not found: {job_id}")
+                if job["status"] != "done":
+                    raise HTTPException(status_code=409, detail="Every selected job must be finished")
+                info = job.get("result") or {}
+                if not isinstance(info, dict):
+                    raise HTTPException(status_code=404, detail="Output file not found")
+                path = Path(info.get("output_path", ""))
+                if not path.is_file():
+                    raise HTTPException(status_code=404, detail="Output file not found")
 
-            base_name = f"{Path(info.get('original_filename') or path.stem).stem}.xlsx"
-            name = base_name
-            suffix = 2
-            while name.lower() in used_names:
-                name = f"{Path(base_name).stem}_{suffix}.xlsx"
-                suffix += 1
-            used_names.add(name.lower())
-            archive.write(path, arcname=name)
+                base_name = f"{Path(info.get('original_filename') or path.stem).stem}.xlsx"
+                name = base_name
+                suffix = 2
+                while name.lower() in used_names:
+                    name = f"{Path(base_name).stem}_{suffix}.xlsx"
+                    suffix += 1
+                used_names.add(name.lower())
+                archive.write(path, arcname=name)
+    except Exception:
+        zip_path.unlink(missing_ok=True)
+        raise
 
-    return Response(
-        content=output.getvalue(),
+    return FileResponse(
+        path=str(zip_path),
+        filename="ERP_Excel_Conversions.zip",
         media_type="application/zip",
-        headers={"Content-Disposition": 'attachment; filename="ERP_Excel_Conversions.zip"'},
+        background=BackgroundTask(zip_path.unlink, missing_ok=True),
     )

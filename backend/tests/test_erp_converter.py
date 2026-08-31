@@ -5,14 +5,17 @@ appearing frozen (see app.jobs.run_cpu_phase / app.routers.erp_converter).
 """
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
+from fastapi import HTTPException
 from openpyxl import load_workbook
 
-from app import jobs as jobs_module
+from app import config, jobs as jobs_module
 from app.jobs import JobUserError
-from app.routers.erp_converter import _job_convert
+from app.routers.erp_converter import DownloadAllBody, _job_convert, download_all
 from app.services.erp_converter import converter, xlsx_writer
 from app.services.erp_converter.errors import ConversionError
 
@@ -117,6 +120,69 @@ class ExcelSheetLimitTests(unittest.TestCase):
             with self.assertRaises(JobUserError) as ctx:
                 _job_convert("in.xls", "out.xlsx", "report.xls")
         self.assertIn("too many rows", str(ctx.exception))
+
+
+class DownloadAllStreamsFromDiskTests(unittest.TestCase):
+    """/download-all used to buffer the whole combined zip of up to 100
+    converted workbooks in an in-memory BytesIO, then copy it again via
+    .getvalue() - the largest realistic memory exposure found in this
+    converter. It now writes straight to a scratch file and streams that
+    via FileResponse, with a background task cleaning it up afterward."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.user = SimpleNamespace(id=1)
+
+    def _fake_job(self, output_path, original_filename):
+        return {
+            "status": "done",
+            "result": {"output_path": str(output_path), "original_filename": original_filename},
+        }
+
+    def test_bundles_two_outputs_into_a_zip_file_on_disk(self):
+        out1 = Path(self.tmp.name) / "a.xlsx"
+        out2 = Path(self.tmp.name) / "b.xlsx"
+        out1.write_bytes(b"fake-xlsx-1")
+        out2.write_bytes(b"fake-xlsx-2")
+        jobs_by_id = {
+            "job1": self._fake_job(out1, "Report A.xls"),
+            "job2": self._fake_job(out2, "Report B.xls"),
+        }
+        with patch(
+            "app.routers.erp_converter.jobs.get_job",
+            side_effect=lambda job_id, owner_id: jobs_by_id[job_id],
+        ):
+            response = download_all(DownloadAllBody(job_ids=["job1", "job2"]), user=self.user)
+
+        zip_path = Path(response.path)
+        self.addCleanup(lambda: zip_path.unlink(missing_ok=True))
+        self.assertTrue(zip_path.is_file(), "zip should be written to a real scratch file, not BytesIO")
+        with zipfile.ZipFile(zip_path) as archive:
+            names = set(archive.namelist())
+            self.assertEqual(names, {"Report A.xlsx", "Report B.xlsx"})
+            self.assertEqual(archive.read("Report A.xlsx"), b"fake-xlsx-1")
+        self.assertIsNotNone(response.background, "should clean up the scratch zip after sending it")
+
+    def test_error_mid_bundle_cleans_up_the_partial_zip(self):
+        out1 = Path(self.tmp.name) / "a.xlsx"
+        out1.write_bytes(b"fake-xlsx-1")
+        jobs_by_id = {
+            "job1": self._fake_job(out1, "Report A.xls"),
+            "job2": None,
+        }
+        written_paths = []
+        real_get_job = jobs_by_id.get
+
+        def fake_get_job(job_id, owner_id):
+            return real_get_job(job_id)
+
+        with patch("app.routers.erp_converter.jobs.get_job", side_effect=fake_get_job):
+            with self.assertRaises(HTTPException):
+                download_all(DownloadAllBody(job_ids=["job1", "job2"]), user=self.user)
+
+        leftover = list(config.SCRATCH_DIR.glob("*_ERP_Excel_Conversions.zip"))
+        self.assertEqual(leftover, [], "a failed bundle should not leave a partial zip behind")
 
 
 def _toy_cpu_task(steps: int, progress_cb=None) -> str:

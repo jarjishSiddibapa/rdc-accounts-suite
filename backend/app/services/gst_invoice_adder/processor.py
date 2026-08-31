@@ -52,6 +52,7 @@ conventions, not desktop-app choices):
 from __future__ import annotations
 
 import copy
+import logging
 import re as _re
 from dataclasses import dataclass
 from datetime import date as _date_type, datetime
@@ -66,6 +67,8 @@ from openpyxl.utils import column_index_from_string, get_column_letter
 
 from app.jobs import JobCancelled, JobUserError
 from app.oracle_runtime import initialize_oracle_client
+
+logger = logging.getLogger(__name__)
 
 try:
     import pyxlsb as _pyxlsb
@@ -441,7 +444,10 @@ def insert_gst_column(wb_path: str, output_path: str, gst_map: dict,
         try:
             ws.merge_cells(_shift_ref(mr_str))
         except Exception:
-            pass
+            logger.warning(
+                "Could not re-apply merged range %r after inserting the GST column; "
+                "the output workbook will be missing that merge.", mr_str,
+            )
 
     inv_hdr = ws.cell(row=header_row, column=inv_no_col)
     gst_hdr = ws.cell(row=header_row, column=insert_col)
