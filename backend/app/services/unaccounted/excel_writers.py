@@ -10,6 +10,7 @@ from openpyxl.utils import get_column_letter
 
 from .constants import MRN_SITE_COL, MRN_ANCHOR_COL
 from app.regional import format_indian_number, today_ist
+from app.services.report_progress import row_progress_reporter as _row_progress_reporter
 from app.services.xlsx_formula_cache import cache_formula_values, inject_cached_values
 
 logger = logging.getLogger(__name__)
@@ -18,29 +19,6 @@ logger = logging.getLogger(__name__)
 # Sections: positive ; negative ; zero
 INDIAN_FMT = r'##,##,##0;-##,##,##0;"-"'
 INDIAN_DECIMAL_FMT = r'##,##,##0.00;-##,##,##0.00;"-"'
-
-
-def _row_progress_reporter(progress_cb, base: float, span: float, total_rows: int):
-    """Build a cheap per-row callback that reports progress at most ~200
-    times across the main data-row loop, scaled into [base, base+span].
-
-    These writers can run against tens/hundreds of thousands of rows with
-    no progress feedback at all today - the whole call just blocks, the
-    same "frozen" symptom the ERP converter had before its own progress
-    relay was wired up (see app.jobs.run_cpu_phase). Calling progress_cb
-    every single row would be wasteful (each call crosses a process
-    boundary via a queue put); every row of a ~200-step stride keeps the
-    UI moving smoothly without that overhead.
-    """
-    if not progress_cb or total_rows <= 0:
-        return lambda _rows_written: None
-    step = max(1, total_rows // 200)
-
-    def _report(rows_written: int) -> None:
-        if rows_written % step == 0 or rows_written == total_rows:
-            progress_cb(base + span * (rows_written / total_rows), "Writing workbook...")
-
-    return _report
 
 
 def _thin_border():

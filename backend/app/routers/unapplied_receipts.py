@@ -102,13 +102,15 @@ class _LogQueue:
 
 
 class _CollectingLogQueue:
-    """Plain picklable log_q (no progress_cb wiring, which isn't picklable):
-    just accumulates (level, message) tuples. Used inside _cpu_phase_finish
-    below, which runs in a subprocess via run_cpu_phase - its collected
-    messages are handed back as part of that call's return value and merged
-    into the outer _LogQueue's own messages, so the detailed per-step log
-    this tool's UI shows is preserved exactly as before even though half of
-    it now happens in a different process."""
+    """Plain picklable log_q: just accumulates (level, message) tuples.
+    Used inside _cpu_phase_finish below, which runs in a subprocess via
+    run_cpu_phase - its collected messages are handed back as part of
+    that call's return value and merged into the outer _LogQueue's own
+    messages, so the detailed per-step log this tool's UI shows is
+    preserved exactly as before even though half of it now happens in a
+    different process. Separately, the row-write progress_cb passed into
+    _cpu_phase_finish_report *does* cross the process boundary -
+    run_cpu_phase relays it via a cross-process queue."""
 
     def __init__(self):
         self.messages: list[tuple[str, str]] = []
@@ -118,7 +120,7 @@ class _CollectingLogQueue:
 
 
 def _cpu_phase_finish_report(df, ageing_path, incharge_map, supplier_site_map,
-                              output_path, as_on_date, df_unidentified):
+                              output_path, as_on_date, df_unidentified, progress_cb=None):
     """The rest of the pipeline after process_report's Oracle-dependent read
     (which stays on the calling thread) - classify, validate, and write the
     workbook are all pure pandas/openpyxl CPU work with no I/O, so this runs
@@ -136,6 +138,7 @@ def _cpu_phase_finish_report(df, ageing_path, incharge_map, supplier_site_map,
     processor.write_formatted_excel(
         df_main, df_advance, output_path, as_on_date,
         df_unidentified=df_unidentified, incharge_map=incharge_map, log_q=log_q,
+        progress_cb=progress_cb,
     )
     return len(df_main), len(df_advance), validation_warnings, log_q.messages
 
@@ -177,6 +180,7 @@ def _run_process_job(input_path: str, ageing_path: str, output_path: str,
         main_row_count, advance_row_count, validation_warnings, cpu_log_messages = run_cpu_phase(
             _cpu_phase_finish_report,
             df, ageing_path, incharge_map, supplier_site_map, output_path, as_on_date, df_unidentified,
+            progress_cb=progress_cb,
         )
         log_q.messages.extend(cpu_log_messages)
     finally:

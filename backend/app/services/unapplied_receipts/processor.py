@@ -68,6 +68,7 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
+from app.services.report_progress import row_progress_reporter
 from app.services.xlsx_formula_cache import cache_formula_values, inject_cached_values
 
 from app.jobs import JobCancelled, JobUserError
@@ -810,7 +811,8 @@ def write_formatted_excel(df_main: pd.DataFrame, df_advance: pd.DataFrame,
                           path: str, as_on_date: _dt.date,
                           df_unidentified: pd.DataFrame = None,
                           incharge_map: dict = None,
-                          log_q=None):
+                          log_q=None,
+                          progress_cb=None):
     """Write df to path as a professionally formatted xlsx."""
     wb = Workbook()
     ws = wb.active
@@ -821,6 +823,7 @@ def write_formatted_excel(df_main: pd.DataFrame, df_advance: pd.DataFrame,
     n_cols   = len(cols)
     n_rows   = len(df)
     bdr      = _thin_border()
+    report_row = row_progress_reporter(progress_cb, base=0.55, span=0.4, total_rows=n_rows)
 
     # ── palette ───────────────────────────────────────────────────────────────
     HDR_BG   = "1F3864"   # deep navy
@@ -918,6 +921,7 @@ def write_formatted_excel(df_main: pd.DataFrame, df_advance: pd.DataFrame,
             c.alignment = Alignment(horizontal="left", vertical="center",
                                      indent=1)
             c.value     = val if val is not None else ""
+        report_row(ri - 2)
 
     # ── Auto column widths ────────────────────────────────────────────────────
     for ci, col_name in enumerate(cols, 1):
