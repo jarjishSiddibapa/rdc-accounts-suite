@@ -241,7 +241,10 @@ def _run_process_job(input_path: str, columns: list, rows: list,
         if progress_cb:
             progress_cb(0.7, "Generating Excel output...")
         add_log("INFO", "Generating Excel output...")
-        xlsx_bytes = run_cpu_phase(processor.to_excel_bytes, df, pivot_accounts if pivot_accounts else None)
+        xlsx_bytes = run_cpu_phase(
+            processor.to_excel_bytes, df, pivot_accounts if pivot_accounts else None,
+            progress_cb=progress_cb,
+        )
         Path(output_path).write_bytes(xlsx_bytes)
     finally:
         Path(input_path).unlink(missing_ok=True)

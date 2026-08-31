@@ -14,6 +14,7 @@ import xlsxwriter
 from xlsxwriter.utility import xl_rowcol_to_cell
 
 from . import mapping_store
+from app.services.report_progress import row_progress_reporter
 
 # ---------------------------------------------------------------------------
 # Public constants
@@ -358,7 +359,7 @@ def _build_pivot_sheet(wb, df, pivot_accounts, hdr_fmt):
     ws.set_zoom(90)
 
 
-def to_excel_bytes(df, pivot_accounts=None):
+def to_excel_bytes(df, pivot_accounts=None, progress_cb=None):
     """
     Write the report DataFrame to xlsx bytes with formatting.
 
@@ -395,6 +396,7 @@ def to_excel_bytes(df, pivot_accounts=None):
     _AMOUNT_COLS = {3, 4, 5}   # Beginning Balance, Period Activity, Ending Balance
     _INT_COLS    = {0, 6}      # Account (natural), Location Code
 
+    report_row = row_progress_reporter(progress_cb, base=0.7, span=0.25, total_rows=len(df))
     for r, row in enumerate(df.itertuples(index=False), start=1):
         for c, val in enumerate(row):
             if c in _AMOUNT_COLS:
@@ -404,6 +406,7 @@ def to_excel_bytes(df, pivot_accounts=None):
                 ws.write_number(r, c, int(val), int_fmt)
             else:
                 ws.write(r, c, "" if val is None else val, cell_fmt)
+        report_row(r)
 
     col_widths = [12, 42, 34, 18, 16, 18, 12, 22, 18, 18, 26]
     for c, width in enumerate(col_widths):
