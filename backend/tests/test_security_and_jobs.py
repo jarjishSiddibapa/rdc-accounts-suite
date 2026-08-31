@@ -23,7 +23,7 @@ from app.jobs import (
     JobCancelled,
 )
 from app.database import SessionLocal
-from app.models import BackgroundJob, BackgroundResourceSlot
+from app.models import BackgroundJob, BackgroundResourceSlot, User
 from app.oracle_runtime import initialize_oracle_client
 from app.routers import unaccounted_txn
 from app.services.gst_invoice_adder import processor as gst_processor
@@ -212,6 +212,18 @@ class OracleRuntimeTests(unittest.TestCase):
 
 
 class JobIsolationTests(unittest.TestCase):
+    @staticmethod
+    def _existing_owner_id() -> int:
+        """Use a real user because production now enforces the action-owner FK."""
+        db = SessionLocal()
+        try:
+            result = db.query(User.id).filter(User.is_deleted.is_(False)).order_by(User.id).first()
+            if result is None:
+                raise AssertionError("Job isolation tests require one seeded user")
+            return int(result[0])
+        finally:
+            db.close()
+
     @staticmethod
     def _completed_job(owner_id: int) -> str:
         job_id = submit_inline_job(lambda: {"status": "preview"}, owner_id=owner_id)
@@ -480,14 +492,15 @@ class JobIsolationTests(unittest.TestCase):
             db.close()
 
     def test_one_shot_action_can_be_claimed_by_only_one_tab(self):
-        job_id = self._completed_job(owner_id=505)
+        owner_id = self._existing_owner_id()
+        job_id = self._completed_job(owner_id=owner_id)
 
         with ThreadPoolExecutor(max_workers=12) as pool:
             states = list(
                 pool.map(
                     lambda _: claim_job_action(
                         job_id,
-                        owner_id=505,
+                        owner_id=owner_id,
                         action="confirm-send",
                     )[0],
                     range(12),
@@ -499,35 +512,36 @@ class JobIsolationTests(unittest.TestCase):
         self.assertTrue(
             finish_job_action(
                 job_id,
-                owner_id=505,
+                owner_id=owner_id,
                 action="confirm-send",
                 succeeded=True,
             )
         )
-        state, _ = claim_job_action(job_id, owner_id=505, action="confirm-send")
+        state, _ = claim_job_action(job_id, owner_id=owner_id, action="confirm-send")
         self.assertEqual(state, "completed")
 
-        public_job = get_job(job_id, owner_id=505)
+        public_job = get_job(job_id, owner_id=owner_id)
         self.assertNotIn("_actions", public_job)
 
     def test_one_shot_action_claim_respects_owner_and_preserves_failed_state(self):
-        job_id = self._completed_job(owner_id=606)
+        owner_id = self._existing_owner_id()
+        job_id = self._completed_job(owner_id=owner_id)
 
-        state, job = claim_job_action(job_id, owner_id=707, action="confirm-send")
+        state, job = claim_job_action(job_id, owner_id=owner_id + 10_000, action="confirm-send")
         self.assertEqual(state, "missing")
         self.assertIsNone(job)
 
-        state, _ = claim_job_action(job_id, owner_id=606, action="confirm-send")
+        state, _ = claim_job_action(job_id, owner_id=owner_id, action="confirm-send")
         self.assertEqual(state, "claimed")
         self.assertTrue(
             finish_job_action(
                 job_id,
-                owner_id=606,
+                owner_id=owner_id,
                 action="confirm-send",
                 succeeded=False,
             )
         )
-        state, _ = claim_job_action(job_id, owner_id=606, action="confirm-send")
+        state, _ = claim_job_action(job_id, owner_id=owner_id, action="confirm-send")
         self.assertEqual(state, "failed")
 
     def test_cpu_executor_is_created_once_under_concurrent_startup(self):
@@ -553,7 +567,7 @@ class JobIsolationTests(unittest.TestCase):
         self.assertTrue(all(executor is created[0] for executor in executors))
 
     def test_two_tabs_cannot_confirm_the_same_email_preview_twice(self):
-        owner_id = 808
+        owner_id = self._existing_owner_id()
         preview_job_id = submit_inline_job(
             lambda: {
                 "status": "preview",

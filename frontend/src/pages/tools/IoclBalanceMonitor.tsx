@@ -25,6 +25,12 @@ import { useAuth } from '@/lib/auth-context'
 import { formatIndianCurrency, formatIndianDateTime } from '@/lib/regional'
 
 const BASE = '/tools/iocl-balance'
+const PUBLIC_ISSUE_MESSAGE = 'We have encountered an issue, please contact Jarjish 🥲'
+
+function visibleIssue(error: unknown, fallback: string, isAdmin: boolean): string {
+  if (!isAdmin) return PUBLIC_ISSUE_MESSAGE
+  return error instanceof ApiError ? error.message : fallback
+}
 
 interface MonitorStatus {
   enabled: boolean
@@ -199,7 +205,7 @@ export default function IoclBalanceMonitor() {
       setNotifications(notificationResultPage.items)
       setNotificationTotal(notificationResultPage.total)
     } catch (error) {
-      setMessage({ ok: false, text: error instanceof ApiError ? error.message : 'Unable to load IOCL monitor settings.' })
+      setMessage({ ok: false, text: visibleIssue(error, 'Unable to load IOCL monitor settings.', isAdmin) })
     } finally {
       setLoading(false)
     }
@@ -218,12 +224,12 @@ export default function IoclBalanceMonitor() {
   useEffect(() => { void loadAll() }, [])
 
   useEffect(() => {
-    if (!loading) void loadChecks().catch((error) => setMessage({ ok: false, text: error instanceof ApiError ? error.message : 'Unable to load check history.' }))
+    if (!loading) void loadChecks().catch((error) => setMessage({ ok: false, text: visibleIssue(error, 'Unable to load check history.', isAdmin) }))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [checkPage, checkPageSize, checkStatus, checkTrigger])
 
   useEffect(() => {
-    if (!loading) void loadNotifications().catch((error) => setMessage({ ok: false, text: error instanceof ApiError ? error.message : 'Unable to load email history.' }))
+    if (!loading) void loadNotifications().catch((error) => setMessage({ ok: false, text: visibleIssue(error, 'Unable to load email history.', isAdmin) }))
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [notificationPage, notificationPageSize, notificationStatus, notificationType])
 
@@ -247,7 +253,7 @@ export default function IoclBalanceMonitor() {
       setSenderAppPassword('')
       setMessage({ ok: true, text: successText })
     } catch (error) {
-      setMessage({ ok: false, text: error instanceof ApiError ? error.message : 'Unable to save settings.' })
+      setMessage({ ok: false, text: visibleIssue(error, 'Unable to save settings.', isAdmin) })
     } finally {
       setSavingPanel(null)
     }
@@ -265,7 +271,7 @@ export default function IoclBalanceMonitor() {
       })
       setMessage({ ok: true, text: `Test mail sent to ${result.sent_to} — check your inbox.` })
     } catch (error) {
-      setMessage({ ok: false, text: error instanceof ApiError ? error.message : 'Unable to send the test mail.' })
+      setMessage({ ok: false, text: visibleIssue(error, 'Unable to send the test mail.', isAdmin) })
     } finally {
       setTestingMail(null)
     }
@@ -279,7 +285,7 @@ export default function IoclBalanceMonitor() {
       setJobId(result.job_id)
     } catch (error) {
       setChecking(false)
-      setMessage({ ok: false, text: error instanceof ApiError ? error.message : 'Unable to start the balance check.' })
+      setMessage({ ok: false, text: visibleIssue(error, 'Unable to start the balance check.', isAdmin) })
     }
   }
 
@@ -294,7 +300,7 @@ export default function IoclBalanceMonitor() {
       setStatus(updated)
       setMessage({ ok: true, text: 'Browser session imported and encrypted.' })
     } catch (error) {
-      setMessage({ ok: false, text: error instanceof ApiError ? error.message : 'Unable to import the browser session.' })
+      setMessage({ ok: false, text: visibleIssue(error, 'Unable to import the browser session.', isAdmin) })
     } finally {
       setSessionUploading(false)
     }
@@ -356,7 +362,7 @@ export default function IoclBalanceMonitor() {
           </div>
         )}
         {message && <p className={`rounded-xl border px-4 py-3 text-sm ${message.ok ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600' : 'border-red-500/30 bg-red-500/10 text-red-500'}`}>{message.text}</p>}
-        {status.last_error && <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-500">Last check: {status.last_error}</p>}
+        {status.last_error && <p className="whitespace-pre-wrap break-words rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-500">{isAdmin ? 'Last check — technical details: ' : ''}{status.last_error}</p>}
 
         {jobId && (
           <ProgressPanel<CheckResult>
@@ -371,7 +377,7 @@ export default function IoclBalanceMonitor() {
               setMessage({ ok: true, text: result?.skipped ? result.message ?? 'A check is already running.' : `Balance check completed${attemptNote}${result?.balance == null ? '.' : `: ${formatIndianCurrency(result.balance)}.`}` })
               void refreshAfterCheck()
             }}
-            onError={(error) => { setChecking(false); setJobId(null); setMessage({ ok: false, text: error }); void refreshAfterCheck() }}
+            onError={(error) => { setChecking(false); setJobId(null); setMessage({ ok: false, text: isAdmin ? error : PUBLIC_ISSUE_MESSAGE }); void refreshAfterCheck() }}
           />
         )}
 
@@ -446,13 +452,13 @@ export default function IoclBalanceMonitor() {
 
         <GlassCard padding="lg">
           <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div className="flex items-center gap-3"><ShieldCheck className="h-5 w-5 text-accent" /><div><h2 className="font-display text-lg font-semibold text-ink">Complete balance-check history</h2><p className="text-sm text-ink-dim">Every scheduled and manual check, including failures and skipped overlaps.</p></div></div><div className="flex flex-wrap gap-2"><select className="field-control min-w-36" value={checkTrigger} onChange={(event) => { setCheckTrigger(event.target.value); setCheckPage(1) }} aria-label="Filter checks by trigger"><option value="">All triggers</option><option value="scheduled">Scheduled</option><option value="manual">Manual</option></select><select className="field-control min-w-36" value={checkStatus} onChange={(event) => { setCheckStatus(event.target.value); setCheckPage(1) }} aria-label="Filter checks by status"><option value="">All statuses</option><option value="success">Success</option><option value="error">Error</option><option value="skipped">Skipped</option></select></div></div>
-          <div className="mt-4 overflow-x-auto"><table className="w-full min-w-[56rem] text-left text-sm"><thead><tr className="border-b border-border text-xs text-ink-faint"><th className="px-2 py-3">Checked at (IST)</th><th className="px-2 py-3">Trigger</th><th className="px-2 py-3">Balance</th><th className="px-2 py-3">Duration</th><th className="px-2 py-3">Status</th><th className="px-2 py-3">Details</th></tr></thead><tbody>{checks.map((row) => <tr key={row.id} className="border-b border-border/60 align-top"><td className="whitespace-nowrap px-2 py-3 text-ink-dim">{formatIndianDateTime(row.checked_at)}</td><td className="px-2 py-3 capitalize text-ink-dim">{row.trigger}</td><td className="px-2 py-3 font-semibold text-ink">{row.balance == null ? '—' : formatIndianCurrency(row.balance)}</td><td className="px-2 py-3 text-ink-dim">{row.duration_seconds == null ? '—' : `${row.duration_seconds.toFixed(1)} s`}</td><td className="px-2 py-3"><StatusBadge status={row.status} /></td><td className="max-w-md px-2 py-3 text-xs leading-5 text-ink-dim">{row.error_message || 'Balance detected and notification rules evaluated.'}</td></tr>)}</tbody></table>{checks.length === 0 && <p className="py-8 text-center text-sm text-ink-faint">No balance checks match these filters.</p>}</div>
+          <div className="mt-4 overflow-x-auto"><table className="w-full min-w-[56rem] text-left text-sm"><thead><tr className="border-b border-border text-xs text-ink-faint"><th className="px-2 py-3">Checked at (IST)</th><th className="px-2 py-3">Trigger</th><th className="px-2 py-3">Balance</th><th className="px-2 py-3">Duration</th><th className="px-2 py-3">Status</th><th className="px-2 py-3">{isAdmin ? 'Technical details' : 'Details'}</th></tr></thead><tbody>{checks.map((row) => <tr key={row.id} className="border-b border-border/60 align-top"><td className="whitespace-nowrap px-2 py-3 text-ink-dim">{formatIndianDateTime(row.checked_at)}</td><td className="px-2 py-3 capitalize text-ink-dim">{row.trigger}</td><td className="px-2 py-3 font-semibold text-ink">{row.balance == null ? '—' : formatIndianCurrency(row.balance)}</td><td className="px-2 py-3 text-ink-dim">{row.duration_seconds == null ? '—' : `${row.duration_seconds.toFixed(1)} s`}</td><td className="px-2 py-3"><StatusBadge status={row.status} /></td><td className="max-w-md whitespace-pre-wrap break-words px-2 py-3 text-xs leading-5 text-ink-dim">{row.error_message || 'Balance detected and notification rules evaluated.'}</td></tr>)}</tbody></table>{checks.length === 0 && <p className="py-8 text-center text-sm text-ink-faint">No balance checks match these filters.</p>}</div>
           <Pagination className="mt-4" page={checkPage} pageCount={Math.max(1, Math.ceil(checkTotal / checkPageSize))} pageSize={checkPageSize} totalItems={checkTotal} itemLabel="checks" pageSizeOptions={[10, 25, 50, 100]} onPageChange={setCheckPage} onPageSizeChange={(size) => { setCheckPageSize(size); setCheckPage(1) }} />
         </GlassCard>
 
         <GlassCard padding="lg">
           <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end"><div className="flex items-center gap-3"><Mail className="h-5 w-5 text-accent" /><div><h2 className="font-display text-lg font-semibold text-ink">Complete notification history</h2><p className="text-sm text-ink-dim">Every morning balance mail and below-threshold reminder, with delivery result and any error.</p></div></div><div className="flex flex-wrap gap-2"><select className="field-control min-w-36" value={notificationType} onChange={(event) => { setNotificationType(event.target.value); setNotificationPage(1) }} aria-label="Filter emails by type"><option value="">All mail types</option><option value="daily">Morning balance</option><option value="threshold">Threshold reminder</option></select><select className="field-control min-w-36" value={notificationStatus} onChange={(event) => { setNotificationStatus(event.target.value); setNotificationPage(1) }} aria-label="Filter emails by status"><option value="">All statuses</option><option value="pending">Pending</option><option value="sending">Sending</option><option value="sent">Sent</option><option value="failed">Failed</option></select></div></div>
-          <div className="mt-4 overflow-x-auto"><table className="w-full min-w-[62rem] text-left text-sm"><thead><tr className="border-b border-border text-xs text-ink-faint"><th className="px-2 py-3">Created at (IST)</th><th className="px-2 py-3">Mail</th><th className="px-2 py-3">Subject</th><th className="px-2 py-3">Balance</th><th className="px-2 py-3">Status</th><th className="px-2 py-3">Delivery details</th></tr></thead><tbody>{notifications.map((row) => <tr key={row.id} className="border-b border-border/60 align-top"><td className="whitespace-nowrap px-2 py-3 text-ink-dim">{formatIndianDateTime(row.created_at)}</td><td className="px-2 py-3 text-ink">{row.notification_type === 'daily' ? 'Morning balance' : `Below ${formatIndianCurrency(row.threshold_amount ?? 0)}`}</td><td className="max-w-xs px-2 py-3 text-ink-dim">{row.subject}</td><td className="px-2 py-3 font-semibold text-ink">{formatIndianCurrency(row.balance)}</td><td className="px-2 py-3"><StatusBadge status={row.status} /></td><td className="max-w-sm px-2 py-3 text-xs leading-5 text-ink-dim">{row.error_message || (row.sent_at ? `Sent ${formatIndianDateTime(row.sent_at)}` : 'Awaiting delivery')}</td></tr>)}</tbody></table>{notifications.length === 0 && <p className="py-8 text-center text-sm text-ink-faint">No emails match these filters.</p>}</div>
+          <div className="mt-4 overflow-x-auto"><table className="w-full min-w-[62rem] text-left text-sm"><thead><tr className="border-b border-border text-xs text-ink-faint"><th className="px-2 py-3">Created at (IST)</th><th className="px-2 py-3">Mail</th><th className="px-2 py-3">Subject</th><th className="px-2 py-3">Balance</th><th className="px-2 py-3">Status</th><th className="px-2 py-3">{isAdmin ? 'Technical delivery details' : 'Delivery details'}</th></tr></thead><tbody>{notifications.map((row) => <tr key={row.id} className="border-b border-border/60 align-top"><td className="whitespace-nowrap px-2 py-3 text-ink-dim">{formatIndianDateTime(row.created_at)}</td><td className="px-2 py-3 text-ink">{row.notification_type === 'daily' ? 'Morning balance' : `Below ${formatIndianCurrency(row.threshold_amount ?? 0)}`}</td><td className="max-w-xs px-2 py-3 text-ink-dim">{row.subject}</td><td className="px-2 py-3 font-semibold text-ink">{formatIndianCurrency(row.balance)}</td><td className="px-2 py-3"><StatusBadge status={row.status} /></td><td className="max-w-sm whitespace-pre-wrap break-words px-2 py-3 text-xs leading-5 text-ink-dim">{row.error_message || (row.sent_at ? `Sent ${formatIndianDateTime(row.sent_at)}` : 'Awaiting delivery')}</td></tr>)}</tbody></table>{notifications.length === 0 && <p className="py-8 text-center text-sm text-ink-faint">No emails match these filters.</p>}</div>
           <Pagination className="mt-4" page={notificationPage} pageCount={Math.max(1, Math.ceil(notificationTotal / notificationPageSize))} pageSize={notificationPageSize} totalItems={notificationTotal} itemLabel="emails" pageSizeOptions={[10, 25, 50, 100]} onPageChange={setNotificationPage} onPageSizeChange={(size) => { setNotificationPageSize(size); setNotificationPage(1) }} />
         </GlassCard>
         <p className="text-center text-xs text-ink-faint">History is retained in MySQL under the suite-wide soft-delete policy. Scheduler actions are also mirrored to the central audit log.</p>

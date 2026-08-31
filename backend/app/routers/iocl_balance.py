@@ -30,6 +30,7 @@ router = APIRouter(
 )
 
 _TIME_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
+PUBLIC_ISSUE_MESSAGE = "We have encountered an issue, please contact Jarjish 🥲"
 
 
 def _utcnow() -> datetime:
@@ -86,7 +87,19 @@ class SettingsBody(BaseModel):
         return list(dict.fromkeys(value))
 
 
-def _status_dict(row: IoclBalanceSettings) -> dict:
+def _visible_error(value: str | None, *, reveal_errors: bool) -> str | None:
+    if not value:
+        return None
+    return value if reveal_errors else PUBLIC_ISSUE_MESSAGE
+
+
+def _visible_job(job: dict, *, reveal_errors: bool) -> dict:
+    if reveal_errors or job.get("status") != "error":
+        return job
+    return {**job, "error": PUBLIC_ISSUE_MESSAGE}
+
+
+def _status_dict(row: IoclBalanceSettings, *, reveal_errors: bool) -> dict:
     portal_configured = bool(row.username and row.password_encrypted)
     sender_configured = bool(row.sender_email and row.sender_app_password_encrypted)
     return {
@@ -97,14 +110,15 @@ def _status_dict(row: IoclBalanceSettings) -> dict:
         "last_balance": float(row.last_balance) if row.last_balance is not None else None,
         "last_checked_at": to_ist_iso(row.last_checked_at),
         "last_check_status": row.last_check_status,
-        "last_error": row.last_error,
+        "last_error": _visible_error(row.last_error, reveal_errors=reveal_errors),
         "next_check_at": to_ist_iso(row.next_check_at),
     }
 
 
 def _settings_dict(row: IoclBalanceSettings) -> dict:
+    # This response is protected by require_admin at every call site.
     return {
-        **_status_dict(row),
+        **_status_dict(row, reveal_errors=True),
         "version": row.version,
         "sender_email": row.sender_email or "",
         "sender_app_password_configured": bool(row.sender_app_password_encrypted),
@@ -132,9 +146,15 @@ def _settings_dict(row: IoclBalanceSettings) -> dict:
 
 
 @router.get("/status")
-def get_status(db: Session = Depends(get_db)):
+def get_status(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
     """Safe monitoring summary for every user assigned to this application."""
-    return _status_dict(monitor.get_or_create_settings(db))
+    return _status_dict(
+        monitor.get_or_create_settings(db),
+        reveal_errors=current_user.role == "admin",
+    )
 
 
 @router.get("/settings", dependencies=[Depends(require_admin)])
@@ -326,7 +346,7 @@ def job_status(job_id: str, user: User = Depends(get_current_user)):
     job = get_job(job_id, owner_id=user.id)
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
-    return job
+    return _visible_job(job, reveal_errors=user.role == "admin")
 
 
 @router.post("/jobs/{job_id}/cancel")
@@ -334,7 +354,7 @@ def cancel(job_id: str, user: User = Depends(get_current_user)):
     job = cancel_job(job_id, owner_id=user.id)
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
-    return job
+    return _visible_job(job, reveal_errors=user.role == "admin")
 
 
 @router.get("/checks")
@@ -344,6 +364,7 @@ def get_checks(
     status: str | None = None,
     trigger: str | None = None,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     limit = max(1, min(limit, 100))
     offset = max(0, offset)
@@ -362,7 +383,10 @@ def get_checks(
                 "trigger": row.trigger,
                 "status": row.status,
                 "balance": float(row.balance) if row.balance is not None else None,
-                "error_message": row.error_message,
+                "error_message": _visible_error(
+                    row.error_message,
+                    reveal_errors=current_user.role == "admin",
+                ),
                 "checked_at": to_ist_iso(row.checked_at),
                 "duration_seconds": row.duration_seconds,
             }
@@ -378,6 +402,7 @@ def get_notifications(
     notification_type: str | None = None,
     status: str | None = None,
     db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
 ):
     limit = max(1, min(limit, 100))
     offset = max(0, offset)
@@ -398,7 +423,10 @@ def get_notifications(
                 "balance": float(row.balance),
                 "subject": row.subject,
                 "status": row.status,
-                "error_message": row.error_message,
+                "error_message": _visible_error(
+                    row.error_message,
+                    reveal_errors=current_user.role == "admin",
+                ),
                 "created_at": to_ist_iso(row.created_at),
                 "sent_at": to_ist_iso(row.sent_at),
             }

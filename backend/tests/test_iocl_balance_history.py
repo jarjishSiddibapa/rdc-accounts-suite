@@ -1,6 +1,8 @@
 import unittest
 from datetime import datetime
 from decimal import Decimal
+from types import SimpleNamespace
+from unittest.mock import patch
 
 from sqlalchemy import create_engine
 from sqlalchemy.dialects.mysql import LONGTEXT
@@ -8,7 +10,26 @@ from sqlalchemy.ext.compiler import compiles
 from sqlalchemy.orm import sessionmaker
 
 from app.models import IoclBalanceCheck, IoclBalanceNotification
-from app.routers.iocl_balance import get_checks, get_notifications
+from app.routers.iocl_balance import (
+    PUBLIC_ISSUE_MESSAGE,
+    _status_dict,
+    cancel,
+    get_checks as _get_checks,
+    get_notifications as _get_notifications,
+    job_status,
+)
+
+
+ADMIN = SimpleNamespace(id=1, role="admin")
+USER = SimpleNamespace(id=2, role="user")
+
+
+def get_checks(**kwargs):
+    return _get_checks(**kwargs, current_user=ADMIN)
+
+
+def get_notifications(**kwargs):
+    return _get_notifications(**kwargs, current_user=ADMIN)
 
 
 # IoclBalanceNotification.body/subject use MySQL's LONGTEXT, which SQLite's
@@ -91,6 +112,16 @@ class IoclBalanceCheckHistoryTests(unittest.TestCase):
         self.assertEqual(result["total"], 1)
         self.assertEqual(result["items"][0]["id"], 2)
         self.assertEqual(result["items"][0]["error_message"], "Login timed out after 60s")
+
+    def test_regular_user_sees_safe_error_while_admin_sees_diagnostics(self):
+        user_result = _get_checks(
+            limit=20, offset=0, status="error", trigger=None,
+            db=self.db, current_user=USER,
+        )
+        admin_result = get_checks(limit=20, offset=0, status="error", trigger=None, db=self.db)
+
+        self.assertEqual(user_result["items"][0]["error_message"], PUBLIC_ISSUE_MESSAGE)
+        self.assertEqual(admin_result["items"][0]["error_message"], "Login timed out after 60s")
 
     def test_filter_by_trigger(self):
         result = get_checks(limit=20, offset=0, status=None, trigger="manual", db=self.db)
@@ -194,6 +225,13 @@ class IoclBalanceNotificationHistoryTests(unittest.TestCase):
         self.assertEqual(result["items"][0]["id"], 2)
         self.assertEqual(result["items"][0]["error_message"], "SMTP auth failed")
 
+    def test_regular_user_cannot_read_mail_delivery_diagnostics(self):
+        result = _get_notifications(
+            limit=20, offset=0, notification_type=None, status="failed",
+            db=self.db, current_user=USER,
+        )
+        self.assertEqual(result["items"][0]["error_message"], PUBLIC_ISSUE_MESSAGE)
+
     def test_pending_notification_has_null_sent_at(self):
         result = get_notifications(limit=20, offset=0, notification_type=None, status="pending", db=self.db)
         self.assertEqual(result["total"], 1)
@@ -207,6 +245,51 @@ class IoclBalanceNotificationHistoryTests(unittest.TestCase):
         self.assertEqual(row["balance"], 1245620.60)
         self.assertEqual(row["subject"], "Morning IOCL CCMS balance")
         self.assertIsNotNone(row["sent_at"])
+
+
+class IoclJobErrorVisibilityTests(unittest.TestCase):
+    def test_status_summary_hides_error_from_regular_users_only(self):
+        settings = SimpleNamespace(
+            enabled=True,
+            check_interval_minutes=30,
+            username="ULTRAFINE",
+            password_encrypted="cipher",
+            sender_email="sender@example.test",
+            sender_app_password_encrypted="cipher",
+            session_state_encrypted=None,
+            last_balance=None,
+            last_checked_at=None,
+            last_check_status="error",
+            last_error="readonly field timeout",
+            next_check_at=None,
+        )
+
+        self.assertEqual(
+            _status_dict(settings, reveal_errors=False)["last_error"],
+            PUBLIC_ISSUE_MESSAGE,
+        )
+        self.assertEqual(
+            _status_dict(settings, reveal_errors=True)["last_error"],
+            "readonly field timeout",
+        )
+
+    def test_regular_user_job_error_is_safe(self):
+        raw = {"id": "job-1", "status": "error", "error": "portal stack trace"}
+        with patch("app.routers.iocl_balance.get_job", return_value=raw):
+            result = job_status("job-1", user=USER)
+        self.assertEqual(result["error"], PUBLIC_ISSUE_MESSAGE)
+
+    def test_admin_job_error_keeps_technical_details(self):
+        raw = {"id": "job-1", "status": "error", "error": "portal stack trace"}
+        with patch("app.routers.iocl_balance.get_job", return_value=raw):
+            result = job_status("job-1", user=ADMIN)
+        self.assertEqual(result["error"], "portal stack trace")
+
+    def test_cancel_response_cannot_leak_terminal_error(self):
+        raw = {"id": "job-1", "status": "error", "error": "portal stack trace"}
+        with patch("app.routers.iocl_balance.cancel_job", return_value=raw):
+            result = cancel("job-1", user=USER)
+        self.assertEqual(result["error"], PUBLIC_ISSUE_MESSAGE)
 
 
 if __name__ == "__main__":

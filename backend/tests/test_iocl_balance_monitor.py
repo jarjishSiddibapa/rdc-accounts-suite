@@ -160,6 +160,43 @@ class IoclRetryTests(unittest.TestCase):
         self.assertEqual(mocked.call_count, 3)
 
 
+class _FakeLoginField:
+    def __init__(self, *, editable: bool):
+        self.editable = editable
+        self.clicks = 0
+        self.filled = None
+
+    def is_editable(self):
+        return self.editable
+
+    def click(self, timeout=None):
+        self.clicks += 1
+        self.editable = True
+
+    def fill(self, value, timeout=None):
+        if not self.editable:
+            raise RuntimeError("readonly")
+        self.filled = value
+
+
+class LoginFieldInteractionTests(unittest.TestCase):
+    def test_readonly_portal_field_is_clicked_before_fill(self):
+        field = _FakeLoginField(editable=False)
+
+        monitor._fill_login_field(field, "ULTRAFINE", "User ID")
+
+        self.assertEqual(field.clicks, 1)
+        self.assertEqual(field.filled, "ULTRAFINE")
+
+    def test_already_editable_field_is_filled_without_extra_click(self):
+        field = _FakeLoginField(editable=True)
+
+        monitor._fill_login_field(field, "secret", "Password")
+
+        self.assertEqual(field.clicks, 0)
+        self.assertEqual(field.filled, "secret")
+
+
 class _FakeNavElement:
     def __init__(self, visible: bool):
         self._visible = visible

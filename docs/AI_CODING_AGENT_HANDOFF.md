@@ -96,6 +96,15 @@ visible match and wait best-effort for the intermittent welcome modal and
 `Financials` template and reports a misleading navigation timeout. Regression
 coverage lives in `backend/tests/test_iocl_balance_monitor.py`.
 
+XTRAPOWER build 1.1.018 introduced another important login behavior: its User
+ID and Password inputs render `readonly` until each receives a real click.
+Playwright `fill()` alone waits for editability and eventually times out. Keep
+the explicit click/wait/fill sequence in `_fill_login_field()`, and keep login
+form discovery polling while the Angular shell renders. This is ordinary UI
+interaction, not a CAPTCHA bypass. On 31 August 2026 both an encrypted stored
+session and a completely fresh credential login were exercised against the
+live portal through the exact CCMS balance page successfully.
+
 `backend/tests/test_desktop_parity.py` currently verifies selected payables
 statistics/log behavior and an Unaccounted mail attachment naming path. It is
 valuable regression coverage but is not an exhaustive certification of every
@@ -230,6 +239,10 @@ API enforces this split; hiding controls in React is not sufficient. Scheduled
 delivery must never depend on the last user who saved settings and must never
 silently fall back to a user's personal sender or the password-reset sender.
 Do not replace this evidence with process-local state or a latest-only widget.
+Technical IOCL check, job, and mail-delivery errors are administrator-only.
+Regular-user API responses and UI failures use the fixed public message
+`We have encountered an issue, please contact Jarjish 🥲`; administrators retain
+the complete stored diagnostic in status and history views.
 
 Trial Balance's two-step upload flow stores owner/expiry metadata in MySQL and
 parsed content in UUID-named gzip JSON under the scratch directory. Do not move

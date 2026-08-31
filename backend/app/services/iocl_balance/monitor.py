@@ -242,34 +242,76 @@ def _dismiss_welcome_popup(page, timeout_ms: int = 800) -> None:
         pass
 
 
-def _find_login_fields(page):
-    page.wait_for_timeout(1000)
-    for frame in page.frames:
-        try:
-            inputs = frame.locator("input")
-            password = None
-            username = None
-            for index in range(inputs.count()):
-                field = inputs.nth(index)
-                if (field.get_attribute("type") or "").lower() == "password":
-                    password = field
-                combined = " ".join(
-                    (field.get_attribute(name) or "").lower()
-                    for name in ("name", "id", "placeholder")
-                )
-                if field.is_visible() and any(word in combined for word in ("user", "login", "customer")):
-                    username = username or field
-            if username is None:
+def _find_login_fields(page, timeout_ms: int = 10_000):
+    """Wait for and return the portal's visible login controls.
+
+    XTRAPOWER's Angular shell can render several seconds after DOMContentLoaded,
+    especially when an expired saved session is being rejected. A single scan
+    races that render and incorrectly reports that no login form exists.
+    """
+    deadline = time.monotonic() + timeout_ms / 1000
+    while True:
+        for frame in page.frames:
+            try:
+                inputs = frame.locator("input")
+                password = None
+                username = None
                 for index in range(inputs.count()):
                     field = inputs.nth(index)
-                    if field.is_visible() and (field.get_attribute("type") or "text").lower() in {"text", "email", ""}:
+                    if not field.is_visible():
+                        continue
+                    if (
+                        password is None
+                        and (field.get_attribute("type") or "").lower() == "password"
+                    ):
+                        password = field
+                    combined = " ".join(
+                        (field.get_attribute(name) or "").lower()
+                        for name in ("name", "id", "placeholder")
+                    )
+                    if username is None and any(
+                        word in combined for word in ("user", "login", "customer", "email")
+                    ):
                         username = field
-                        break
-            if username is not None and password is not None:
-                return frame, username, password
-        except Exception:
-            continue
-    return None, None, None
+                if username is None:
+                    for index in range(inputs.count()):
+                        field = inputs.nth(index)
+                        if field.is_visible() and (field.get_attribute("type") or "text").lower() in {"text", "email", ""}:
+                            username = field
+                            break
+                if username is not None and password is not None:
+                    return frame, username, password
+            except Exception:
+                continue
+        if time.monotonic() >= deadline:
+            return None, None, None
+        page.wait_for_timeout(250)
+
+
+def _fill_login_field(field, value: str, label: str) -> None:
+    """Unlock and fill a current XTRAPOWER login field.
+
+    Build 1.1.018 now renders User ID and Password as ``readonly`` until each
+    field receives a genuine click. Playwright's ``fill`` waits for editability
+    but does not click first, causing a 30-second timeout on every login. This
+    follows the same interaction a user performs and does not bypass CAPTCHA.
+    """
+    try:
+        if not field.is_editable():
+            field.click(timeout=5_000)
+        deadline = time.monotonic() + 5
+        while not field.is_editable() and time.monotonic() < deadline:
+            time.sleep(0.1)
+        if not field.is_editable():
+            raise RuntimeError(
+                f"The IOCL {label} field remained locked after it was clicked. "
+                "The portal may be waiting for human verification."
+            )
+        field.fill(value, timeout=5_000)
+    except RuntimeError:
+        raise
+    except Exception as exc:
+        raise RuntimeError(f"The IOCL {label} field could not be completed") from exc
 
 
 def _click_login(frame) -> bool:
@@ -410,8 +452,8 @@ def fetch_balance(
                 frame, username_field, password_field = _find_login_fields(page)
                 if username_field is None or password_field is None:
                     raise RuntimeError("The IOCL login form could not be detected")
-                username_field.fill(username)
-                password_field.fill(password)
+                _fill_login_field(username_field, username, "User ID")
+                _fill_login_field(password_field, password, "Password")
                 if not _click_login(frame):
                     raise RuntimeError("The IOCL login button could not be detected")
                 if not _wait_until_logged_in(page, login_timeout_seconds):
@@ -429,9 +471,9 @@ def fetch_balance(
                 pass
             page.wait_for_timeout(1000)
             _dismiss_welcome_popup(page)
-            _click_nav(page, "Financials")
+            _click_nav(page, "Financials", timeout_ms=20_000)
             page.wait_for_timeout(1000)
-            _click_nav(page, "Online CCMS Recharge", timeout_ms=5000)
+            _click_nav(page, "Online CCMS Recharge", timeout_ms=15_000)
 
             balance = None
             for _ in range(10):
