@@ -274,6 +274,24 @@ def _apply_additive_schema_updates() -> None:
                         "ADD COLUMN `alert_repeat_hours` INT NOT NULL DEFAULT 30"
                     )
                 )
+        if "alert_repeat_minutes" not in iocl_columns:
+            with engine.begin() as connection:
+                connection.execute(
+                    text(
+                        "ALTER TABLE `iocl_balance_settings` "
+                        "ADD COLUMN `alert_repeat_minutes` INT NOT NULL DEFAULT 30"
+                    )
+                )
+                # Administrators entered the old numeric value believing it
+                # was minutes. Preserve that number unchanged: 30 becomes a
+                # 30-minute reminder, not 1,800 minutes.
+                connection.execute(
+                    text(
+                        "UPDATE `iocl_balance_settings` "
+                        "SET `alert_repeat_minutes` = "
+                        "GREATEST(1, LEAST(43200, `alert_repeat_hours`))"
+                    )
+                )
         if needs_iocl_sender_backfill:
             # One-time migration only: never repopulate a sender that an
             # administrator deliberately cleared after the schema upgrade.

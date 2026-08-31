@@ -57,7 +57,9 @@ only.
 
 ## If something fails
 
-Read the on-page error and retry after correcting the input. Do not refresh or
+Regular users see `We have encountered an issue, please contact Jarjish 🥲`
+for failures; administrators retain the technical details needed to diagnose
+them. Retry after correcting any clearly identified input validation. Do not refresh or
 close a tab during a cancellable report unless you intend to abandon it. For
 server, Oracle, SMTP, or scheduler issues, contact the administrator with the
 timestamp and the visible job/error identifier; never send passwords or session

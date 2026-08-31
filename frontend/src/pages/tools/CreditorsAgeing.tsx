@@ -16,6 +16,7 @@ import { GlassCard } from '@/components/GlassCard'
 import { MappingTable, type MappingColumn, type MappingRow } from '@/components/MappingTable'
 import { Pagination } from '@/components/Pagination'
 import { ProgressPanel, type JobState, type JobStatus } from '@/components/ProgressPanel'
+import { LoadingNotice } from '@/components/LoadingNotice'
 import { DatePicker } from '@/components/TemporalPicker'
 import { usePagination } from '@/hooks/usePagination'
 import { ApiError, apiUrl, del, get, post, postForm, put } from '@/lib/api'
@@ -145,7 +146,7 @@ function MappingManager({
   }
 
   if (loading) {
-    return <p className="py-12 text-center text-sm text-ink-faint">Loading centralized vendor mappings...</p>
+    return <LoadingNotice detail="Loading centralized vendor mappings." />
   }
 
   return (
@@ -589,4 +590,3 @@ export default function CreditorsAgeing() {
     </AppShell>
   )
 }
-

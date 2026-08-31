@@ -11,6 +11,7 @@ from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app import audit_middleware, client_context, config, database, http_middleware
+from app.public_messages import PUBLIC_ISSUE_MESSAGE
 from app.routers import (
     admin_routes,
     auth_routes,
@@ -111,7 +112,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
     if request.url.path.startswith("/api/"):
         return JSONResponse(
             status_code=500,
-            content={"detail": "Something went wrong. Please try again or contact support."},
+            content={"detail": PUBLIC_ISSUE_MESSAGE},
         )
     raise exc
 

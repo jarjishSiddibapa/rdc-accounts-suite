@@ -83,7 +83,7 @@ def seed_settings(db: Session) -> None:
             alerts_enabled=True,
             alert_start_amount=Decimal("500000"),
             alert_step_amount=Decimal("50000"),
-            alert_repeat_hours=30,
+            alert_repeat_minutes=30,
             alert_to="[]",
             alert_cc="[]",
             alert_subject_template=DEFAULT_ALERT_SUBJECT,
@@ -215,7 +215,7 @@ def threshold_reminder_due(
     current: Decimal,
     threshold: Decimal,
     last_notification_at: datetime | None,
-    repeat_hours: int,
+    repeat_minutes: int,
     now: datetime,
 ) -> bool:
     """Return whether this check should create one below-threshold reminder.
@@ -229,7 +229,7 @@ def threshold_reminder_due(
         return False
     if previous is None or previous >= threshold or last_notification_at is None:
         return True
-    return last_notification_at <= now - timedelta(hours=max(1, repeat_hours))
+    return last_notification_at <= now - timedelta(minutes=max(1, repeat_minutes))
 
 
 def _dismiss_welcome_popup(page, timeout_ms: int = 800) -> None:
@@ -630,7 +630,7 @@ def _add_threshold_notifications(
         current=balance,
         threshold=threshold,
         last_notification_at=(last_notification.created_at if last_notification else None),
-        repeat_hours=settings.alert_repeat_hours,
+        repeat_minutes=settings.alert_repeat_minutes,
         now=now,
     ):
         return

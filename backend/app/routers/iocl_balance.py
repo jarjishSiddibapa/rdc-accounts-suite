@@ -19,6 +19,7 @@ from app.database import get_db
 from app.jobs import cancel_job, get_job, submit_job
 from app.models import IoclBalanceCheck, IoclBalanceNotification, IoclBalanceSettings, User
 from app.permissions import require_app_access
+from app.public_messages import PUBLIC_ISSUE_MESSAGE
 from app.regional import to_ist_iso
 from app.services.iocl_balance import monitor
 from app.services.mailer_shared import send_mail
@@ -30,9 +31,6 @@ router = APIRouter(
 )
 
 _TIME_RE = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
-PUBLIC_ISSUE_MESSAGE = "We have encountered an issue, please contact Jarjish 🥲"
-
-
 def _utcnow() -> datetime:
     return datetime.now(UTC).replace(tzinfo=None)
 
@@ -55,7 +53,7 @@ class SettingsBody(BaseModel):
     daily_body_template: str = Field(min_length=1, max_length=20_000)
     alerts_enabled: bool
     alert_start_amount: Decimal = Field(ge=0, le=Decimal("1000000000"))
-    alert_repeat_hours: int = Field(ge=1, le=720)
+    alert_repeat_minutes: int = Field(ge=1, le=43_200)
     alert_to: list[EmailStr]
     alert_cc: list[EmailStr]
     alert_subject_template: str = Field(min_length=1, max_length=1000)
@@ -136,7 +134,7 @@ def _settings_dict(row: IoclBalanceSettings) -> dict:
         "daily_body_template": row.daily_body_template,
         "alerts_enabled": row.alerts_enabled,
         "alert_start_amount": float(row.alert_start_amount),
-        "alert_repeat_hours": row.alert_repeat_hours,
+        "alert_repeat_minutes": row.alert_repeat_minutes,
         "alert_to": monitor.parse_recipients(row.alert_to),
         "alert_cc": monitor.parse_recipients(row.alert_cc),
         "alert_subject_template": row.alert_subject_template,
@@ -232,7 +230,7 @@ def put_settings(
     row.daily_body_template = body.daily_body_template
     row.alerts_enabled = body.alerts_enabled
     row.alert_start_amount = body.alert_start_amount
-    row.alert_repeat_hours = body.alert_repeat_hours
+    row.alert_repeat_minutes = body.alert_repeat_minutes
     row.alert_to = json.dumps([str(value) for value in body.alert_to])
     row.alert_cc = json.dumps([str(value) for value in body.alert_cc])
     row.alert_subject_template = body.alert_subject_template

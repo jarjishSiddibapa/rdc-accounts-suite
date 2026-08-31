@@ -4,6 +4,8 @@ import { cn } from '@/utils/cn'
 import { ApiError } from '@/lib/api'
 import { registerTabOwnedJob, settleTabOwnedJob } from '@/lib/job-lifecycle'
 import { Button } from '@/components/Button'
+import { GLOBAL_LOADING_MESSAGE } from '@/lib/loading-state'
+import { visibleErrorMessage } from '@/lib/error-visibility'
 
 // How long to keep retrying a poll that's failing for a transient reason
 // (a dropped connection, or the server being briefly slow to respond) before
@@ -86,7 +88,7 @@ export function ProgressPanel<TResult = unknown>({
         if (next.status === 'error' && !settledRef.current) {
           settledRef.current = true
           settleTabOwnedJob(jobId)
-          onError?.(next.error ?? 'Job failed')
+          onError?.(visibleErrorMessage(next.error ?? 'Job failed'))
           return
         }
         if (next.status === 'cancelled') {
@@ -113,7 +115,7 @@ export function ProgressPanel<TResult = unknown>({
         }
         if (!settledRef.current) {
           settledRef.current = true
-          onError?.(err instanceof Error ? err.message : 'Job polling failed')
+          onError?.(visibleErrorMessage(err instanceof Error ? err.message : 'Job polling failed'))
         }
       }
     }
@@ -144,7 +146,12 @@ export function ProgressPanel<TResult = unknown>({
         ) : (
           <Loader2 className="h-4 w-4 animate-spin text-accent" />
         )}
-        <span className="flex-1">{job.phase ?? statusLabel(job.status)}</span>
+        <span className="flex-1">
+          {isActive ? GLOBAL_LOADING_MESSAGE : statusLabel(job.status)}
+          {isActive && job.phase && (
+            <span className="mt-0.5 block text-xs font-normal text-ink-faint">{job.phase}</span>
+          )}
+        </span>
         {job.status !== 'error' && job.status !== 'cancelled' && (
           <span className="font-mono text-xs font-semibold tabular-nums text-ink">
             {job.status === 'done' ? 100 : Math.round(progress)}%
@@ -180,7 +187,7 @@ export function ProgressPanel<TResult = unknown>({
       </div>
 
       {job.status === 'error' && job.error && (
-        <p className="text-sm text-red-500">{job.error}</p>
+        <p className="text-sm text-red-500">{visibleErrorMessage(job.error)}</p>
       )}
     </div>
   )
@@ -189,9 +196,9 @@ export function ProgressPanel<TResult = unknown>({
 function statusLabel(status: JobStatus): string {
   switch (status) {
     case 'queued':
-      return 'Queued...'
+      return GLOBAL_LOADING_MESSAGE
     case 'running':
-      return 'Processing...'
+      return GLOBAL_LOADING_MESSAGE
     case 'done':
       return 'Done'
     case 'error':

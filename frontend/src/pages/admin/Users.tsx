@@ -7,6 +7,7 @@ import { Pagination } from '@/components/Pagination'
 import { PasswordInput } from '@/components/PasswordInput'
 import { PasswordStrengthMeter } from '@/components/PasswordStrengthMeter'
 import { SearchBox } from '@/components/SearchBox'
+import { LoadingNotice } from '@/components/LoadingNotice'
 import { useDebouncedValue } from '@/hooks/useDebouncedValue'
 import { formatIndianDate, formatIndianNumber } from '@/lib/regional'
 import { generateStrongPassword, scorePasswordStrength } from '@/lib/passwordStrength'
@@ -398,7 +399,7 @@ export default function Users() {
                 {loading && (
                   <tr>
                     <td colSpan={8} className="px-4 py-8 text-center text-ink-faint">
-                      Loading...
+                      <LoadingNotice className="py-1" />
                     </td>
                   </tr>
                 )}

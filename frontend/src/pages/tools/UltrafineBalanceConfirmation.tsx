@@ -22,6 +22,7 @@ import { Button } from '@/components/Button'
 import { FileDropzone } from '@/components/FileDropzone'
 import { Modal } from '@/components/Modal'
 import { ProgressPanel, type JobState, type JobStatus } from '@/components/ProgressPanel'
+import { LoadingNotice } from '@/components/LoadingNotice'
 import { MappingTable, type MappingRow } from '@/components/MappingTable'
 import { CreatableCombobox } from '@/components/CreatableCombobox'
 import { Pagination } from '@/components/Pagination'
@@ -561,7 +562,7 @@ function MappingSection() {
         </p>
       )}
       {loading ? (
-        <p className="py-10 text-center text-sm text-ink-faint">Loading...</p>
+        <LoadingNotice />
       ) : (
         <MappingTable
           title="Customer -> Email mapping"

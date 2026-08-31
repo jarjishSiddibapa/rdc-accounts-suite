@@ -1,4 +1,5 @@
 import { Component, type ErrorInfo, type ReactNode } from 'react'
+import { canViewTechnicalErrors, PUBLIC_ISSUE_MESSAGE } from '@/lib/error-visibility'
 
 interface Props {
   children: ReactNode
@@ -6,13 +7,14 @@ interface Props {
 
 interface State {
   failed: boolean
+  errorMessage: string | null
 }
 
 export class AppErrorBoundary extends Component<Props, State> {
-  state: State = { failed: false }
+  state: State = { failed: false, errorMessage: null }
 
-  static getDerivedStateFromError(): State {
-    return { failed: true }
+  static getDerivedStateFromError(error: Error): State {
+    return { failed: true, errorMessage: error.message }
   }
 
   componentDidCatch(error: Error, info: ErrorInfo) {
@@ -24,10 +26,15 @@ export class AppErrorBoundary extends Component<Props, State> {
       return (
         <main id="main-content" className="grid min-h-[70vh] place-items-center p-6">
           <section className="glass max-w-lg rounded-2xl p-8 text-center" role="alert">
-            <h1 className="font-display text-2xl font-semibold text-ink">This page could not load</h1>
+            <h1 className="font-display text-2xl font-semibold text-ink">Something needs attention</h1>
             <p className="mt-2 text-sm text-ink-dim">
-              Your work has not been submitted. Refresh the page to retry, or return to the dashboard.
+              {PUBLIC_ISSUE_MESSAGE}
             </p>
+            {canViewTechnicalErrors() && this.state.errorMessage && (
+              <p className="mt-3 whitespace-pre-wrap break-words rounded-xl border border-red-500/25 bg-red-500/10 p-3 text-left text-xs text-red-600">
+                Technical details: {this.state.errorMessage}
+              </p>
+            )}
             <div className="mt-6 flex flex-wrap justify-center gap-3">
               <button
                 type="button"

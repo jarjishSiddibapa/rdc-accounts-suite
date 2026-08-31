@@ -7,6 +7,7 @@ import { FileDropzone } from '@/components/FileDropzone'
 import { ProgressPanel, type JobState, type JobStatus } from '@/components/ProgressPanel'
 import { MappingTable, type MappingColumn, type MappingRow } from '@/components/MappingTable'
 import { CreatableCombobox } from '@/components/CreatableCombobox'
+import { LoadingNotice } from '@/components/LoadingNotice'
 import { ApiError, apiUrl, del, get, post, postForm, put } from '@/lib/api'
 import { formatIndianNumber } from '@/lib/regional'
 import { cn } from '@/utils/cn'
@@ -208,7 +209,7 @@ function StateCodeMappingSection() {
         </p>
       )}
       {loading ? (
-        <p className="py-10 text-center text-sm text-ink-faint">Loading...</p>
+        <LoadingNotice />
       ) : (
         <MappingTable
           title="State Codes"

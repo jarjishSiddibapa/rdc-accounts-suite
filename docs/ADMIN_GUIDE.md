@@ -39,7 +39,7 @@ The IOCL monitor has one shared configuration owned by administrators:
 - one dedicated sender email and app password;
 - morning mail time, recipients, subject, and body;
 - automatic-check interval;
-- alert starting balance, repeat decrement, recipients, subject, and body.
+- alert starting balance, repeat interval in minutes, recipients, subject, and body.
 
 Regular users can check the balance and review the complete check/notification
 history, but cannot see or change credentials, recipients, templates, or rules.

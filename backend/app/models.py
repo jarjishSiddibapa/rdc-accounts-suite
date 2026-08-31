@@ -218,7 +218,11 @@ class IoclBalanceSettings(Base):
     # the first threshold-crossing release. Runtime behavior now uses a
     # time-based reminder while the balance remains below the threshold.
     alert_step_amount = Column(Numeric(14, 2), default=50000, nullable=False)
-    alert_repeat_hours = Column(Integer, default=30, nullable=False)
+    # Minute-based recurring reminder cadence. The legacy
+    # ``alert_repeat_hours`` database column is kept by the additive
+    # migration for rollback compatibility, but runtime code no longer uses
+    # it.
+    alert_repeat_minutes = Column(Integer, default=30, nullable=False)
     alert_to = Column(Text, nullable=True)
     alert_cc = Column(Text, nullable=True)
     alert_subject_template = Column(Text, nullable=False)

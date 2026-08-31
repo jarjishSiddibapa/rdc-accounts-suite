@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, type ReactNode } from 'react'
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import { AuthGuard, AdminGuard, AppGuard } from '@/components/AuthGuard'
 import { AppErrorBoundary } from '@/components/AppErrorBoundary'
+import { GlobalLoadingIndicator, LoadingNotice } from '@/components/LoadingNotice'
 
 const Login = lazy(() => import('@/pages/Login'))
 const ResetPassword = lazy(() => import('@/pages/ResetPassword'))
@@ -36,14 +37,7 @@ function ScrollToTop() {
 function PageLoading() {
   return (
     <main id="main-content" className="grid min-h-[70vh] place-items-center p-5" role="status" aria-live="polite">
-      <div className="glass w-full max-w-md rounded-2xl p-6">
-        <div className="h-3 w-24 animate-pulse rounded-md bg-accent/16" />
-        <div className="mt-5 h-8 w-48 animate-pulse rounded-lg bg-bg-soft" />
-        <div className="mt-3 h-3 w-full animate-pulse rounded-md bg-bg-soft" />
-        <div className="mt-2 h-3 w-4/5 animate-pulse rounded-md bg-bg-soft" />
-        <div className="mt-7 h-12 w-full animate-pulse rounded-xl bg-bg-soft" />
-      </div>
-      <span className="sr-only">Loading page</span>
+      <LoadingNotice className="glass w-full max-w-lg rounded-2xl px-6" />
     </main>
   )
 }
@@ -56,6 +50,7 @@ export default function App() {
   return (
     <div className="flex min-h-[100dvh] flex-col">
       <a href="#main-content" className="skip-link">Skip to content</a>
+      <GlobalLoadingIndicator />
       <ScrollToTop />
       <div className="flex-1">
         <AppErrorBoundary>

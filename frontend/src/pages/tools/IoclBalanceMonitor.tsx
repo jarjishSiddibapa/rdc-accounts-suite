@@ -20,13 +20,13 @@ import { GlassCard } from '@/components/GlassCard'
 import { PasswordInput } from '@/components/PasswordInput'
 import { Pagination } from '@/components/Pagination'
 import { ProgressPanel, type JobState } from '@/components/ProgressPanel'
+import { LoadingNotice } from '@/components/LoadingNotice'
 import { ApiError, get, post, postForm, put } from '@/lib/api'
 import { useAuth } from '@/lib/auth-context'
+import { PUBLIC_ISSUE_MESSAGE } from '@/lib/error-visibility'
 import { formatIndianCurrency, formatIndianDateTime } from '@/lib/regional'
 
 const BASE = '/tools/iocl-balance'
-const PUBLIC_ISSUE_MESSAGE = 'We have encountered an issue, please contact Jarjish 🥲'
-
 function visibleIssue(error: unknown, fallback: string, isAdmin: boolean): string {
   if (!isAdmin) return PUBLIC_ISSUE_MESSAGE
   return error instanceof ApiError ? error.message : fallback
@@ -61,7 +61,7 @@ interface Settings extends MonitorStatus {
   daily_body_template: string
   alerts_enabled: boolean
   alert_start_amount: number
-  alert_repeat_hours: number
+  alert_repeat_minutes: number
   alert_to: string[]
   alert_cc: string[]
   alert_subject_template: string
@@ -317,7 +317,7 @@ export default function IoclBalanceMonitor() {
   const anyActionRunning = savingPanel !== null || testingMail !== null
 
   if (loading || !status) {
-    return <AppShell title="Ultrafine IOCL Balance Monitor"><p className="text-sm text-ink-faint">Loading…</p></AppShell>
+    return <AppShell title="Ultrafine IOCL Balance Monitor"><LoadingNotice /></AppShell>
   }
 
   return (
@@ -436,7 +436,7 @@ export default function IoclBalanceMonitor() {
             <label className="flex items-center gap-3 text-sm font-medium text-ink"><input type="checkbox" className="h-4 w-4 accent-accent" checked={settings.alerts_enabled} onChange={(event) => setSettings({ ...settings, alerts_enabled: event.target.checked })} />Send reminders while the balance is below the threshold</label>
             <div className="grid gap-4 sm:grid-cols-2">
               <Field label="Start alerting below (₹)"><input type="number" min={0} step={1000} className="field-control" value={settings.alert_start_amount} onChange={(event) => setSettings({ ...settings, alert_start_amount: Number(event.target.value) })} /></Field>
-              <Field label="Repeat reminder every (hours)" hint="1–720 hours. The default is 30 hours."><input type="number" min={1} max={720} step={1} className="field-control" value={settings.alert_repeat_hours} onChange={(event) => setSettings({ ...settings, alert_repeat_hours: Number(event.target.value) })} /></Field>
+              <Field label="Repeat reminder every (minutes)" hint="1–43,200 minutes. Reminders are evaluated on each scheduled balance check."><input type="number" min={1} max={43200} step={1} className="field-control" value={settings.alert_repeat_minutes} onChange={(event) => setSettings({ ...settings, alert_repeat_minutes: Number(event.target.value) })} /></Field>
             </div>
             <Field label="To" hint="One address per line, or comma-separated."><textarea className="field-control min-h-24" value={alertTo} onChange={(event) => setAlertTo(event.target.value)} /></Field>
             <Field label="Cc"><textarea className="field-control min-h-20" value={alertCc} onChange={(event) => setAlertCc(event.target.value)} /></Field>

@@ -38,13 +38,19 @@ production database. They are repeatable and do not hard-delete business data.
 - `deployment/mysql/20260827_iocl_balance_monitor.sql`
 - `deployment/mysql/20260828_iocl_admin_owned_sender.sql`
 - `deployment/mysql/20260828_creditors_ageing_report.sql`
+- `deployment/mysql/20260829_iocl_recurring_threshold_reminders.sql`
 - `deployment/mysql/20260829_ultrafine_trial_balance_formatter.sql`
 - `deployment/mysql/20260829_add_missing_foreign_keys.sql`
+- `deployment/mysql/20260831_iocl_reminder_minutes.sql`
 
 If the production database is not named `rdc_accounts_suite`, change only the
 database name in the `CREATE DATABASE`/`USE` statements before running a script.
 The 28 August script adds the dedicated encrypted IOCL sender fields; it does
 not require or copy a plaintext password.
+
+The 31 August IOCL script adds the minute-based reminder setting. It copies the
+old number unchanged, so an existing value of `30` becomes 30 minutes. The old
+hours column is retained for rollback compatibility and is no longer used.
 
 The foreign-key migration checks each relationship for orphaned rows before
 adding its constraint and skips (printing a warning row, not an error) any

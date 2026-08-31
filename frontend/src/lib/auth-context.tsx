@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from 'react'
 import { ApiError, AUTH_EXPIRED_EVENT, get, post } from './api'
+import { setTechnicalErrorVisibility } from './error-visibility'
 import {
   announceLogout,
   clearIdleSessionState,
@@ -55,11 +56,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const refresh = useCallback(async () => {
     try {
       const me = await get<AuthUser>('/auth/me')
+      setTechnicalErrorVisibility(me.role === 'admin')
       setUser(me)
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
+        setTechnicalErrorVisibility(false)
         setUser(null)
       } else {
+        setTechnicalErrorVisibility(false)
         setUser(null)
       }
     }
@@ -78,13 +82,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             // The client still requires credentials even if the cleanup request cannot reach the server.
           }
           clearIdleSessionState()
-          if (!cancelled) setUser(null)
+          if (!cancelled) {
+            setTechnicalErrorVisibility(false)
+            setUser(null)
+          }
           return
         }
         const me = await get<AuthUser>('/auth/me')
-        if (!cancelled) setUser(me)
+        if (!cancelled) {
+          setTechnicalErrorVisibility(me.role === 'admin')
+          setUser(me)
+        }
       } catch {
-        if (!cancelled) setUser(null)
+        if (!cancelled) {
+          setTechnicalErrorVisibility(false)
+          setUser(null)
+        }
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -97,6 +110,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const handleExpired = () => {
       clearIdleSessionState()
+      setTechnicalErrorVisibility(false)
       setUser(null)
       setShowIdleWarning(false)
       announceLogout()
@@ -109,6 +123,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     () =>
       subscribeToTabLogout(() => {
         clearIdleSessionState()
+        setTechnicalErrorVisibility(false)
         setUser(null)
         setShowIdleWarning(false)
       }),
@@ -120,6 +135,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return startIdleSession(
       () => {
         clearIdleSessionState()
+        setTechnicalErrorVisibility(false)
         setUser(null)
         setShowIdleWarning(false)
         announceLogout()
@@ -136,6 +152,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(async (email: string, password: string) => {
     const me = await post<AuthUser>('/auth/login', { email, password })
+    setTechnicalErrorVisibility(me.role === 'admin')
     setUser(me)
   }, [])
 
@@ -144,6 +161,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await post('/auth/logout')
     } finally {
       clearIdleSessionState()
+      setTechnicalErrorVisibility(false)
       setUser(null)
       setShowIdleWarning(false)
       announceLogout()

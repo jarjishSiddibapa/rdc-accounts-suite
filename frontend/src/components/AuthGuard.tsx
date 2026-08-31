@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { Navigate, useLocation } from 'react-router-dom'
 import { useAuth } from '@/lib/auth-context'
+import { LoadingNotice } from '@/components/LoadingNotice'
 
 function ApplicationSkeleton() {
   return (
@@ -30,7 +31,7 @@ function ApplicationSkeleton() {
           <div className="h-64 animate-pulse rounded-[1.25rem] border border-border bg-surface" />
         </div>
       </div>
-      <span className="sr-only">Loading workspace</span>
+      <LoadingNotice className="fixed inset-x-4 top-1/2 z-10 mx-auto max-w-lg -translate-y-1/2 rounded-2xl bg-surface/95 px-6 shadow-lg" />
     </div>
   )
 }

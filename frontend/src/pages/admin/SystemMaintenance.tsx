@@ -3,6 +3,7 @@ import { DatabaseBackup, Download, HardDriveDownload, PlayCircle } from 'lucide-
 import { AppShell } from '@/components/AppShell'
 import { GlassCard } from '@/components/GlassCard'
 import { Button } from '@/components/Button'
+import { LoadingNotice } from '@/components/LoadingNotice'
 import { ApiError, apiUrl, get, put, post } from '@/lib/api'
 import { formatIndianDate, formatIndianNumber } from '@/lib/regional'
 
@@ -137,7 +138,7 @@ export default function SystemMaintenance() {
           </p>
 
           {loading || !settings ? (
-            <p className="mt-4 text-sm text-ink-faint">Loading…</p>
+            <LoadingNotice className="mt-4 justify-start py-1" />
           ) : (
             <div className="mt-5 flex flex-col gap-4">
               <label className="flex items-center gap-3 text-sm">

@@ -9,6 +9,8 @@
  */
 
 import { getCurrentTabId } from '@/lib/tab-session'
+import { visibleErrorMessage } from '@/lib/error-visibility'
+import { beginGlobalLoading } from '@/lib/loading-state'
 
 const BASE_PATH = '/api'
 const REQUEST_TIMEOUT_MS = 30_000
@@ -84,6 +86,12 @@ async function parseErrorMessage(res: Response): Promise<{ message: string; body
 }
 
 async function request<T>(path: string, init?: RequestInit, timeoutMs = REQUEST_TIMEOUT_MS): Promise<T> {
+  // ProgressPanel already renders the shared loading notice for job polls;
+  // excluding those frequent GETs prevents the fixed indicator from
+  // flickering every 800 ms while a report is running.
+  const finishLoading = /\/jobs\/[^/]+\/?(?:\?|$)/.test(path) && (!init?.method || init.method === 'GET')
+    ? () => undefined
+    : beginGlobalLoading()
   const controller = new AbortController()
   const timeout = window.setTimeout(() => controller.abort(), timeoutMs)
   let res: Response
@@ -101,11 +109,12 @@ async function request<T>(path: string, init?: RequestInit, timeoutMs = REQUEST_
     })
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') {
-      throw new ApiError(408, 'The request timed out. Please try again.')
+      throw new ApiError(408, visibleErrorMessage('The request timed out. Please try again.'))
     }
-    throw new ApiError(0, 'Unable to reach the server. Check your connection and try again.')
+    throw new ApiError(0, visibleErrorMessage('Unable to reach the server. Check your connection and try again.'))
   } finally {
     window.clearTimeout(timeout)
+    finishLoading()
   }
 
   if (!res.ok) {
@@ -113,7 +122,7 @@ async function request<T>(path: string, init?: RequestInit, timeoutMs = REQUEST_
     if (res.status === 401 && path !== '/auth/login') {
       window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT))
     }
-    throw new ApiError(res.status, message, body)
+    throw new ApiError(res.status, visibleErrorMessage(message), body)
   }
 
   if (res.status === 204) {
@@ -144,6 +153,7 @@ export function post<T>(path: string, data?: unknown, timeoutMs?: number): Promi
 
 /** POST JSON and return a binary response (ZIP/PDF/etc.). */
 export async function postBlob(path: string, data?: unknown): Promise<Blob> {
+  const finishLoading = beginGlobalLoading()
   const controller = new AbortController()
   const timeout = window.setTimeout(() => controller.abort(), UPLOAD_TIMEOUT_MS)
   let res: Response
@@ -161,17 +171,18 @@ export async function postBlob(path: string, data?: unknown): Promise<Blob> {
     })
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') {
-      throw new ApiError(408, 'The download timed out. Please try again.')
+      throw new ApiError(408, visibleErrorMessage('The download timed out. Please try again.'))
     }
-    throw new ApiError(0, 'Unable to reach the server. Check your connection and try again.')
+    throw new ApiError(0, visibleErrorMessage('Unable to reach the server. Check your connection and try again.'))
   } finally {
     window.clearTimeout(timeout)
+    finishLoading()
   }
 
   if (!res.ok) {
     const { message, body } = await parseErrorMessage(res)
     if (res.status === 401) window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT))
-    throw new ApiError(res.status, message, body)
+    throw new ApiError(res.status, visibleErrorMessage(message), body)
   }
   return res.blob()
 }
@@ -192,6 +203,7 @@ export function del<T>(path: string): Promise<T> {
  * Content-Type header (the browser sets the multipart boundary itself).
  */
 export async function postForm<T>(path: string, formData: FormData): Promise<T> {
+  const finishLoading = beginGlobalLoading()
   const controller = new AbortController()
   const timeout = window.setTimeout(() => controller.abort(), UPLOAD_TIMEOUT_MS)
   let res: Response
@@ -205,17 +217,18 @@ export async function postForm<T>(path: string, formData: FormData): Promise<T> 
     })
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') {
-      throw new ApiError(408, 'The upload timed out. Please try again.')
+      throw new ApiError(408, visibleErrorMessage('The upload timed out. Please try again.'))
     }
-    throw new ApiError(0, 'Unable to reach the server. Check your connection and try again.')
+    throw new ApiError(0, visibleErrorMessage('Unable to reach the server. Check your connection and try again.'))
   } finally {
     window.clearTimeout(timeout)
+    finishLoading()
   }
 
   if (!res.ok) {
     const { message, body } = await parseErrorMessage(res)
     if (res.status === 401) window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT))
-    throw new ApiError(res.status, message, body)
+    throw new ApiError(res.status, visibleErrorMessage(message), body)
   }
 
   return (await res.json()) as T

@@ -22,6 +22,7 @@ import {
 import { AppShell } from '@/components/AppShell'
 import { GlassCard } from '@/components/GlassCard'
 import { Button } from '@/components/Button'
+import { LoadingNotice } from '@/components/LoadingNotice'
 import { FileDropzone } from '@/components/FileDropzone'
 import { ProgressPanel, type JobState, type JobStatus } from '@/components/ProgressPanel'
 import { MappingTable, type MappingColumn, type MappingRow } from '@/components/MappingTable'
@@ -73,14 +74,10 @@ function PeriodDetectionNotice({
 
   if (status === 'detecting') {
     return (
-      <div
-        role="status"
-        aria-live="polite"
-        className="flex items-center gap-2 rounded-xl border border-accent/25 bg-accent/[0.06] px-3 py-2.5 text-sm text-ink-dim"
-      >
-        <RefreshCw className="h-4 w-4 shrink-0 animate-spin text-accent motion-reduce:animate-none" />
-        Detecting periods from the uploaded file… Processing will unlock when this is complete.
-      </div>
+      <LoadingNotice
+        className="justify-start rounded-xl border border-accent/25 bg-accent/[0.06] px-3 py-2.5"
+        detail="Detecting periods from the uploaded file. Processing will unlock when this is complete."
+      />
     )
   }
 
@@ -1984,7 +1981,7 @@ function UnaccountedMappingSection({ config }: { config: UnaccountedMappingConfi
         </p>
       )}
       {loading ? (
-        <p className="py-10 text-center text-sm text-ink-faint">Loading...</p>
+        <LoadingNotice />
       ) : (
         <MappingTable
           title={config.title}
@@ -2098,7 +2095,7 @@ function PoKeywordsPanel() {
     }
   }
 
-  if (loading) return <p className="py-6 text-center text-sm text-ink-faint">Loading...</p>
+  if (loading) return <LoadingNotice className="py-6" />
 
   return (
     <div className="flex flex-col gap-4">
@@ -2305,7 +2302,7 @@ function PoExcludedPanel() {
     }
   }
 
-  if (loading) return <p className="py-6 text-center text-sm text-ink-faint">Loading...</p>
+  if (loading) return <LoadingNotice className="py-6" />
 
   return (
     <div className="flex flex-col gap-4">

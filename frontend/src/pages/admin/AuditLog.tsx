@@ -5,6 +5,7 @@ import { GlassCard } from '@/components/GlassCard'
 import { Pagination } from '@/components/Pagination'
 import { SearchBox } from '@/components/SearchBox'
 import { Button } from '@/components/Button'
+import { LoadingNotice } from '@/components/LoadingNotice'
 import { useDebouncedValue } from '@/hooks/useDebouncedValue'
 import { ApiError, get } from '@/lib/api'
 import { formatIndianDateTime, formatIndianNumber } from '@/lib/regional'
@@ -254,7 +255,7 @@ export default function AuditLog() {
                 {loading ? (
                   <tr>
                     <td colSpan={5} className="px-4 py-6 text-center text-ink-faint">
-                      Loading…
+                      <LoadingNotice className="py-1" />
                     </td>
                   </tr>
                 ) : rows.length === 0 ? (

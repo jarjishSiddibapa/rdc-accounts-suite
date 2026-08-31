@@ -33,7 +33,7 @@ class IoclThresholdTests(unittest.TestCase):
             current=Decimal("490000"),
             threshold=Decimal("500000"),
             last_notification_at=None,
-            repeat_hours=30,
+            repeat_minutes=30,
             now=self.now,
         )
         values.update(overrides)
@@ -45,11 +45,11 @@ class IoclThresholdTests(unittest.TestCase):
     def test_remaining_below_threshold_waits_for_repeat_interval(self):
         self.assertFalse(self.due(
             previous=Decimal("480000"),
-            last_notification_at=self.now - timedelta(hours=29, minutes=59),
+            last_notification_at=self.now - timedelta(minutes=29, seconds=59),
         ))
         self.assertTrue(self.due(
             previous=Decimal("480000"),
-            last_notification_at=self.now - timedelta(hours=30),
+            last_notification_at=self.now - timedelta(minutes=30),
         ))
 
     def test_recovery_stops_reminders(self):
