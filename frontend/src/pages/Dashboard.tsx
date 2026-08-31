@@ -37,11 +37,11 @@ const tools = [
   },
   {
     to: '/tools/rdc-payables',
-    title: 'RDC Payables Report',
-    description: 'Generate the RDC payables report with location/incharge mapping.',
+    title: 'Loans & Advance, IOCL, TDS Report Generator',
+    description: 'Generate the loans, advances, IOCL, TDS, and other report with centralized mappings.',
     icon: Receipt,
     appKey: 'rdc-payables',
-    category: 'Payables reporting',
+    category: 'Loans and advances reporting',
     company: 'RDC' as Company,
   },
   {

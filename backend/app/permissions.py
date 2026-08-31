@@ -25,7 +25,7 @@ RETIRED_APP_KEYS = {"dms"}
 
 APP_LABELS = {
     "erp-to-excel": "ERP to Excel Converter",
-    "rdc-payables": "RDC Payables Report",
+    "rdc-payables": "Loans & Advance, IOCL, TDS Report Generator",
     "unaccounted": "Unaccounted Transactions, Pending MRN & Uninvoiced Expense POs Report Generator",
     "trial-balance": "Trial Balance Location Wise Report Generator",
     "gstr2b-combinator": "GSTR 2B File Combinator",

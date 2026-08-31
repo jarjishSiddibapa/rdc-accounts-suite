@@ -18,6 +18,7 @@ processor.py / mapping_store.py) onto the shared FastAPI backend:
      (see models.py), not an xlsx file.
 """
 
+import re
 from datetime import datetime
 from pathlib import Path
 from time import perf_counter
@@ -44,6 +45,34 @@ router = APIRouter(
 )
 
 _XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+_REPORT_FILENAME_PREFIX = "Loans and Advance, IOCL, TDS, Other"
+_INVALID_FILENAME_CHARACTERS = re.compile(r'[<>:"/\\|?*\x00-\x1f]')
+_MAX_FILENAME_STEM_LENGTH = 180
+
+
+def _default_download_filename(
+    cutoff_year: int,
+    cutoff_month: int,
+    current_time: datetime | None = None,
+) -> str:
+    """Build the business filename using the selected month and today's IST date."""
+    cutoff_label = datetime(cutoff_year, cutoff_month, 1).strftime("%b-%y")
+    as_on_label = (current_time or now_ist()).strftime("%d.%m.%Y")
+    return f"{_REPORT_FILENAME_PREFIX} till {cutoff_label} as on {as_on_label}.xlsx"
+
+
+def _normalize_download_filename(value: str) -> str:
+    """Return a safe xlsx filename suitable for Content-Disposition on Windows."""
+    candidate = value.strip()
+    if candidate.lower().endswith(".xlsx"):
+        candidate = candidate[:-5].strip()
+    if not candidate:
+        raise ValueError("Enter a filename before generating or downloading the report.")
+    if len(candidate) > _MAX_FILENAME_STEM_LENGTH:
+        raise ValueError(f"Filename must be {_MAX_FILENAME_STEM_LENGTH} characters or fewer.")
+    if candidate.endswith(".") or _INVALID_FILENAME_CHARACTERS.search(candidate):
+        raise ValueError('Filename cannot contain < > : " / \\ | ? * or control characters.')
+    return f"{candidate}.xlsx"
 
 # Uploaded report files are bounded centrally by app.uploads.save_upload.
 # ── composite-key helpers (Row Exclusions / Invoice Overrides / Transaction
@@ -106,6 +135,7 @@ class TxnTypeOverrideBody(BaseModel):
 
 def _run_process_job(input_path: str, output_path: str,
                       cutoff_year: int, cutoff_month: int,
+                      output_filename: str | None = None,
                       progress_cb=None) -> dict:
     """Runs in the background job pool (a plain thread, not tied to any
     request) — mirrors the desktop app's _worker() in main.py and Flask
@@ -198,7 +228,7 @@ def _run_process_job(input_path: str, output_path: str,
     finally:
         Path(input_path).unlink(missing_ok=True)
 
-    filename = f"Payables_Report_Through_{cutoff_label}.xlsx"
+    filename = output_filename or _default_download_filename(cutoff_year, cutoff_month)
     add_log("OK", f"Done - {filename} ({format_indian_number(len(xlsx_bytes) // 1024)} KB)")
     if progress_cb:
         progress_cb(1.0, "Report ready")
@@ -222,6 +252,7 @@ async def submit_process(
     file: UploadFile = File(...),
     cutoff_year: int = Form(...),
     cutoff_month: int = Form(...),
+    output_filename: str | None = Form(None),
     user: User = Depends(get_current_user),
 ):
     """Real signature behind this: processor.parse_html_report(file_path)
@@ -234,6 +265,13 @@ async def submit_process(
     if not (1 <= cutoff_month <= 12):
         raise HTTPException(status_code=400, detail="cutoff_month must be between 1 and 12")
 
+    try:
+        download_filename = _normalize_download_filename(
+            output_filename or _default_download_filename(cutoff_year, cutoff_month)
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
     input_path = await save_upload(file, SCRATCH_DIR)
     output_path = SCRATCH_DIR / f"{input_path.stem}_Payables_Report.xlsx"
 
@@ -243,6 +281,7 @@ async def submit_process(
         str(output_path),
         cutoff_year,
         cutoff_month,
+        download_filename,
         owner_id=user.id,
     )
     return {"job_id": job_id}
@@ -265,7 +304,11 @@ def cancel(job_id: str, user: User = Depends(get_current_user)):
 
 
 @router.get("/download/{job_id}")
-def download_report(job_id: str, user: User = Depends(get_current_user)):
+def download_report(
+    job_id: str,
+    filename: str | None = None,
+    user: User = Depends(get_current_user),
+):
     job = get_job(job_id, owner_id=user.id)
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
@@ -277,8 +320,17 @@ def download_report(job_id: str, user: User = Depends(get_current_user)):
     if not output_path.exists():
         raise HTTPException(status_code=404, detail="Output file not found")
 
-    filename = result.get("download_filename") or "Payables_Report.xlsx"
-    return FileResponse(path=str(output_path), filename=filename, media_type=_XLSX_MEDIA_TYPE)
+    try:
+        download_filename = _normalize_download_filename(
+            filename or result.get("download_filename") or "Loans and Advance, IOCL, TDS, Other"
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return FileResponse(
+        path=str(output_path),
+        filename=download_filename,
+        media_type=_XLSX_MEDIA_TYPE,
+    )
 
 
 # ── missing-mapping fix-up (mirrors _MissingPopup's "Update Mapping" dialog) ─

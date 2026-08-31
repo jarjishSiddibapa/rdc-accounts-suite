@@ -13,7 +13,7 @@ RDC Accounts Suite consolidates desktop Accounts Department utilities into one
 LAN-hosted FastAPI and React application. The current suite contains:
 
 1. ERP to Excel Converter
-2. RDC Payables Report
+2. Loans & Advance, IOCL, TDS Report Generator (stable key: `rdc-payables`)
 3. Unaccounted Transactions, Pending MRN, and Uninvoiced Expense PO reports
 4. Trial Balance Location Wise Report
 5. GSTR 2B File Combinator
@@ -109,6 +109,17 @@ live portal through the exact CCMS balance page successfully.
 statistics/log behavior and an Unaccounted mail attachment naming path. It is
 valuable regression coverage but is not an exhaustive certification of every
 desktop action.
+
+The tool with stable key `rdc-payables` is presented to users as **Loans &
+Advance, IOCL, TDS Report Generator**. Its output filename is a request field,
+not a database setting. The frontend derives
+`Loans and Advance, IOCL, TDS, Other till {MMM-YY} as on {DD.MM.YYYY}` from the
+selected cutoff month and the current IST date, keeps it editable through the
+download step, and omits the extension in the field. The API validates the
+name, appends exactly one `.xlsx`, stores the submitted name in the durable job
+result, and accepts a validated download-time override so a post-generation
+edit controls the actual `Content-Disposition` filename. Do not rename the
+`rdc-payables` key or route: existing grants depend on them.
 
 The Creditors Ageing web port lives in
 `backend/app/services/creditors_ageing/processor.py`; its reference is
@@ -605,6 +616,11 @@ The IOCL monitor migrations are:
   original, mistakenly hour-labelled interval;
 - `deployment/mysql/20260831_iocl_reminder_minutes.sql` to add the corrected
   minute-based interval and preserve the old numeric setting unchanged.
+
+The catalogue-only rename is
+`deployment/mysql/20260831_rename_rdc_payables.sql`. It is repeatable and only
+updates the display label for the stable `rdc-payables` key; it has no schema,
+mapping, report-data, or permission impact.
 
 The Creditors Ageing migration is
 `deployment/mysql/20260828_creditors_ageing_report.sql`. It creates the

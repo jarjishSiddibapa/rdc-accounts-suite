@@ -40,7 +40,12 @@ interface NavItem {
 const mainNav: NavItem[] = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard },
   { to: '/tools/erp-converter', label: 'ERP to Excel', icon: FileSpreadsheet, appKey: 'erp-to-excel' },
-  { to: '/tools/rdc-payables', label: 'RDC Payables', icon: Receipt, appKey: 'rdc-payables' },
+  {
+    to: '/tools/rdc-payables',
+    label: 'Loans & Advance, IOCL, TDS Report Generator',
+    icon: Receipt,
+    appKey: 'rdc-payables',
+  },
   {
     to: '/tools/unaccounted-transactions',
     label: 'Unaccounted Transactions, Pending MRN & Uninvoiced Expense POs Report Generator',

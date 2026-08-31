@@ -19,10 +19,28 @@ import { MonthYearPicker } from '@/components/TemporalPicker'
 import { LoadingNotice } from '@/components/LoadingNotice'
 import { usePagination } from '@/hooks/usePagination'
 import { ApiError, apiUrl, del, get, post, postForm, put } from '@/lib/api'
-import { formatIndianDate, formatIndianNumber, getIndianMonthInputValue } from '@/lib/regional'
+import {
+  formatFilenameDate,
+  formatIndianDate,
+  formatIndianNumber,
+  formatReportMonth,
+  getIndianDateInputValue,
+  getIndianMonthInputValue,
+} from '@/lib/regional'
 import { cn } from '@/utils/cn'
 
 const BASE = '/tools/rdc-payables'
+const APP_NAME = 'Loans & Advance, IOCL, TDS Report Generator'
+const FILENAME_PREFIX = 'Loans and Advance, IOCL, TDS, Other'
+const INVALID_FILENAME_CHARACTERS = /[<>:"/\\|?*\u0000-\u001f]/
+
+function getDefaultOutputFilename(cutoffPeriod: string): string {
+  return `${FILENAME_PREFIX} till ${formatReportMonth(cutoffPeriod)} as on ${formatFilenameDate(getIndianDateInputValue())}`
+}
+
+function withXlsxExtension(value: string): string {
+  return value.toLowerCase().endsWith('.xlsx') ? value : `${value}.xlsx`
+}
 
 // ── report generation ────────────────────────────────────────────────────
 
@@ -271,6 +289,10 @@ function MappingSection({ config }: { config: MappingConfig }) {
 export default function RdcPayables() {
   const [file, setFile] = useState<File | null>(null)
   const [cutoffPeriod, setCutoffPeriod] = useState(getIndianMonthInputValue)
+  const [outputFilename, setOutputFilename] = useState(() =>
+    getDefaultOutputFilename(getIndianMonthInputValue()),
+  )
+  const [filenameEdited, setFilenameEdited] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [jobId, setJobId] = useState<string | null>(null)
   const [result, setResult] = useState<ProcessResult | null>(null)
@@ -314,6 +336,19 @@ export default function RdcPayables() {
       setProcessError('Choose a valid cutoff month and year.')
       return
     }
+    const currentFilename = (
+      filenameEdited ? outputFilename : getDefaultOutputFilename(cutoffPeriod)
+    ).trim()
+    if (
+      !currentFilename ||
+      currentFilename.length > 180 ||
+      currentFilename.endsWith('.') ||
+      INVALID_FILENAME_CHARACTERS.test(currentFilename)
+    ) {
+      setProcessError('Enter a valid filename of 180 characters or fewer. Do not use < > : " / \\ | ? *.')
+      return
+    }
+    setOutputFilename(currentFilename)
     setSubmitting(true)
     setProcessError(null)
     setResult(null)
@@ -326,6 +361,7 @@ export default function RdcPayables() {
       formData.append('file', file)
       formData.append('cutoff_year', String(cutoffYear))
       formData.append('cutoff_month', String(cutoffMonth))
+      formData.append('output_filename', currentFilename)
       const res = await postForm<{ job_id: string }>(`${BASE}/process`, formData)
       setJobId(res.job_id)
       // submitting stays true until the background job itself settles
@@ -341,9 +377,20 @@ export default function RdcPayables() {
 
   function handleDownloadReport() {
     if (!jobId) return
+    const currentFilename = outputFilename.trim()
+    if (
+      !currentFilename ||
+      currentFilename.length > 180 ||
+      currentFilename.endsWith('.') ||
+      INVALID_FILENAME_CHARACTERS.test(currentFilename)
+    ) {
+      setProcessError('Enter a valid filename of 180 characters or fewer. Do not use < > : " / \\ | ? *.')
+      return
+    }
     const a = document.createElement('a')
-    a.href = apiUrl(`${BASE}/download/${jobId}`)
-    a.download = result?.download_filename || 'Payables_Report.xlsx'
+    const query = new URLSearchParams({ filename: currentFilename })
+    a.href = apiUrl(`${BASE}/download/${jobId}?${query.toString()}`)
+    a.download = withXlsxExtension(currentFilename)
     document.body.appendChild(a)
     a.click()
     a.remove()
@@ -373,7 +420,7 @@ export default function RdcPayables() {
   const unmappedPagination = usePagination(unmappedSites, 10, jobId)
 
   return (
-    <AppShell title="RDC Payables Report">
+    <AppShell title={APP_NAME}>
       <div className="flex flex-col gap-6">
         {/* ── Report generation ──────────────────────────────────────── */}
         <GlassCard padding="lg" className="flex flex-col gap-6">
@@ -382,10 +429,10 @@ export default function RdcPayables() {
               <Receipt className="h-5 w-5" />
             </span>
             <div>
-              <p className="text-sm font-semibold text-accent">Payables intelligence</p>
-              <h2 className="mt-1.5 font-display text-xl font-semibold tracking-[-0.025em] text-ink">Generate payables report</h2>
+              <p className="text-sm font-semibold text-accent">Loans and advances reporting</p>
+              <h2 className="mt-1.5 font-display text-xl font-semibold tracking-[-0.025em] text-ink">Generate the consolidated report</h2>
               <p className="mt-1 text-sm leading-6 text-ink-dim">
-                Upload an Oracle ERP export and pick the GL cutoff period.
+                Upload an Oracle ERP export, choose the GL cutoff period, and confirm the output filename.
               </p>
             </div>
           </div>
@@ -403,15 +450,39 @@ export default function RdcPayables() {
               <span className="font-medium text-ink-dim">GL cutoff month and year</span>
               <MonthYearPicker
                 value={cutoffPeriod}
-                onValueChange={setCutoffPeriod}
+                onValueChange={(value) => {
+                  setCutoffPeriod(value)
+                  if (!filenameEdited) setOutputFilename(getDefaultOutputFilename(value))
+                }}
                 aria-label="GL cutoff month and year"
               />
+            </label>
+            <label className="flex min-w-0 flex-1 flex-col gap-1.5 text-sm sm:min-w-80">
+              <span className="font-medium text-ink-dim">Output filename</span>
+              <input
+                className="field-control w-full"
+                type="text"
+                value={outputFilename}
+                maxLength={180}
+                onChange={(event) => {
+                  setOutputFilename(event.target.value)
+                  setFilenameEdited(true)
+                }}
+                aria-describedby="rdc-payables-filename-help"
+              />
+              <span id="rdc-payables-filename-help" className="text-xs leading-5 text-ink-faint">
+                Based on the selected month and today's date. You can edit it; .xlsx is added automatically.
+              </span>
             </label>
             <Button
               className="sm:ml-auto"
               onClick={() => void handleGenerate()}
               loading={submitting}
-              disabled={!file || !/^\d{4}-(0[1-9]|1[0-2])$/.test(cutoffPeriod)}
+              disabled={
+                !file ||
+                !/^\d{4}-(0[1-9]|1[0-2])$/.test(cutoffPeriod) ||
+                !outputFilename.trim()
+              }
             >
               Generate report
             </Button>

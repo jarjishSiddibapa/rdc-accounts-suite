@@ -42,6 +42,7 @@ production database. They are repeatable and do not hard-delete business data.
 - `deployment/mysql/20260829_ultrafine_trial_balance_formatter.sql`
 - `deployment/mysql/20260829_add_missing_foreign_keys.sql`
 - `deployment/mysql/20260831_iocl_reminder_minutes.sql`
+- `deployment/mysql/20260831_rename_rdc_payables.sql`
 
 If the production database is not named `rdc_accounts_suite`, change only the
 database name in the `CREATE DATABASE`/`USE` statements before running a script.
@@ -51,6 +52,12 @@ not require or copy a plaintext password.
 The 31 August IOCL script adds the minute-based reminder setting. It copies the
 old number unchanged, so an existing value of `30` becomes 30 minutes. The old
 hours column is retained for rollback compatibility and is no longer used.
+
+The 31 August application rename script only updates the display label for the
+stable `rdc-payables` key. It does not change the schema, existing permissions,
+mappings, company classification, or report data. Restarting the suite also
+reconciles this canonical label, but running the script makes the production
+catalogue correct before startup.
 
 The foreign-key migration checks each relationship for orphaned rows before
 adding its constraint and skips (printing a warning row, not an error) any

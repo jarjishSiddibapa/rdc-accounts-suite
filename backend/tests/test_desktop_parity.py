@@ -46,6 +46,7 @@ class DesktopParityTests(unittest.TestCase):
                     return_value=(frame, datetime(2026, 7, 31)),
                 ),
                 patch.object(rdc_payables.processor, "to_excel_bytes", return_value=b"xlsx"),
+                patch.object(rdc_payables, "now_ist", return_value=datetime(2026, 8, 31, 10, 30)),
             ):
                 result = rdc_payables._run_process_job(
                     str(input_path),
@@ -61,9 +62,54 @@ class DesktopParityTests(unittest.TestCase):
         self.assertEqual(result["unmatched_count"], 1)
         self.assertEqual(result["transaction_type_counts"], {"Invoice": 2, "TDS": 1})
         self.assertEqual(result["aging_bucket_counts"], {"0-30": 2, "31-60": 1})
-        self.assertEqual(result["download_filename"], "Payables_Report_Through_Jul-2026.xlsx")
+        self.assertEqual(
+            result["download_filename"],
+            "Loans and Advance, IOCL, TDS, Other till Jul-26 as on 31.08.2026.xlsx",
+        )
         self.assertTrue(any("Unmapped site codes: 1" in line for line in result["log"]))
         self.assertEqual(progress[-1], (1.0, "Report ready"))
+
+    def test_payables_download_filename_is_editable_safe_and_xlsx(self):
+        self.assertEqual(
+            rdc_payables._normalize_download_filename(
+                "Loans and Advance, IOCL, TDS, Other till Aug-26 as on 31.08.2026"
+            ),
+            "Loans and Advance, IOCL, TDS, Other till Aug-26 as on 31.08.2026.xlsx",
+        )
+        self.assertEqual(
+            rdc_payables._normalize_download_filename("My edited report.XLSX"),
+            "My edited report.xlsx",
+        )
+        for invalid in ("", "../report", "report?.xlsx", "report."):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                rdc_payables._normalize_download_filename(invalid)
+
+    def test_payables_download_time_edit_controls_content_disposition(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            output_path = Path(temp_dir) / "generated.xlsx"
+            output_path.write_bytes(b"xlsx")
+            with patch.object(
+                rdc_payables,
+                "get_job",
+                return_value={
+                    "status": "done",
+                    "result": {
+                        "output_path": str(output_path),
+                        "download_filename": "Original.xlsx",
+                    },
+                },
+            ) as get_job:
+                response = rdc_payables.download_report(
+                    "job-1",
+                    filename="Edited report name",
+                    user=SimpleNamespace(id=42),
+                )
+
+        self.assertIn(
+            "Edited%20report%20name.xlsx",
+            response.headers["content-disposition"],
+        )
+        get_job.assert_called_once_with("job-1", owner_id=42)
 
     def test_mail_job_uses_desktop_attachment_filename_pattern(self):
         frame = pd.DataFrame({"Supplier Site": ["SITE-1"], "Location": ["West"]})

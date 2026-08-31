@@ -62,12 +62,22 @@ class ApplicationAccessControlTests(unittest.TestCase):
                     label="DMS Document Downloader",
                     company="RDC",
                 ))
+                db.add(Application(
+                    key="rdc-payables",
+                    label="RDC Payables Report",
+                    company="RDC",
+                ))
                 db.commit()
 
                 seed_applications(db)
 
                 retired = db.query(Application).filter_by(key="dms").one()
                 self.assertTrue(retired.is_deleted)
+                payables = db.query(Application).filter_by(key="rdc-payables").one()
+                self.assertEqual(
+                    payables.label,
+                    "Loans & Advance, IOCL, TDS Report Generator",
+                )
                 self.assertEqual(
                     {row.key for row in db.query(Application).filter_by(is_deleted=False).all()},
                     set(APP_KEYS),

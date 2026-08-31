@@ -12,7 +12,7 @@ Oracle-backed reports, and scheduled email workflows.
 | Application | Purpose | External dependency |
 | --- | --- | --- |
 | ERP to Excel Converter | Clean and format ERP exports as workbooks | None |
-| RDC Payables Report | Produce the mapped payables report | None |
+| Loans & Advance, IOCL, TDS Report Generator | Produce the mapped loans, advances, IOCL, TDS, and other report | None |
 | Unaccounted Transactions, Pending MRN & Uninvoiced Expense POs | Generate the three exception reports and mail package | None |
 | Trial Balance Location Wise | Convert and review trial-balance data | None |
 | GSTR 2B File Combinator | Combine GSTR-2B exports | None |
