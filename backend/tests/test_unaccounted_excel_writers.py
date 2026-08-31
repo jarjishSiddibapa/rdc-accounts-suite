@@ -119,5 +119,88 @@ class UnaccountedPivotDataIsRealTests(unittest.TestCase):
         self.assertIn(">2<", html)  # Mumbai Plant / Rakesh D: 2 distinct POs
 
 
+class WriterProgressReportingTests(unittest.TestCase):
+    """These writers used to have no progress hook at all - a large file's
+    entire write phase reported nothing until it finished, the same
+    "frozen" symptom the ERP converter had before its own fix. progress_cb
+    is optional everywhere (omitting it, as every other test in this file
+    does, must keep working unchanged)."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.out_dir = Path(self._tmp.name)
+
+    def _big_unaccounted_df(self, n=600):
+        return pd.DataFrame({
+            "Supplier Name": [f"Vendor {i % 20}" for i in range(n)],
+            "Supplier Site": [f"SITE-{i % 20}" for i in range(n)],
+            "Invoice Number": [f"INV-{i}" for i in range(n)],
+            "Invoice Date": ["01-Jul-2026"] * n,
+            "Amount": [1000.0 + i for i in range(n)],
+            "GL Date": ["01-Jul-2026"] * n,
+            "Location": [f"Plant {i % 5}" for i in range(n)],
+            "Accounts Incharge": [f"Incharge {i % 5}" for i in range(n)],
+        })
+
+    def test_write_formatted_excel_reports_moving_progress(self):
+        events = []
+        out = str(self.out_dir / "out.xlsx")
+        excel_writers.write_formatted_excel(
+            self._big_unaccounted_df(), out, progress_cb=lambda f, p: events.append((f, p))
+        )
+        self.assertGreater(len(events), 2, "expected more than a start/end pair of updates")
+        fractions = [f for f, _ in events]
+        self.assertEqual(fractions, sorted(fractions))
+        self.assertGreaterEqual(fractions[0], 0.5)
+        self.assertAlmostEqual(fractions[-1], 0.95, places=4)
+
+    def test_write_formatted_excel_without_progress_cb_is_unaffected(self):
+        out = str(self.out_dir / "out.xlsx")
+        excel_writers.write_formatted_excel(self._big_unaccounted_df(), out)
+        self.assertTrue(Path(out).is_file())
+
+    def test_write_formatted_mrn_excel_reports_moving_progress(self):
+        n = 600
+        df = pd.DataFrame({
+            "ACCOUNTING PERIOD": ["Jul-26"] * n,
+            "SUPPLIER SITE": [f"SITE-{i % 20}" for i in range(n)],
+            "SUPPLIER NAME": [f"Vendor {i % 20}" for i in range(n)],
+            "BASE AMOUNT": [1000.0 + i for i in range(n)],
+            "Location": [f"Plant {i % 5}" for i in range(n)],
+            "Accounts Incharge": [f"Incharge {i % 5}" for i in range(n)],
+        })
+        events = []
+        out = str(self.out_dir / "mrn.xlsx")
+        excel_writers.write_formatted_mrn_excel(df, out, progress_cb=lambda f, p: events.append((f, p)))
+        self.assertGreater(len(events), 2)
+        self.assertAlmostEqual(events[-1][0], 0.95, places=4)
+
+    def test_write_formatted_po_excel_progress_covers_all_three_sheets(self):
+        n = 300
+        main_df = pd.DataFrame({
+            "PO Number": [f"PO-{i}" for i in range(n)],
+            "Location": [f"Plant {i % 5}" for i in range(n)],
+            "Month": ["Jul-26"] * n,
+            "Unit Price": [10.0] * n,
+            "Quantity": [1] * n,
+            "Basic Amount": [10.0] * n,
+            "PO Amount": [11.8] * n,
+            "GST Amount": [1.8] * n,
+        })
+        moved_df = main_df.iloc[:50].copy()
+        unmapped_df = pd.DataFrame({"Supplier Site": ["UNMAPPED-1"] * 10})
+        events = []
+        out = str(self.out_dir / "po.xlsx")
+        excel_writers.write_formatted_po_excel(
+            main_df, moved_df, unmapped_df, out, progress_cb=lambda f, p: events.append((f, p))
+        )
+        self.assertGreater(len(events), 2)
+        # Progress must reach the top of its span once every sheet (main +
+        # moved + unmapped, all sharing one running row count) is written,
+        # not restart/plateau partway through after only the first sheet.
+        self.assertAlmostEqual(events[-1][0], 0.95, places=4)
+
+
 if __name__ == "__main__":
     unittest.main()

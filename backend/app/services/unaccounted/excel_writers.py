@@ -20,6 +20,29 @@ INDIAN_FMT = r'##,##,##0;-##,##,##0;"-"'
 INDIAN_DECIMAL_FMT = r'##,##,##0.00;-##,##,##0.00;"-"'
 
 
+def _row_progress_reporter(progress_cb, base: float, span: float, total_rows: int):
+    """Build a cheap per-row callback that reports progress at most ~200
+    times across the main data-row loop, scaled into [base, base+span].
+
+    These writers can run against tens/hundreds of thousands of rows with
+    no progress feedback at all today - the whole call just blocks, the
+    same "frozen" symptom the ERP converter had before its own progress
+    relay was wired up (see app.jobs.run_cpu_phase). Calling progress_cb
+    every single row would be wasteful (each call crosses a process
+    boundary via a queue put); every row of a ~200-step stride keeps the
+    UI moving smoothly without that overhead.
+    """
+    if not progress_cb or total_rows <= 0:
+        return lambda _rows_written: None
+    step = max(1, total_rows // 200)
+
+    def _report(rows_written: int) -> None:
+        if rows_written % step == 0 or rows_written == total_rows:
+            progress_cb(base + span * (rows_written / total_rows), "Writing workbook...")
+
+    return _report
+
+
 def _thin_border():
     s = Side(style="thin", color="000000")
     return Border(left=s, right=s, top=s, bottom=s)
@@ -298,7 +321,7 @@ def _to_excel_date(val):
     return None
 
 
-def write_formatted_excel(df: "pd.DataFrame", path: str) -> None:
+def write_formatted_excel(df: "pd.DataFrame", path: str, progress_cb=None) -> None:
     """Write df to path as a professionally formatted xlsx."""
     wb     = Workbook()
     ws     = wb.active
@@ -309,6 +332,7 @@ def write_formatted_excel(df: "pd.DataFrame", path: str) -> None:
     n_cols = len(cols)
     n_rows = len(df)
     bdr    = _thin_border()
+    report_row = _row_progress_reporter(progress_cb, base=0.5, span=0.45, total_rows=n_rows)
 
     HDR_BG   = "C2D8ED"   # light blue header
     HDR_FG   = "000000"   # black text
@@ -362,6 +386,7 @@ def write_formatted_excel(df: "pd.DataFrame", path: str) -> None:
             else:
                 c.font  = txt_font
                 c.value = val if val is not None else ""
+        report_row(ri - 1)
 
     ws.freeze_panes              = "A2"
     ws.auto_filter.ref           = f"A1:{get_column_letter(n_cols)}{n_rows + 1}"
@@ -726,6 +751,7 @@ def write_formatted_po_excel(
     moved_df: "pd.DataFrame",
     unmapped_df: "pd.DataFrame",
     path: str,
+    progress_cb=None,
 ) -> None:
     """Write the PO report to *path* with four sheets:
        1. Main             — pivot (Location × Month, unique PO count)
@@ -735,6 +761,13 @@ def write_formatted_po_excel(
     """
     wb  = Workbook()
     bdr = _thin_border()
+
+    # Progress spans the three real per-row sheets combined (Main, Deleted
+    # Rows, Mapping Not Found all reuse _write_sheet below) so the callback
+    # reflects true overall completion instead of restarting per sheet.
+    _total_rows_all = len(main_df) + len(moved_df) + len(unmapped_df)
+    _rows_written = [0]
+    _report_row = _row_progress_reporter(progress_cb, base=0.5, span=0.45, total_rows=_total_rows_all)
 
     # ── Palette ───────────────────────────────────────────────────────────────
     TITLE_BG   = "DAEAF7"
@@ -835,6 +868,8 @@ def write_formatted_po_excel(
                     c.font      = txt_font
                     c.alignment = Alignment(horizontal="left", vertical="center", indent=1)
                     c.value     = "" if (val is None or str(val).strip() == "nan") else val
+            _rows_written[0] += 1
+            _report_row(_rows_written[0])
 
         freeze_row = hdr_row + 1   # freeze below the header row
         ws.freeze_panes              = f"A{freeze_row}"
@@ -1387,7 +1422,7 @@ def _add_locationwise_pivot_sheet(wb, df: "pd.DataFrame") -> None:
     ws.column_dimensions[get_column_letter(gt_col)].width = 13
 
 
-def write_formatted_mrn_excel(df: "pd.DataFrame", path: str) -> None:
+def write_formatted_mrn_excel(df: "pd.DataFrame", path: str, progress_cb=None) -> None:
     """Write Pending MRN df to formatted xlsx: data sheet + unmapped sites sheet."""
     # Order rows chronologically by accounting period (stable, so rows within
     # the same period keep their original relative order), so the static
@@ -1408,6 +1443,7 @@ def write_formatted_mrn_excel(df: "pd.DataFrame", path: str) -> None:
     n_cols = len(cols)
     n_rows = len(df)
     bdr    = _thin_border()
+    report_row = _row_progress_reporter(progress_cb, base=0.5, span=0.45, total_rows=n_rows)
 
     HDR_BG   = "C2D8ED"   # light blue header
     HDR_FG   = "000000"   # black text
@@ -1457,6 +1493,7 @@ def write_formatted_mrn_excel(df: "pd.DataFrame", path: str) -> None:
             else:
                 c.font  = txt_font
                 c.value = val if val is not None else ""
+        report_row(ri - 1)
 
     ws.freeze_panes              = "A2"
     ws.auto_filter.ref           = f"A1:{get_column_letter(n_cols)}{n_rows + 1}"

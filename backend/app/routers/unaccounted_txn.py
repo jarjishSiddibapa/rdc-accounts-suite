@@ -127,14 +127,16 @@ def _unlink_uploaded_paths(paths: list[str | Path | None]) -> None:
 
 
 class _CollectingLogQueue:
-    """Plain picklable log_q: just accumulates (level, message) tuples, no
-    progress_cb wiring (which isn't picklable and couldn't cross a process
-    boundary anyway). Used inside the CPU-phase wrapper functions below,
-    which run in a subprocess via run_cpu_phase - the collected messages are
-    handed back as part of that call's return value (a mutated side-channel
-    object's state never crosses back from a subprocess on its own, only
-    what the call actually returns does), so the detailed per-step log this
-    tool's UI shows the user is preserved exactly as before."""
+    """Plain picklable log_q: just accumulates (level, message) tuples.
+    Used inside the CPU-phase wrapper functions below, which run in a
+    subprocess via run_cpu_phase - the collected messages are handed back
+    as part of that call's return value (a mutated side-channel object's
+    state never crosses back from a subprocess on its own, only what the
+    call actually returns does), so the detailed per-step log this tool's
+    UI shows the user is preserved exactly as before. Separately, the row-
+    write progress_cb passed into these CPU-phase functions *does* cross
+    the process boundary - run_cpu_phase relays it via a cross-process
+    queue (see app.jobs.run_cpu_phase)."""
 
     def __init__(self):
         self.messages: list[tuple[str, str]] = []
@@ -143,26 +145,29 @@ class _CollectingLogQueue:
         self.messages.append(item)
 
 
-def _cpu_phase_unaccounted(paths: list, output_path: str):
+def _cpu_phase_unaccounted(paths: list, output_path: str, progress_cb=None):
     log_q = _CollectingLogQueue()
     df, total_rows, input_cols, matched = processing.process_report_multi(paths, log_q)
-    excel_writers.write_formatted_excel(df, output_path)
+    excel_writers.write_formatted_excel(df, output_path, progress_cb=progress_cb)
     return df, total_rows, input_cols, matched, log_q.messages
 
 
-def _cpu_phase_mrn(path: str, exclude_periods: set, output_path: str):
+def _cpu_phase_mrn(path: str, exclude_periods: set, output_path: str, progress_cb=None):
     log_q = _CollectingLogQueue()
     df, total_rows, input_cols, matched = processing.process_mrn_report(path, exclude_periods, log_q)
-    excel_writers.write_formatted_mrn_excel(df, output_path)
+    excel_writers.write_formatted_mrn_excel(df, output_path, progress_cb=progress_cb)
     return df, total_rows, input_cols, matched, log_q.messages
 
 
-def _cpu_phase_po(path: str, exclude_months: set, keywords: list, fuzzy_threshold: float, output_path: str):
+def _cpu_phase_po(
+    path: str, exclude_months: set, keywords: list, fuzzy_threshold: float, output_path: str,
+    progress_cb=None,
+):
     log_q = _CollectingLogQueue()
     main_df, moved_df, unmapped_df, total_rows, input_cols, matched = processing.process_po_report(
         path, exclude_months, keywords, log_q, fuzzy_threshold
     )
-    excel_writers.write_formatted_po_excel(main_df, moved_df, unmapped_df, output_path)
+    excel_writers.write_formatted_po_excel(main_df, moved_df, unmapped_df, output_path, progress_cb=progress_cb)
     return main_df, moved_df, unmapped_df, total_rows, input_cols, matched, log_q.messages
 
 
@@ -179,7 +184,7 @@ def _job_unaccounted(
         progress_cb(0.05, "Processing report...")
     try:
         df, total_rows, input_cols, matched, log_messages = run_cpu_phase(
-            _cpu_phase_unaccounted, paths, output_path
+            _cpu_phase_unaccounted, paths, output_path, progress_cb=progress_cb,
         )
     finally:
         for path in paths:
@@ -213,7 +218,7 @@ def _job_mrn(
         progress_cb(0.05, "Processing report...")
     try:
         df, total_rows, input_cols, matched, log_messages = run_cpu_phase(
-            _cpu_phase_mrn, path, exclude_periods, output_path
+            _cpu_phase_mrn, path, exclude_periods, output_path, progress_cb=progress_cb,
         )
     finally:
         Path(path).unlink(missing_ok=True)
@@ -249,7 +254,8 @@ def _job_po(
         progress_cb(0.05, "Processing report...")
     try:
         main_df, moved_df, unmapped_df, total_rows, input_cols, matched, log_messages = run_cpu_phase(
-            _cpu_phase_po, path, exclude_months, keywords, fuzzy_threshold, output_path
+            _cpu_phase_po, path, exclude_months, keywords, fuzzy_threshold, output_path,
+            progress_cb=progress_cb,
         )
     finally:
         Path(path).unlink(missing_ok=True)
