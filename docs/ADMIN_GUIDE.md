@@ -31,6 +31,11 @@ Email administration controls the default sender/recipients and templates used
 by the report applications. Users can edit a compose screen when the workflow
 allows it, but defaults remain centralized.
 
+The catalogue label **Loans & Advance, IOCL, TDS Report Generator** uses the
+stable internal key `rdc-payables`. Do not rename the key or route: existing
+application grants and saved links depend on it. The display-name migration is
+label-only and does not alter mappings or permissions.
+
 ## IOCL monitor
 
 The IOCL monitor has one shared configuration owned by administrators:

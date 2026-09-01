@@ -1,101 +1,158 @@
 # RDC Accounts Suite
 
-RDC Accounts Suite is the shared web workspace for RDC Concrete and Ultrafine's
-Accounts teams. It brings the former Windows utilities into one readable,
-role-aware application with durable background processing, central mappings,
-Oracle-backed reports, and scheduled email workflows.
+> A production-oriented finance operations workspace that consolidates RDC
+> Concrete and Ultrafine reporting, reconciliation, mapping, Oracle enrichment,
+> and scheduled communication workflows into one secure web application.
+
+![Python 3.11+](https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-API-009688?logo=fastapi&logoColor=white)
+![React](https://img.shields.io/badge/React-TypeScript-149ECA?logo=react&logoColor=white)
+![MySQL](https://img.shields.io/badge/MySQL-Durable%20state-4479A1?logo=mysql&logoColor=white)
+![Status](https://img.shields.io/badge/status-internal%20production-5B4CF0)
 
 ![RDC Accounts Suite dashboard](docs/screenshots/dashboard.png)
 
-## What it includes
+## At a glance
 
-| Application | Purpose | External dependency |
+| Product surface | Engineering baseline |
+| --- | --- |
+| 13 permission-controlled finance applications | 200 automated backend tests |
+| Centralized, searchable MySQL mappings | Multi-process API, job-worker, and scheduler runtime |
+| RDC-only, Ultrafine-only, and combined dashboard views | Owner- and browser-tab-scoped durable jobs |
+| Excel, Oracle ERP, SMTP, and browser-automation workflows | Soft deletion, audit history, encrypted secrets, and idempotent mail |
+
+The suite replaces a collection of Windows utilities with one responsive,
+role-aware workspace. Users receive only the tools granted to them; administrators
+control access, mappings, email defaults, automation, audit history, and recovery.
+
+## Application catalogue
+
+| Application | Outcome | Integration |
 | --- | --- | --- |
-| ERP to Excel Converter | Clean and format ERP exports as workbooks | None |
-| Loans & Advance, IOCL, TDS Report Generator | Produce the mapped loans, advances, IOCL, TDS, and other report | None |
-| Unaccounted Transactions, Pending MRN & Uninvoiced Expense POs | Generate the three exception reports and mail package | None |
-| Trial Balance Location Wise | Convert and review trial-balance data | None |
-| GSTR 2B File Combinator | Combine GSTR-2B exports | None |
-| Unapplied Receipts Report | Enrich receipts with live location/comments data | Oracle |
-| Ultrafine Balance Confirmation | Prepare and send balance confirmations | SMTP |
-| Ultrafine Payment Reminder | Prepare and send payment reminders | SMTP |
-| GST Invoice Number Adder | Enrich GST workbooks with invoice numbers | Oracle |
-| Closing Period Report Generator | Combine closing-period HTML/XLS exports | None |
-| Ultrafine IOCL Balance Monitor | Watch CCMS balance and send scheduled alerts | Playwright + SMTP |
-| Ultrafine Creditors Ageing Report Generator | Build classified creditors, advances, and intercompany ageing schedules from Tally | None |
-| Ultrafine Trial Balance Formatter | Reproduce the approved Ultrafine trial-balance layout from a raw Tally export | None |
+| ERP to Excel Converter | Converts raw ERP exports into clean, formatted workbooks | Excel files |
+| Loans & Advance, IOCL, TDS Report Generator | Produces the mapped loans, advances, IOCL, TDS, and other report with an editable download name | Excel files |
+| Unaccounted Transactions, Pending MRN & Uninvoiced Expense POs | Detects periods, generates three exception reports, previews email, and sends the selected package | Excel + SMTP |
+| Trial Balance Location Wise | Converts and reviews trial-balance data by location | Excel files |
+| GSTR 2B File Combinator | Validates and combines GSTR-2B exports | Excel files |
+| Unapplied Receipts Report Generator | Enriches receipts with live location and comment data | Oracle ERP |
+| Ultrafine Balance Confirmation | Prepares and sends customer balance confirmations | Excel + SMTP |
+| Ultrafine Payment Reminder | Prepares and sends controlled payment reminders | Excel + SMTP |
+| GST Invoice Number Adder | Enriches GST workbooks with invoice numbers | Oracle ERP |
+| Closing Period Report Generator | Combines Oracle BI Publisher HTML-XLS exports into a formula-backed report | HTML-XLS files |
+| Ultrafine IOCL Balance Monitor | Checks CCMS balance, maintains complete history, and sends scheduled morning and threshold reminders | Playwright + SMTP |
+| Ultrafine Creditors Ageing Report Generator | Builds classified creditors, advances, and intercompany ageing schedules from Tally | Excel files |
+| Ultrafine Trial Balance Formatter | Reproduces the approved Ultrafine trial-balance layout from a raw Tally export | Excel files |
 
-The DMS Downloader is retired and intentionally not part of the catalogue.
+The DMS Downloader is retired and intentionally excluded from the catalogue.
 
-## Built for a shared office server
+## Product tour
 
-- FastAPI and SQLAlchemy backend with MySQL as the durable system of record.
-- React, TypeScript, Vite, Tailwind, Geist typography, and accessible responsive UI.
-- Two supervised API workers, two durable job workers, and one scheduler by default.
-- MySQL-backed job leases, tab ownership, rate limits, resource slots, audit history, and idempotent mail actions.
-- Centralized mappings with searchable suggestions, pagination, soft deletion, and administrator-controlled defaults.
-- Oracle work is coordinated through the shared `oracle-gst` resource slot; report generation does not require Excel COM.
-- IOCL has one encrypted, administrator-owned sender configuration. Regular users can check the balance and read history only. Portal checks try at most three times; below-threshold alerts repeat on an administrator-configured minute interval until the balance recovers.
-
-## Screenshots
-
-| Sign in | Administrator dashboard |
+| Secure sign-in | Editable report identity |
 | --- | --- |
-| ![Sign in](docs/screenshots/login.png) | ![Dashboard](docs/screenshots/dashboard.png) |
+| ![Secure sign-in](docs/screenshots/login.png) | ![Loans, advances, IOCL and TDS report filename](docs/screenshots/loans-advance-report.png) |
 
-| IOCL administrator configuration | User administration |
+| Role-aware dashboard | Searchable user administration |
 | --- | --- |
-| ![IOCL administrator view](docs/screenshots/iocl-admin.png) | ![User administration](docs/screenshots/user-administration.png) |
+| ![Role-aware dashboard](docs/screenshots/dashboard.png) | ![User administration](docs/screenshots/user-administration.png) |
 
-| IOCL standard-user view | Complete IOCL history |
-| --- | --- |
-| ![IOCL standard-user view](docs/screenshots/iocl-user.png) | ![IOCL history](docs/screenshots/iocl-history.png) |
+![Administrator-owned IOCL balance automation](docs/screenshots/iocl-admin.png)
 
-Screenshots use a disposable local MySQL database with synthetic
-`example.invalid` identities and no real credentials or recipient addresses.
+Screenshots were captured from a disposable documentation database containing
+only synthetic `example.invalid` users, recipients, and credentials.
 
-## Roles and safety boundaries
+## Finance workflow capabilities
 
-Administrators manage users, application access, centralized mappings, sender
-defaults, backups, audit logs, and IOCL configuration. Regular users see only
-the applications granted to them. The API enforces every permission; hiding a
-control in the browser is never treated as authorization.
+### Reporting and workbook fidelity
 
-All business records use soft deletion (`is_deleted = true`). User email is
-required and unique after normalization; first and last name are optional, and
-active/inactive is independent from archived/not-archived.
+- Background processing keeps large workbook jobs responsive and recoverable.
+- Date, month, year, and month-year pickers replace ambiguous free-text dates.
+- Formulas remain live in downloaded workbooks, with cached results populated
+  where email previews or Protected View need immediately visible values.
+- Pending MRN and Uninvoiced Expense PO period detection is a mandatory gate;
+  neither the UI nor API accepts incomplete or stale selections.
+- The loans/advances report proposes a business-ready filename from the selected
+  cutoff month and current IST date, while allowing a user to edit it before download.
+
+### Centralized reference data
+
+- Mapping tables live in MySQL as the system of record; workbook import/export
+  is intentionally removed.
+- Mapping editors and missing-mapping remediation fields provide searchable
+  existing-value suggestions while still accepting a new classification.
+- High-growth users, mappings, exclusions, histories, and audit logs have search
+  and pagination. User and audit search execute server-side.
+- Seeds add missing natural keys without overwriting administrator edits or
+  silently reviving archived rows.
+
+### Automation and communications
+
+- Email defaults, recipients, report selections, subjects, and bodies are
+  centrally administered and editable only where the workflow permits.
+- IOCL uses one administrator-owned sender and one shared schedule/configuration.
+  Portal checks retry up to three times; threshold reminders repeat at an
+  administrator-selected minute interval until the balance recovers.
+- Regular users receive a safe support message for operational failures, while
+  administrators retain the technical error detail in the portal and audit trail.
+
+### Access and operational safety
+
+- Email identity is required, normalized, and unique; first and last name are optional.
+- Active/inactive state is separate from archived/not-archived state.
+- Business records use soft deletion and restoration rather than destructive deletion.
+- API authorization enforces application grants and administrator boundaries;
+  hiding controls in the browser is never treated as security.
+- SMTP/app passwords and portal sessions are encrypted and excluded from job JSON,
+  logs, responses, browser storage, and source control.
 
 ## Architecture
 
 ```mermaid
 flowchart LR
-  Browser[Browser tabs] --> API[FastAPI API workers]
-  API --> DB[(MySQL)]
-  API --> Queue[Durable background_jobs]
+  Tabs[Concurrent browser tabs] --> API[Supervised FastAPI workers]
+  API --> DB[(MySQL<br/>users · mappings · audit · jobs · leases)]
+  API --> Queue[Durable background jobs]
   Queue --> Workers[Processing workers]
   Scheduler[Single scheduler] --> Queue
-  Workers --> Oracle[(Oracle ERP)]
+  Workers --> Slots[Shared resource slots]
+  Slots --> Oracle[(Oracle ERP)]
   Workers --> SMTP[SMTP]
-  API --> Static[Committed React bundle]
+  Workers --> Portal[IOCL portal automation]
+  API --> UI[Committed React/Vite bundle]
 ```
 
-See [the architecture guide](docs/ARCHITECTURE.md) for ownership, leases,
-Oracle limits, and the scheduler model.
+`start_all.bat` launches the supervisor, which maintains API workers, job
+workers, and one scheduler. MySQL coordinates jobs, rate limits, ownership,
+leases, resource slots, and idempotent actions, so multiple users and tabs do
+not depend on process-local memory. Oracle work shares the `oracle-gst` slot to
+avoid multiplying connection pressure as worker counts increase.
+
+See [Architecture](docs/ARCHITECTURE.md) for the complete concurrency and data
+protection model.
+
+## Technology stack
+
+| Layer | Technologies |
+| --- | --- |
+| Frontend | React, TypeScript, Vite, Tailwind CSS, Geist, Lucide icons |
+| API | FastAPI, Pydantic, SQLAlchemy |
+| Durable coordination | MySQL jobs, leases, resource slots, rate limits, sessions, and audit events |
+| Workbook processing | openpyxl, pure-Python formula caching, file-format-aware parsers |
+| Integrations | Oracle Database, SMTP, Playwright Chromium |
+| Operations | Windows supervisor, multi-process API/workers, scheduler, committed static bundle |
 
 ## Quick start
 
 1. Install Python 3.11+ and MySQL on the server PC.
-2. Copy `backend/.env.example` to `backend/.env` and set MySQL, initial admin,
-   application URL, and any Oracle/SMTP values required by your workflows.
-3. Install Oracle Instant Client under `backend/instantclient/` only if using
-   the Oracle-backed tools.
-4. Double-click [`start_all.bat`](start_all.bat). It creates/checks the virtual
-   environment, installs `requirements.txt`, installs Playwright Chromium, and
-   starts the supervised service on port `2805`.
-5. Open `http://<server-LAN-IP>:2805` and sign in with the initial admin.
+2. Copy `backend/.env.example` to `backend/.env` and configure MySQL, the
+   initial administrator, application URL, and required Oracle/SMTP values.
+3. Install Oracle Instant Client under `backend/instantclient/` only when using
+   Oracle-backed applications.
+4. Run [`start_all.bat`](start_all.bat). It prepares dependencies, installs the
+   supported Playwright browser, and starts the supervised suite on port `2805`.
+5. Open `http://<server-LAN-IP>:2805` and sign in as the initial administrator.
 
-The production machine does not need Node/npm: the built React bundle is
-committed under `backend/app/static/`.
+Production does not need Node/npm because the built frontend is committed under
+`backend/app/static/`.
 
 ## Development and verification
 
@@ -109,31 +166,41 @@ npm install
 npm run build
 ```
 
-`npm run build` writes directly to `backend/app/static/`; commit the source and
-generated assets together. Use `git diff --check` before committing.
+The Vite build writes to `backend/app/static/`; commit frontend source and the
+generated bundle together. The current suite contains 200 backend unit and
+integration tests. Passing them verifies covered behavior but is not a claim of
+complete live Oracle, SMTP, portal, or historical desktop parity.
 
-## Deployment and database changes
+## Documentation
 
-Production updates are manual: pull `main`, run any dated SQL migration
-documented under [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) using MySQL
-Workbench, then restart [`start_all.bat`](start_all.bat). Migrations are
+| Guide | Audience |
+| --- | --- |
+| [User guide](docs/USER_GUIDE.md) | Uploads, report generation, downloads, mapping remediation, and IOCL history |
+| [Administrator guide](docs/ADMIN_GUIDE.md) | Users, grants, centralized mappings, email defaults, IOCL automation, and audit |
+| [Architecture](docs/ARCHITECTURE.md) | Runtime topology, concurrency, leases, ownership, and secret handling |
+| [Deployment](docs/DEPLOYMENT.md) | Production pull, MySQL migrations, restart, and verification |
+| [Troubleshooting](docs/TROUBLESHOOTING.md) | Server, job, Oracle, SMTP, and IOCL diagnostics |
+| [Security policy](SECURITY.md) | Vulnerability reporting and secret-handling expectations |
+| [AI agent handoff](docs/AI_CODING_AGENT_HANDOFF.md) | Product invariants, reference applications, migrations, and required checks |
+
+## Deployment model
+
+Production updates are explicit: pull `main`, run any applicable dated SQL from
+[`deployment/mysql`](deployment/mysql) in MySQL Workbench, restart
+[`start_all.bat`](start_all.bat), and perform the checks in
+[the deployment guide](docs/DEPLOYMENT.md). Migrations are written to be
 idempotent, but should still be reviewed before execution.
-
-Read the [deployment guide](docs/DEPLOYMENT.md), [administrator guide](docs/ADMIN_GUIDE.md),
-[user guide](docs/USER_GUIDE.md), and [troubleshooting guide](docs/TROUBLESHOOTING.md)
-before operating the server. Security-sensitive handling is documented in
-[`SECURITY.md`](SECURITY.md).
 
 ## Project status
 
-This is an internal, proprietary operations application designed for the
-configured RDC/Ultrafine environment and reference workflows. Desktop parity
-must be demonstrated with representative input and external systems before it
-is described as complete.
+This is an internal, proprietary operations application built for the configured
+RDC/Ultrafine environment. No license is granted for external redistribution.
+Desktop parity is reported only for workflows validated with representative
+inputs and the required external systems.
 
-## Working with AI coding agents
+## Contributing
 
-Read [`AGENTS.md`](AGENTS.md) and
+Read [`AGENTS.md`](AGENTS.md), [`CONTRIBUTING.md`](CONTRIBUTING.md), and
 [`docs/AI_CODING_AGENT_HANDOFF.md`](docs/AI_CODING_AGENT_HANDOFF.md) before
-changing code. They record product invariants, migrations, concurrency rules,
-reference projects, and required verification commands.
+changing code. They define non-negotiable product invariants, the deployment
+boundary, test commands, and safe collaboration rules.

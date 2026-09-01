@@ -33,6 +33,19 @@ The supported deployment boundary is one Windows server with multiple local
 processes. Multiple machines additionally need shared scratch/output storage
 (or object storage) because MySQL alone does not make local file paths portable.
 
+## Report identity and downloads
+
+The public name **Loans & Advance, IOCL, TDS Report Generator** deliberately
+retains the `rdc-payables` application key, API prefix, and frontend route.
+Display names may evolve, but authorization keys are persistent identifiers.
+
+Its proposed workbook name is calculated from the selected GL cutoff period and
+the current IST date. The browser may submit an edited name while creating the
+job and may override it again at download time. The API validates both paths,
+normalizes the `.xlsx` extension, rejects Windows-reserved characters, and owns
+the final `Content-Disposition` filename. This prevents a client-only rename
+from bypassing server filename safety.
+
 ## Data protection
 
 Business rows are archived with `is_deleted`; no business delete operation

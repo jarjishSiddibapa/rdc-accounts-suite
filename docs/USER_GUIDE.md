@@ -18,6 +18,25 @@ Report mail defaults are editable where the workflow permits. In the Unaccounted
 workflow, one, two, or all three selected reports update the subject and body
 automatically before sending.
 
+### Loans & Advance, IOCL, TDS Report Generator
+
+Upload the Oracle ERP workbook and select the GL cutoff month and year. The
+application proposes a filename in this form:
+
+```text
+Loans and Advance, IOCL, TDS, Other till Aug-26 as on 31.08.2026.xlsx
+```
+
+The `till` period follows the selected cutoff month. The `as on` portion uses
+today's date in Indian Standard Time and is recalculated when an untouched
+default is submitted. You may edit the filename before generating the report or
+again before downloading it. The `.xlsx` extension is added automatically.
+Characters that Windows does not allow in filenames are rejected with a clear
+validation message.
+
+The application key and URL remain `rdc-payables` for backward-compatible user
+grants and bookmarks; only the user-facing name has changed.
+
 ### Ultrafine Creditors Ageing
 
 Upload the fresh Tally workbook containing the TB and Bill Wise data. Leave
@@ -59,8 +78,8 @@ only.
 
 Regular users see `We have encountered an issue, please contact Jarjish 🥲`
 for failures; administrators retain the technical details needed to diagnose
-them. Retry after correcting any clearly identified input validation. Do not refresh or
-close a tab during a cancellable report unless you intend to abandon it. For
+them. Retry after correcting any clearly identified input validation. Do not
+refresh or close a tab during a cancellable report unless you intend to abandon it. For
 server, Oracle, SMTP, or scheduler issues, contact the administrator with the
 timestamp and the visible job/error identifier; never send passwords or session
 files in a ticket.
