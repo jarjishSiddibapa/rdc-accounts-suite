@@ -335,9 +335,17 @@ def run_combine(files: list[tuple[str, str]], output_path: str, log_q) -> dict:
     for ci, header in enumerate(headers, 1):
         ws.cell(row=1, column=ci, value=header)
     data_rows = [[r[h] for h in headers] for r in norm_records]
+    # Every log_q.put() nudges the job's progress fraction along (see
+    # _LogQueue in the router) - throttled so a large combined report
+    # doesn't go silent for this whole loop the way the ERP converter did
+    # before its own progress fix, without spamming the log panel.
+    _log_step = max(1, len(data_rows) // 50)
     for ri, row_data in enumerate(data_rows, 2):
         for ci, v in enumerate(row_data, 1):
             ws.cell(row=ri, column=ci, value=v)
+        _pos = ri - 1
+        if _pos % _log_step == 0 or _pos == len(data_rows):
+            log_q.put(("dim", f"  Writing row {_pos:,}/{len(data_rows):,}"))
 
     log_q.put(("info", "Writing output workbook..."))
     _style_main_sheet(ws, headers, data_rows, date_label)

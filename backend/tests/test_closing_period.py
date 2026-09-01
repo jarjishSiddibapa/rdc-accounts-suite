@@ -91,6 +91,26 @@ class ClosingPeriodTests(unittest.TestCase):
             finally:
                 values.close()
 
+    def test_a_large_combine_logs_periodic_write_progress(self):
+        """Same gap class as the ERP converter before its fix: the main
+        data-row write loop used to run silently between the "Processing"
+        and "Writing output workbook..." log lines, with nothing in
+        between on a report with many rows."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            path = root / "A1.xls"
+            output = root / "combined.xlsx"
+            subinvs = ["MOD-RM", "NMOD-RM", "STORES"]
+            rows = [(subinvs[i % 3], f"ITEM-{i}", 1, 10) for i in range(300)]
+            path.write_text(_report_html("Location A", rows), encoding="utf-8")
+
+            log_q = _LogQueue()
+            run_combine([(path.name, str(path))], str(output), log_q)
+
+            progress_messages = [m for _tag, m in log_q.messages if "Writing row" in m]
+            self.assertGreater(len(progress_messages), 1)
+            self.assertIn("300/300", progress_messages[-1])
+
     def test_background_job_cleans_saved_upload_when_input_is_invalid(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
