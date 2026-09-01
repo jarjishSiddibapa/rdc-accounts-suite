@@ -165,7 +165,7 @@ def _read_tab(fp: Path, tab: str) -> pd.DataFrame:
     return _coerce_currency_columns(df)
 
 
-def _write_sheet(ws, df: pd.DataFrame) -> None:
+def _write_sheet(ws, df: pd.DataFrame, log_q=None) -> None:
     """Write a combined DataFrame to an openpyxl worksheet with styling."""
     # Header row
     for c, h in enumerate(df.columns, 1):
@@ -174,6 +174,15 @@ def _write_sheet(ws, df: pd.DataFrame) -> None:
         cell.font      = _META_FONT if c <= 3 else _HDR_FONT
         cell.alignment = _HDR_ALIGN
     ws.row_dimensions[1].height = 32
+
+    # Every log_q.put() nudges the job's progress fraction along (see
+    # _LogQueue in the router) - without this, a tab with many rows would
+    # go completely silent between "Writing output workbook..." and
+    # "Saved", the same frozen-progress symptom the ERP converter had
+    # before its own fix. Throttled to ~50 updates per tab regardless of
+    # row count so it doesn't spam the log panel.
+    n_rows = len(df)
+    log_step = max(1, n_rows // 50)
 
     # Data rows - itertuples is ~10x faster than iterrows
     for r, row in enumerate(df.itertuples(index=False), 2):
@@ -184,6 +193,10 @@ def _write_sheet(ws, df: pd.DataFrame) -> None:
             if isinstance(safe, str) and safe.lower() in ("nan", "none"):
                 safe = None
             ws.cell(row=r, column=c, value=safe).font = _DAT_FONT
+        if log_q is not None:
+            pos = r - 1
+            if pos % log_step == 0 or pos == n_rows:
+                log_q.put(("dim", f"  [{ws.title}]  writing row {pos:,}/{n_rows:,}"))
 
     # Column widths - sample first 100 data rows + header to keep it fast
     sample_rows = min(ws.max_row, 101)
@@ -286,7 +299,7 @@ def run_combine(
         ws = wb.create_sheet(title=tab)
         out_df = (pd.concat(frames[tab], ignore_index=True) if frames[tab]
                   else pd.DataFrame(columns=["State Code", "State Name", "Month & Year"]))
-        _write_sheet(ws, out_df)
+        _write_sheet(ws, out_df, log_q=log_q)
 
     output_path = Path(output_path)
     wb.save(output_path)
