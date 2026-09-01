@@ -13,6 +13,7 @@ import xlsxwriter
 from xlsxwriter.utility import xl_rowcol_to_cell
 
 from . import mapping_store
+from app.services.report_progress import row_progress_reporter
 
 # ── Public constants ──────────────────────────────────────────────────────────
 
@@ -734,7 +735,7 @@ def process_report(columns, data_rows, cutoff_year, cutoff_month,
 # Excel output
 # ---------------------------------------------------------------------------
 
-def to_excel_bytes(df, missing_codes=None):
+def to_excel_bytes(df, missing_codes=None, progress_cb=None):
     """
     Write the report DataFrame to xlsx bytes with rich formatting.
 
@@ -743,7 +744,16 @@ def to_excel_bytes(df, missing_codes=None):
     1. "Main"               – pivot by Transaction Type × Aging Bucket
     2. "Summary"            – main transformed data (all entries)
     3. "Mapping Not Found"  – (optional) vendor site codes with no mapping
+
+    This runs on the calling thread, not the CPU process pool - unlike
+    the other tools' writers, RDC Payables is left alone by that pool
+    entirely since it already runs its own separate, RAM-budgeted
+    ProcessPoolExecutor for HTML parsing (see _get_pool() below) and
+    nesting another pool inside that would multiply worst-case memory
+    unpredictably. progress_cb can therefore be called directly here, no
+    cross-process relay needed.
     """
+    report_row = row_progress_reporter(progress_cb, base=0.86, span=0.13, total_rows=len(df))
     buf = io.BytesIO()
     wb  = xlsxwriter.Workbook(buf, {"in_memory": True})
 
@@ -832,6 +842,7 @@ def to_excel_bytes(df, missing_codes=None):
                 else:
                     v = "" if (val is None or (isinstance(val, float) and math.isnan(val))) else val
                     ws.write(r, c, v, cell_fmt)
+            report_row(pos + 1)
         for c, width in enumerate(col_widths):
             if c in hidden_col_indices:
                 ws.set_column(c, c, width, None, {"hidden": True})

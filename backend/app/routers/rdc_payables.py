@@ -223,7 +223,9 @@ def _run_process_job(input_path: str, output_path: str,
         if progress_cb:
             progress_cb(0.86, "Generating Excel output...")
         add_log("INFO", "Generating Excel output...")
-        xlsx_bytes = processor.to_excel_bytes(df, missing_codes if missing_codes else None)
+        xlsx_bytes = processor.to_excel_bytes(
+            df, missing_codes if missing_codes else None, progress_cb=progress_cb,
+        )
         Path(output_path).write_bytes(xlsx_bytes)
     finally:
         Path(input_path).unlink(missing_ok=True)
