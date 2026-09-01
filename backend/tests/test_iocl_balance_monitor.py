@@ -273,6 +273,92 @@ class ClickNavVisibilityTests(unittest.TestCase):
             monitor._click_nav(page, "Financials", timeout_ms=100)
 
 
+class _FakeCloseButton:
+    def __init__(self, visible: bool):
+        self._visible = visible
+        self.clicked = False
+
+    def is_visible(self) -> bool:
+        return self._visible
+
+    def click(self, timeout=None):
+        self.clicked = True
+
+
+class _FakeModal:
+    def __init__(self, visible: bool, close_buttons: dict | None = None):
+        self._visible = visible
+        self._close_buttons = close_buttons or {}
+
+    def is_visible(self) -> bool:
+        return self._visible
+
+    def locator(self, selector):
+        button = self._close_buttons.get(selector, _FakeCloseButton(visible=False))
+        return _FakeLocatorFirst(button)
+
+
+class _FakeLocatorFirst:
+    def __init__(self, target):
+        self._target = target
+
+    @property
+    def first(self):
+        return self._target
+
+
+class _FakeKeyboard:
+    def __init__(self):
+        self.pressed = []
+
+    def press(self, key):
+        self.pressed.append(key)
+
+
+class _FakeModalPage:
+    def __init__(self, modal):
+        self._modal = modal
+        self.keyboard = _FakeKeyboard()
+
+    def locator(self, selector):
+        if selector == "ngb-modal-window":
+            return _FakeLocatorFirst(self._modal)
+        return _FakeLocatorFirst(_FakeCloseButton(visible=False))
+
+    def wait_for_timeout(self, ms):
+        pass
+
+
+class DismissBlockingModalTests(unittest.TestCase):
+    """Regression coverage for a production failure: a promotional
+    "loyalty scheme" <ngb-modal-window> popup intercepted pointer events
+    on the "Financials" nav link, failing every click retry for the full
+    4s timeout even though the link itself was visible/enabled/stable."""
+
+    def test_no_modal_present_is_a_no_op(self):
+        page = _FakeModalPage(_FakeModal(visible=False))
+
+        monitor._dismiss_blocking_modal(page)
+
+        self.assertEqual(page.keyboard.pressed, [])
+
+    def test_clicks_an_explicit_close_control_when_present(self):
+        close_btn = _FakeCloseButton(visible=True)
+        page = _FakeModalPage(_FakeModal(visible=True, close_buttons={".btn-close": close_btn}))
+
+        monitor._dismiss_blocking_modal(page)
+
+        self.assertTrue(close_btn.clicked)
+        self.assertEqual(page.keyboard.pressed, [])
+
+    def test_falls_back_to_escape_when_no_close_control_exists(self):
+        page = _FakeModalPage(_FakeModal(visible=True))
+
+        monitor._dismiss_blocking_modal(page)
+
+        self.assertEqual(page.keyboard.pressed, ["Escape"])
+
+
 class _FakeLoginRoutePage:
     def __init__(self, urls):
         self._urls = urls

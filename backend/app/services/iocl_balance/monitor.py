@@ -242,6 +242,40 @@ def _dismiss_welcome_popup(page, timeout_ms: int = 800) -> None:
         pass
 
 
+def _dismiss_blocking_modal(page, timeout_ms: int = 500) -> None:
+    """Best-effort dismissal of an ng-bootstrap modal dialog.
+
+    Production failure: a promotional "loyalty scheme" popup (an
+    <ngb-modal-window> with an <img> inside it) can appear over the
+    portal's nav and intercept pointer events on links underneath it -
+    Playwright's own retry log showed the click failing repeatedly with
+    "<img ...> from <ngb-modal-window ...> subtree intercepts pointer
+    events" until the 4s timeout, even though the nav link itself was
+    reported visible/enabled/stable. _dismiss_welcome_popup only knows
+    about a different, "Skip"-button popup shown at login, not this one.
+    Tries an explicit close control first, then falls back to Escape,
+    which ng-bootstrap modals close on by default unless configured with
+    keyboard: false.
+    """
+    try:
+        modal = page.locator("ngb-modal-window").first
+        if not modal.is_visible():
+            return
+        for selector in ('.btn-close', '[aria-label="Close" i]', '.close'):
+            try:
+                close_btn = modal.locator(selector).first
+                if close_btn.is_visible():
+                    close_btn.click(timeout=timeout_ms)
+                    page.wait_for_timeout(200)
+                    return
+            except Exception:
+                continue
+        page.keyboard.press("Escape")
+        page.wait_for_timeout(200)
+    except Exception:
+        pass
+
+
 def _find_login_fields(page, timeout_ms: int = 10_000):
     """Wait for and return the portal's visible login controls.
 
@@ -367,6 +401,7 @@ def _wait_until_logged_in(page, timeout_seconds: int) -> bool:
 def _wait_for_overlays_gone(page, timeout_ms: int = 4000) -> None:
     """Best-effort wait for the portal's intermittent blocking UI layers."""
     _dismiss_welcome_popup(page, timeout_ms=min(timeout_ms, 800))
+    _dismiss_blocking_modal(page, timeout_ms=min(timeout_ms, 800))
     try:
         page.locator(".ngx-spinner-overlay").first.wait_for(
             state="hidden",
