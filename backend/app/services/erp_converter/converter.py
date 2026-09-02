@@ -11,17 +11,21 @@ Oracle report outputs come in three shapes in practice:
   3. Genuine .xlsx - already a real spreadsheet; copied through as-is.
 """
 import os
+import logging
 import shutil
+from pathlib import Path
 
 from .errors import ConversionError
 from .html_table_parser import HtmlReportParser
-from .xlsx_writer import XlsxWriter
+from .xlsx_writer import DirectXlsxWriterError, OpenpyxlXlsxWriter, XlsxWriter
 from .io_retry import with_retry
 
 XLS_OLE_SIGNATURE = b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"
 XLSX_ZIP_SIGNATURE = b"PK\x03\x04"
 
 __all__ = ["ConversionError", "convert_file", "detect_kind"]
+
+logger = logging.getLogger(__name__)
 
 
 def _read_head(path):
@@ -61,16 +65,44 @@ def _report(progress_cb, frac, phase):
 
 def _convert_html(input_path, output_path, progress_cb):
     file_size = os.path.getsize(input_path) or 1
-    parser = HtmlReportParser()
-    writer = XlsxWriter()
 
-    def bytes_cb(n):
-        _report(progress_cb, min(0.95, n / file_size), "Parsing report")
+    def run_writer(writer_class, parse_start, parse_end, parse_phase):
+        parser = HtmlReportParser()
+        writer = writer_class()
 
-    _report(progress_cb, 0.0, "Parsing report")
-    writer.write_blocks(parser.parse(input_path, progress_cb=bytes_cb))
-    _report(progress_cb, 0.97, "Writing workbook")
-    writer.finalize(output_path)
+        def bytes_cb(n):
+            fraction = parse_start + (parse_end - parse_start) * min(1.0, n / file_size)
+            _report(progress_cb, fraction, parse_phase)
+
+        _report(progress_cb, parse_start, parse_phase)
+        try:
+            writer.write_blocks(parser.parse(input_path, progress_cb=bytes_cb))
+            _report(progress_cb, parse_end, "Writing workbook")
+            writer.finalize(output_path)
+        finally:
+            writer.close()
+
+    writer_mode = os.environ.get("ERP_CONVERTER_WRITER", "direct").strip().lower()
+    if writer_mode == "openpyxl":
+        run_writer(OpenpyxlXlsxWriter, 0.0, 0.98, "Parsing report")
+    else:
+        try:
+            run_writer(XlsxWriter, 0.0, 0.97, "Parsing report")
+        except DirectXlsxWriterError:
+            # The direct writer is the performance path, not a single point of
+            # failure. Reparse with the previous proven writer if OOXML assembly
+            # fails for an unforeseen ERP style/value. The rollback can also be
+            # selected proactively with ERP_CONVERTER_WRITER=openpyxl.
+            logger.exception(
+                "Direct ERP worksheet writer failed; retrying with openpyxl compatibility writer"
+            )
+            Path(output_path).unlink(missing_ok=True)
+            run_writer(
+                OpenpyxlXlsxWriter,
+                0.97,
+                0.995,
+                "Retrying with compatibility writer",
+            )
     _report(progress_cb, 1.0, "Done")
 
 

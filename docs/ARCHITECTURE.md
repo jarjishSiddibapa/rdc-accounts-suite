@@ -17,6 +17,16 @@ browser tabs -> API workers -> MySQL (sessions, jobs, mappings, audit)
 MySQL is the shared coordination layer. Jobs, actions, leases, rate limits,
 upload tokens, and resource slots must never be held only in Python memory.
 
+### Restart boundary
+
+The launcher discovers old suite processes by both the repository's exact
+virtualenv executable and known long-running command markers. It first asks the
+supervisor to shut down cleanly, allowing the already-open batch window to exit
+without a false crash message. A checked process-tree kill is only the bounded
+fallback for an unresponsive supervisor or orphan. Startup continues only after
+the suite process set and port `2805` are clear; unrelated port owners are
+reported and left untouched.
+
 ## Concurrency and ownership
 
 Every browser processing request carries an `X-Client-Tab-ID`. The API stores
@@ -77,3 +87,10 @@ then applies the verified Ultrafine layout, hierarchy fills, signed formulas,
 and cached formula results in pure Python. The confidential raw/finished parity
 pair is optional test evidence on the development machine and is not packaged
 or copied to production.
+
+The ERP Converter has a separate streaming concern: Oracle HTML exports can
+contain millions of cells. Its default writer emits worksheet OOXML to a
+disk-backed spool while openpyxl supplies the workbook relationships and shared
+style tables. This preserves the prior workbook semantics without allocating a
+`WriteOnlyCell` per value. The previous openpyxl writer remains an automatic
+compatibility fallback and an environment-selectable rollback path.

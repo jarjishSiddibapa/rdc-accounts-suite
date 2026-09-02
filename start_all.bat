@@ -4,23 +4,6 @@ cd /d "%~dp0backend"
 if not exist logs mkdir logs
 if not exist data mkdir data
 
-if exist data\supervisor.pid (
-    set /p OLD_PID=<data\supervisor.pid
-    if defined OLD_PID (
-        rem tasklist prints one info line ("INFO: No tasks are running...")
-        rem instead of an error when nothing matches both filters - that line
-        rem never contains "python.exe", so searching for that exact text is
-        rem what tells a genuine match apart from "nothing found", not just
-        rem counting output lines (which the info line would also count).
-        tasklist /FI "PID eq !OLD_PID!" /FI "IMAGENAME eq python.exe" /NH 2>nul | findstr /I "python.exe" >nul
-        if !errorlevel! equ 0 (
-            echo Found a previous run still registered ^(PID !OLD_PID!^) - stopping it first...
-            taskkill /F /T /PID !OLD_PID! >nul 2>nul
-        )
-    )
-    del /f /q data\supervisor.pid >nul 2>nul
-)
-
 set LOGFILE=%~dp0backend\logs\start_all.log
 echo ============================================== >> "%LOGFILE%"
 echo %date% %time% - start_all.bat launched >> "%LOGFILE%"
@@ -29,6 +12,15 @@ where python >nul 2>nul
 if errorlevel 1 (
     echo ERROR: "python" was not found on PATH.
     echo ERROR: "python" was not found on PATH. >> "%LOGFILE%"
+    pause
+    exit /b 1
+)
+
+echo Cleaning up any previous RDC Accounts Suite processes...
+python -m app.startup_cleanup --timeout 30 --port 2805
+if errorlevel 1 (
+    echo ERROR: previous suite cleanup failed. See the message above.
+    echo ERROR: previous suite cleanup failed. >> "%LOGFILE%"
     pause
     exit /b 1
 )
@@ -77,10 +69,31 @@ if errorlevel 1 (
 if "%API_WORKERS%"=="" set API_WORKERS=2
 if "%JOB_WORKER_PROCESSES%"=="" set JOB_WORKER_PROCESSES=2
 
+rem Dependency/browser checks can take long enough for somebody to launch a
+rem second copy in the meantime. Re-run the verified cleanup immediately before
+rem acquiring the supervisor lock so this window always starts from a clean
+rem project process/port boundary.
+echo Verifying the suite process boundary is clear...
+python -m app.startup_cleanup --timeout 30 --port 2805
+if errorlevel 1 (
+    echo ERROR: final suite cleanup failed. See the message above.
+    echo ERROR: final suite cleanup failed. >> "%LOGFILE%"
+    pause
+    exit /b 1
+)
+
 echo Starting API, processing workers, and scheduler on http://0.0.0.0:2805 ...
 echo Starting supervised multi-process suite >> "%LOGFILE%"
 python -m app.supervisor
 set EXIT_CODE=%errorlevel%
+if "%EXIT_CODE%"=="2" (
+    rem A near-simultaneous second launcher can still win the tiny interval
+    rem between the final cleanup and lock acquisition. The suite is healthy in
+    rem that case; do not present it as an application crash.
+    echo Another launcher completed startup first; the suite is already running.
+    echo Supervisor already running; treating as healthy. >> "%LOGFILE%"
+    exit /b 0
+)
 if not "%EXIT_CODE%"=="0" (
     echo.
     echo ERROR: the suite exited unexpectedly - see backend\logs.

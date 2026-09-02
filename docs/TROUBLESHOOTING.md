@@ -13,6 +13,17 @@ Jobs are durable and owner/tab scoped. Keep the originating tab open while a
 cancellable job runs. If a browser crashed, the client lease expires and the
 worker releases resources; start the report again after the stale job settles.
 
+## Startup says the supervisor is already running
+
+Update to the launcher with verified previous-run cleanup and run
+`start_all.bat` again after confirming no important job is active. It requests
+a graceful stop, clears only this repository's suite processes, and waits for
+port `2805`. If it reports an unrelated port owner, inspect that PID rather
+than killing it blindly. The historical combination of “supervisor is already
+running” followed by exit code 2 meant the old launcher had continued before a
+suppressed `taskkill` failure or incomplete process-tree shutdown released the
+supervisor lock; it was not database corruption.
+
 ## Oracle report fails
 
 Confirm Oracle host/service/user values and Instant Client installation. Do not

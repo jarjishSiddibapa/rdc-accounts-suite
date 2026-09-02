@@ -174,6 +174,7 @@ Node is not required at runtime.
 
 Important entry points:
 
+- `backend/app/startup_cleanup.py` — scoped graceful restart/orphan cleanup
 - `backend/app/supervisor.py` — process lifecycle and crash restart
 - `backend/app/main.py` — FastAPI app and router registration
 - `backend/app/worker.py` — durable job worker loop
@@ -181,6 +182,41 @@ Important entry points:
 - `backend/app/scheduler_runner.py` / `scheduler.py` — single scheduler process
 - `backend/app/database.py` — engine, schema initialization, additive seeds
 - `backend/app/config.py` — role-aware pools and concurrency settings
+
+`start_all.bat` does not trust only `data/supervisor.pid`. Before dependency
+checks and again immediately before launch, `app.startup_cleanup` discovers
+only long-running suite commands using this repository's exact virtualenv. It
+requests a graceful supervisor stop through `data/supervisor.stop-requested`,
+then uses checked process-tree termination only as a timeout fallback. It waits
+until the scoped processes and port 2805 are both clear. An unrelated port
+owner is an actionable startup error and must never be terminated. Keep the
+command markers synchronized when adding another long-running process role;
+do not broaden cleanup to arbitrary `python.exe` processes.
+
+### ERP converter streaming writer
+
+HTML-disguised ERP `.xls` reports use `DirectXlsxWriter` by default. The parser
+still provides the same ordered block stream and openpyxl still builds the
+small workbook/style package, but worksheet rows are emitted directly as
+OOXML into a disk-backed spool. This avoids constructing an openpyxl cell
+object for every report cell. Numeric XML must use openpyxl's `safe_string`
+formatting so financial floats are byte-semantically equivalent after reload.
+
+The previous optimized write-only path remains `OpenpyxlXlsxWriter`. A
+`DirectXlsxWriterError` automatically reparses with it, and operators can set
+`ERP_CONVERTER_WRITER=openpyxl` for an emergency rollback without a code
+deployment. Do not catch `ConversionError` in that fallback: Excel row/column
+limit failures are user-input limits, not OOXML assembly failures.
+
+Real reference verification on 2 September 2026 compared all values, cell
+types, number formats, fonts, fills, alignments, and borders after reload:
+
+- 39 MB MRN input: 433,620 compared cells, identical semantic SHA-256;
+- 266 MB Payables input: 3,226,824 compared cells, identical semantic SHA-256;
+- both direct archives passed ZIP CRC validation; and
+- Payables elapsed time was 102.6 s direct versus 162.7 s compatibility on the
+  same development host. CPU-light ZIP compression makes large downloads
+  somewhat bigger; that is an intentional server-processing tradeoff.
 
 ### Durable concurrency
 

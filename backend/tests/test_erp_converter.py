@@ -6,6 +6,7 @@ appearing frozen (see app.jobs.run_cpu_phase / app.routers.erp_converter).
 import tempfile
 import unittest
 import zipfile
+from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -29,6 +30,7 @@ _SAMPLE_HTML = """<html><head><style type="text/css">
 <tr><td class="c2" colspan="2">Ledger Code</td><td class="c2">Amount</td><td class="c2">Invoice Date</td><td class="c2">TDS Note</td></tr>
 <tr><td class="c3">00123</td><td class="c3"></td><td class="c3">1,234.50</td><td class="c3">31-Aug-2026</td><td class="c3">Not a date</td></tr>
 <tr><td class="c3">00456</td><td class="c3"></td><td class="c3">(500.00)</td><td class="c3">01-Jan-2026</td><td class="c3">Plain text</td></tr>
+<tr><td class="c3">00789</td><td class="c3"></td><td class="c3">223883.8983050808</td><td class="c3">02-Jan-2026</td><td class="c3">Precision value</td></tr>
 </table>
 </body></html>"""
 
@@ -95,6 +97,119 @@ class ErpConverterFidelityTests(unittest.TestCase):
         ws = wb["Report"]
         merged_ranges = {str(r) for r in ws.merged_cells.ranges}
         self.assertIn("A3:B3", merged_ranges)
+
+
+class DirectOoxmlWriterTests(unittest.TestCase):
+    """The low-allocation writer must remain interchangeable with the
+    previous openpyxl writer, including the details users can see in Excel.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.in_path = Path(self.tmp.name) / "report.xls"
+        self.direct_path = Path(self.tmp.name) / "direct.xlsx"
+        self.compat_path = Path(self.tmp.name) / "compat.xlsx"
+        self.in_path.write_text(_SAMPLE_HTML, encoding="utf-8")
+
+    def _convert(self, output_path, mode=None):
+        env = patch.dict("os.environ", {"ERP_CONVERTER_WRITER": mode}) if mode else nullcontext()
+        with env:
+            converter.convert_file(str(self.in_path), str(output_path))
+
+    @staticmethod
+    def _cell_signature(cell):
+        return (
+            cell.value,
+            cell.data_type,
+            cell.number_format,
+            cell.font.name,
+            cell.font.sz,
+            cell.font.bold,
+            cell.font.italic,
+            cell.font.underline,
+            cell.fill.fill_type,
+            cell.fill.fgColor.type,
+            cell.fill.fgColor.rgb,
+            cell.alignment.horizontal,
+            cell.alignment.vertical,
+            cell.alignment.wrap_text,
+            cell.border.left.style,
+            cell.border.right.style,
+            cell.border.top.style,
+            cell.border.bottom.style,
+        )
+
+    def test_direct_output_matches_openpyxl_compatibility_output(self):
+        self._convert(self.direct_path)
+        self._convert(self.compat_path, "openpyxl")
+
+        direct = load_workbook(self.direct_path)["Report"]
+        compat = load_workbook(self.compat_path)["Report"]
+        self.assertEqual(direct.max_row, compat.max_row)
+        self.assertEqual(direct.max_column, compat.max_column)
+        self.assertEqual(
+            {str(value) for value in direct.merged_cells.ranges},
+            {str(value) for value in compat.merged_cells.ranges},
+        )
+        for row in range(1, direct.max_row + 1):
+            self.assertEqual(direct.row_dimensions[row].height, compat.row_dimensions[row].height)
+            for column in range(1, direct.max_column + 1):
+                self.assertEqual(
+                    self._cell_signature(direct.cell(row, column)),
+                    self._cell_signature(compat.cell(row, column)),
+                    f"cell mismatch at row {row}, column {column}",
+                )
+        for column in range(1, direct.max_column + 1):
+            letter = direct.cell(1, column).column_letter
+            self.assertEqual(
+                direct.column_dimensions[letter].width,
+                compat.column_dimensions[letter].width,
+            )
+
+    def test_direct_package_has_valid_crc_and_required_ooxml_parts(self):
+        self._convert(self.direct_path)
+        with zipfile.ZipFile(self.direct_path) as archive:
+            self.assertIsNone(archive.testzip())
+            self.assertTrue(
+                {"[Content_Types].xml", "xl/workbook.xml", "xl/styles.xml",
+                 "xl/worksheets/sheet1.xml"}.issubset(archive.namelist())
+            )
+
+    def test_direct_writer_preserves_xml_characters_and_edge_whitespace(self):
+        writer = xlsx_writer.DirectXlsxWriter()
+        writer.write_blocks([
+            xlsx_writer.TextBlock("  A & B <C>  ", {}, False, False, False)
+        ])
+        writer.finalize(self.direct_path)
+        value = load_workbook(self.direct_path)["Report"]["A1"].value
+        self.assertEqual(value, "  A & B <C>  ")
+
+    def test_direct_writer_failure_retries_with_compatibility_writer(self):
+        with (
+            patch.object(
+                xlsx_writer.DirectXlsxWriter,
+                "finalize",
+                side_effect=xlsx_writer.DirectXlsxWriterError("synthetic packaging failure"),
+            ),
+            self.assertLogs(converter.logger, level="ERROR") as captured,
+        ):
+            converter.convert_file(str(self.in_path), str(self.direct_path))
+        self.assertIn("retrying with openpyxl", "\n".join(captured.output))
+        workbook = load_workbook(self.direct_path)
+        self.assertEqual(workbook["Report"]["A4"].value, "00123")
+
+    def test_openpyxl_environment_override_skips_direct_writer(self):
+        with (
+            patch.dict("os.environ", {"ERP_CONVERTER_WRITER": "openpyxl"}),
+            patch.object(
+                xlsx_writer.DirectXlsxWriter,
+                "__init__",
+                side_effect=AssertionError("direct writer should not be instantiated"),
+            ),
+        ):
+            converter.convert_file(str(self.in_path), str(self.compat_path))
+        self.assertTrue(self.compat_path.is_file())
 
 
 class ExcelSheetLimitTests(unittest.TestCase):

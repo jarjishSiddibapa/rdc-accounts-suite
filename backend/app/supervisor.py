@@ -21,6 +21,7 @@ load_dotenv(BACKEND_DIR / ".env")
 # a crash, a forced kill) can be found and torn down by PID rather than the
 # batch file just hoping nothing is left over.
 PID_FILE = DATA_DIR / "supervisor.pid"
+STOP_FILE = DATA_DIR / "supervisor.stop-requested"
 
 
 def _enable_kill_on_close() -> None:
@@ -143,6 +144,9 @@ def main() -> int:
     except Timeout:
         print("The RDC Accounts Suite supervisor is already running.", flush=True)
         return 2
+    # A marker can remain only when a previous forced shutdown happened before
+    # its finally block. This supervisor owns the lock now, so it is stale.
+    STOP_FILE.unlink(missing_ok=True)
     PID_FILE.write_text(str(os.getpid()))
 
     api_workers = _count("API_WORKERS", 2)
@@ -200,6 +204,9 @@ def main() -> int:
             flush=True,
         )
         while True:
+            if STOP_FILE.exists():
+                print("A clean suite restart was requested; stopping...", flush=True)
+                return 0
             time.sleep(2)
             for name, (command, role, process) in list(children.items()):
                 exit_code = process.poll()
@@ -227,6 +234,7 @@ def main() -> int:
                     process.kill()
         lock.release()
         try:
+            STOP_FILE.unlink(missing_ok=True)
             if PID_FILE.exists() and PID_FILE.read_text().strip() == str(os.getpid()):
                 PID_FILE.unlink()
         except OSError:

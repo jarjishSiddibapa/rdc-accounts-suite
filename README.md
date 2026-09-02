@@ -136,7 +136,7 @@ protection model.
 | Frontend | React, TypeScript, Vite, Tailwind CSS, Geist, Lucide icons |
 | API | FastAPI, Pydantic, SQLAlchemy |
 | Durable coordination | MySQL jobs, leases, resource slots, rate limits, sessions, and audit events |
-| Workbook processing | openpyxl, pure-Python formula caching, file-format-aware parsers |
+| Workbook processing | Streaming OOXML, openpyxl, pure-Python formula caching, file-format-aware parsers |
 | Integrations | Oracle Database, SMTP, Playwright Chromium |
 | Operations | Windows supervisor, multi-process API/workers, scheduler, committed static bundle |
 
@@ -154,6 +154,11 @@ protection model.
 Production does not need Node/npm because the built frontend is committed under
 `backend/app/static/`.
 
+Running `start_all.bat` again is a verified restart operation. It asks an
+existing supervisor to stop cleanly, removes any orphaned suite workers, waits
+for port `2805` to be free, and only then starts the replacement process tree.
+An unrelated program occupying the port is reported and is never killed.
+
 ## Development and verification
 
 ```powershell
@@ -167,7 +172,7 @@ npm run build
 ```
 
 The Vite build writes to `backend/app/static/`; commit frontend source and the
-generated bundle together. The current suite contains 200 backend unit and
+generated bundle together. The current suite contains 212 backend unit and
 integration tests. Passing them verifies covered behavior but is not a claim of
 complete live Oracle, SMTP, portal, or historical desktop parity.
 

@@ -24,8 +24,15 @@ git pull origin main
 ```
 
 Before restarting, check active work in the UI and apply any new migration
-listed below in MySQL Workbench. Stop the old launcher cleanly, then start
-`start_all.bat` again. It re-checks dependencies automatically.
+listed below in MySQL Workbench. Run `start_all.bat` again: it requests a clean
+shutdown from the old supervisor, removes verified orphaned suite workers,
+waits for port `2805`, and re-checks dependencies before starting. It will not
+kill an unrelated process that happens to own the port.
+
+No SQL migration is required for the September 2026 launcher cleanup or ERP
+streaming-writer optimization. For emergency ERP compatibility rollback, add
+`ERP_CONVERTER_WRITER=openpyxl` to `backend/.env` and restart; remove it to
+restore the faster default.
 
 ### SQL migrations
 
