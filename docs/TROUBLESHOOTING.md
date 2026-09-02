@@ -50,6 +50,20 @@ accepted by the provider, and To/Cc addresses are valid. Use the in-app test
 mail only after confirming recipients. The notification history records pending,
 sending, sent, and failed states.
 
+## Invoice Booking Tracker check fails
+
+Administrators should open the failed check row for the real technical detail.
+Verify DMS credentials/session, queue label/key, portal availability, and the
+configured timeout. A repeated-page or “scanned X of Y” error is deliberately
+fatal: it means pagination could not prove that every row was counted. Correct
+the queue mapping or portal issue and run a manual check; do not bypass this
+guard or send a partial tracker.
+
+“The DMS account is already logged in” is an expected portal state, not a
+server fault. Ask the current DMS user to sign out, then retry. The automated
+08:00 run performs a best-effort explicit DMS logout after every browser run so
+it does not keep the single-login account occupied after processing.
+
 ## Frontend changes are not visible
 
 Run `npm install` and `npm run build` from `frontend/`, confirm generated files

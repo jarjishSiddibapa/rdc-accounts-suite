@@ -45,3 +45,7 @@ graphify-out/
 /Pending MRN*.xlsx
 /Unaccounted Transactions*.xlsx
 /Uninvoiced Expense PO*.xlsx
+
+# Confidential DMS workflow reference supplied locally. It contains portal
+# credentials and screenshots and must never enter source control.
+/hitanshi.docx

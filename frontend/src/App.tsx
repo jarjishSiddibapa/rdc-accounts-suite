@@ -23,6 +23,7 @@ const UltrafinePaymentReminder = lazy(() => import('@/pages/tools/UltrafinePayme
 const GstInvoiceAdder = lazy(() => import('@/pages/tools/GstInvoiceAdder'))
 const ClosingPeriodReport = lazy(() => import('@/pages/tools/ClosingPeriodReport'))
 const IoclBalanceMonitor = lazy(() => import('@/pages/tools/IoclBalanceMonitor'))
+const InvoiceBookingTracker = lazy(() => import('@/pages/tools/InvoiceBookingTracker'))
 const CreditorsAgeing = lazy(() => import('@/pages/tools/CreditorsAgeing'))
 const TrialBalanceFormatter = lazy(() => import('@/pages/tools/TrialBalanceFormatter'))
 
@@ -187,6 +188,12 @@ export default function App() {
             path="/tools/iocl-balance"
             element={
               protectedPage(<AppGuard appKey="iocl-balance-monitor"><IoclBalanceMonitor /></AppGuard>)
+            }
+          />
+          <Route
+            path="/tools/invoice-booking-tracker"
+            element={
+              protectedPage(<AppGuard appKey="invoice-booking-tracker"><InvoiceBookingTracker /></AppGuard>)
             }
           />
           <Route

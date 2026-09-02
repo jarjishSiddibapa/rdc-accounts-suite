@@ -15,6 +15,7 @@ import {
   WalletCards,
   FilePlus2,
   ChartNoAxesCombined,
+  ClipboardCheck,
 } from 'lucide-react'
 import { AppShell } from '@/components/AppShell'
 import { Reveal, RevealGroup } from '@/components/Reveal'
@@ -123,6 +124,15 @@ const tools = [
     icon: WalletCards,
     appKey: 'iocl-balance-monitor',
     category: 'Ultrafine treasury automation',
+    company: 'Ultrafine' as Company,
+  },
+  {
+    to: '/tools/invoice-booking-tracker',
+    title: 'Ultrafine Invoice Booking Tracker',
+    description: 'Check every DMS work-queue page, track pending invoice bookings, and send the daily tracker automatically.',
+    icon: ClipboardCheck,
+    appKey: 'invoice-booking-tracker',
+    category: 'Ultrafine invoice workflow automation',
     company: 'Ultrafine' as Company,
   },
   {

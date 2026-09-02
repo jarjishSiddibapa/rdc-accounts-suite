@@ -35,8 +35,10 @@ abandons cancellable work; irreversible mail dispatch is detached and runs to
 completion. Job status, cancellation, downloads, and one-shot actions are
 owner-scoped and idempotent.
 
-The scheduler is a single process. IOCL checks take a database lease so manual
-and scheduled checks cannot overlap. Oracle-backed GST work uses the shared
+The scheduler is a single process. IOCL and Invoice Booking Tracker checks each
+take a database lease so their manual and scheduled checks cannot overlap.
+Both reload encrypted portal credentials only inside the detached worker; job
+JSON contains no secret. Oracle-backed GST work uses the shared
 `oracle-gst` slot, preventing API/worker scaling from multiplying Oracle load.
 
 The supported deployment boundary is one Windows server with multiple local
@@ -62,6 +64,13 @@ Business rows are archived with `is_deleted`; no business delete operation
 physically removes them. Credentials and Playwright storage state are Fernet
 encrypted in MySQL. They are loaded at send time and are never placed in job
 arguments, logs, API responses, browser storage, or source control.
+
+The DMS tracker discovers the configured work-queue link, locates the table's
+Status column by header, follows Next until it is disabled, rejects repeated
+pages, and validates the scanned row count against the DataTables total when
+available. Any queue failure aborts the complete run, so partial figures never
+enter the scheduled-mail outbox. Date-keyed notification rows make daily mail
+idempotent across workers and restarts.
 
 ## Main entry points
 

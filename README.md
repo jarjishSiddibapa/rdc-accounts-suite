@@ -40,6 +40,7 @@ control access, mappings, email defaults, automation, audit history, and recover
 | GST Invoice Number Adder | Enriches GST workbooks with invoice numbers | Oracle ERP |
 | Closing Period Report Generator | Combines Oracle BI Publisher HTML-XLS exports into a formula-backed report | HTML-XLS files |
 | Ultrafine IOCL Balance Monitor | Checks CCMS balance, maintains complete history, and sends scheduled morning and threshold reminders | Playwright + SMTP |
+| Ultrafine Invoice Booking Tracker | Scans every page of every configured DMS work queue, counts non-booked invoices, and sends the daily tracker | Playwright + Excel + SMTP |
 | Ultrafine Creditors Ageing Report Generator | Builds classified creditors, advances, and intercompany ageing schedules from Tally | Excel files |
 | Ultrafine Trial Balance Formatter | Reproduces the approved Ultrafine trial-balance layout from a raw Tally export | Excel files |
 
@@ -91,6 +92,9 @@ only synthetic `example.invalid` users, recipients, and credentials.
 - IOCL uses one administrator-owned sender and one shared schedule/configuration.
   Portal checks retry up to three times; threshold reminders repeat at an
   administrator-selected minute interval until the balance recovers.
+- The invoice-booking tracker likewise uses one administrator-owned DMS login,
+  sender, schedule, mapping set, and mail template. A scheduled mail is created
+  only after every configured queue has passed full pagination validation.
 - Regular users receive a safe support message for operational failures, while
   administrators retain the technical error detail in the portal and audit trail.
 
@@ -116,7 +120,7 @@ flowchart LR
   Workers --> Slots[Shared resource slots]
   Slots --> Oracle[(Oracle ERP)]
   Workers --> SMTP[SMTP]
-  Workers --> Portal[IOCL portal automation]
+  Workers --> Portal[IOCL and DMS portal automation]
   API --> UI[Committed React/Vite bundle]
 ```
 

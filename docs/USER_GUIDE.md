@@ -74,6 +74,22 @@ monitoring status, current balance, last/next check, delivery status, filters,
 and pagination. Configuration and credentials are intentionally administrator-
 only.
 
+## Ultrafine Invoice Booking Tracker
+
+Assigned users can choose **Check tracker now** at any time and review the
+complete per-location result. Each successful history row shows the pending
+count, records scanned, pages scanned, responsible person, and every location.
+The checker treats `Booked`, `BOOKED`, and any other letter case as booked; all
+other statuses are pending. Manual checks never send the daily scheduled mail.
+
+The daily schedule, DMS credentials, recipients, sender, templates, and work-
+queue mappings are administrator-only. A scan is all-or-nothing: if even one
+queue cannot be fully paginated, no partial tracker email is sent.
+
+If a manual update finds the shared DMS ID already active, the page says so
+directly. Wait for that DMS user to sign out and try again; other technical
+failures continue to use the normal safe support message for regular users.
+
 ## If something fails
 
 Regular users see `We have encountered an issue, please contact Jarjish 🥲`

@@ -375,6 +375,7 @@ def _init_db_unlocked():
 
     from app import auth, system_mailer  # lazy import to avoid circular import
     from app.services.iocl_balance import monitor as iocl_monitor
+    from app.services.invoice_booking_tracker import monitor as invoice_booking_monitor
     from app.models import BackgroundResourceSlot
     from app.permissions import seed_applications
     from app.services.rdc_payables import mapping_store as payables_mappings
@@ -389,6 +390,7 @@ def _init_db_unlocked():
         seed_applications(db)
         system_mailer.seed_system_email(db)
         iocl_monitor.seed_settings(db)
+        invoice_booking_monitor.seed_settings(db)
         # Add only legacy natural keys that have never existed. Existing and
         # soft-deleted mappings are intentionally left untouched so admin
         # edits/archives always take precedence over bundled seed data.

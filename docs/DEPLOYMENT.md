@@ -50,6 +50,7 @@ production database. They are repeatable and do not hard-delete business data.
 - `deployment/mysql/20260829_add_missing_foreign_keys.sql`
 - `deployment/mysql/20260831_iocl_reminder_minutes.sql`
 - `deployment/mysql/20260831_rename_rdc_payables.sql`
+- `deployment/mysql/20260902_invoice_booking_tracker.sql`
 
 If the production database is not named `rdc_accounts_suite`, change only the
 database name in the `CREATE DATABASE`/`USE` statements before running a script.
@@ -65,6 +66,12 @@ stable `rdc-payables` key. It does not change the schema, existing permissions,
 mappings, company classification, or report data. Restarting the suite also
 reconciles this canonical label, but running the script makes the production
 catalogue correct before startup.
+
+The 2 September tracker script creates the shared encrypted settings, mapping,
+check-history, and notification-history tables; additively inserts the 15
+reference tracker mappings; and registers the application. It never stores the
+plaintext credentials from `hitanshi.docx` and never revives an archived
+mapping on repeat runs. Configure credentials and recipients in the admin UI.
 
 The foreign-key migration checks each relationship for orphaned rows before
 adding its constraint and skips (printing a warning row, not an error) any
@@ -125,6 +132,9 @@ active subgroup rows. Later counts may change through the centralized editor.
 - `ORACLE_GST_JOB_CONCURRENCY` is approved by the Oracle DBA.
 - IOCL admin has verified the portal login, one dedicated sender, recipients,
   08:00 IST morning mail, interval, and threshold settings.
+- Invoice Booking Tracker admin has verified DMS login, all 15 work queues,
+  exact IST mail time, dedicated sender, recipients, template, and a manual
+  all-pages check before enabling automation.
 - Backups and audit-log retention are working.
 
 ## Post-deploy checks
@@ -136,4 +146,7 @@ active subgroup rows. Later counts may change through the centralized editor.
 4. Run a harmless report with representative data and confirm download.
 5. On IOCL, use “Check balance now” and verify a history row; do not send a
    real test mail until SMTP recipients are confirmed.
-6. Review `backend/logs/` for tracebacks, deadlocks, or credential material.
+6. On Invoice Booking Tracker, run a manual check and expand its per-location
+   results. Confirm total records and pages, then send a test mail only to the
+   signed-in administrator.
+7. Review `backend/logs/` for tracebacks, deadlocks, or credential material.

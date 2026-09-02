@@ -1,7 +1,7 @@
 import unittest
 
 from app.main import app
-from app.routers import auth_routes, creditors_ageing, erp_converter, iocl_balance, job_control, trial_balance_formatter, unaccounted_txn
+from app.routers import auth_routes, creditors_ageing, erp_converter, invoice_booking_tracker, iocl_balance, job_control, trial_balance_formatter, unaccounted_txn
 
 
 class RemovedApiSurfaceTests(unittest.TestCase):
@@ -126,6 +126,35 @@ class RemovedApiSurfaceTests(unittest.TestCase):
                 for dependency in route.dependant.dependencies
             }
             self.assertNotIn("require_admin", dependency_names, route.path)
+
+    def test_invoice_booking_tracker_routes_and_admin_boundary(self):
+        route_paths = {
+            route.path
+            for route in invoice_booking_tracker.router.routes
+            if getattr(route, "path", None) is not None
+        }
+        self.assertIn("/api/tools/invoice-booking-tracker/check-now", route_paths)
+        self.assertIn("/api/tools/invoice-booking-tracker/checks", route_paths)
+        self.assertIn("/api/tools/invoice-booking-tracker/notifications", route_paths)
+        self.assertIn("/api/tools/invoice-booking-tracker/mappings/{mapping_id}/restore", route_paths)
+        self.assertFalse(any(path.endswith("/import") or path.endswith("/export") for path in route_paths))
+
+        admin_paths = {
+            "/api/tools/invoice-booking-tracker/settings",
+            "/api/tools/invoice-booking-tracker/test-mail",
+            "/api/tools/invoice-booking-tracker/session",
+            "/api/tools/invoice-booking-tracker/session/clear",
+        }
+        for route in invoice_booking_tracker.router.routes:
+            dependency_names = {
+                getattr(dependency.call, "__name__", "")
+                for dependency in route.dependant.dependencies
+            }
+            if route.path in admin_paths or (
+                route.path.startswith("/api/tools/invoice-booking-tracker/mappings")
+                and "GET" not in route.methods
+            ):
+                self.assertIn("require_admin", dependency_names, route.path)
 
     def test_creditors_ageing_routes_include_soft_delete_restore_and_no_bulk_import_export(self):
         route_paths = {

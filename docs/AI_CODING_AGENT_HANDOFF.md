@@ -1,6 +1,6 @@
 # AI Coding Agent Handoff
 
-Last reviewed: 29 August 2026
+Last reviewed: 2 September 2026
 
 This document explains the current state of RDC Accounts Suite for future AI
 coding agents. Read it before changing behavior. `README.md` remains the
@@ -25,6 +25,7 @@ LAN-hosted FastAPI and React application. The current suite contains:
 11. Ultrafine IOCL Balance Monitor
 12. Ultrafine Creditors Ageing Report Generator
 13. Ultrafine Trial Balance Formatter
+14. Ultrafine Invoice Booking Tracker
 
 It also contains authentication, user and application-access administration,
 central email settings/default recipients, mapping administration, audit logs,
@@ -46,6 +47,8 @@ The development machine has the original desktop projects at:
 - `E:\jarjish-projects\hitanshi-iocl-balance-alerts`
 - `E:\jarjish-projects\rakesh-sir-creditors-ageing`
 - `E:\jarjish-projects\sneha-raman-dms-document-downloader` (retired from suite)
+- repository-local `hitanshi.docx` (Invoice Booking Tracker workflow reference;
+  contains secrets and must remain untracked)
 
 Use the desktop source and, when practical, identical representative input to
 compare parsing, mapping, report content, filenames, defaults, and mail output.
@@ -85,6 +88,33 @@ while the balance remains below it. Recovery to the threshold or above stops
 the reminders. The legacy `alert_step_amount` column remains only for
 non-destructive schema compatibility and must not drive new notifications.
 Both daily and threshold email HTML bold the rendered balance value.
+
+The Invoice Booking Tracker lives in
+`backend/app/services/invoice_booking_tracker/monitor.py`; its workflow
+reference is `hitanshi.docx`. The old DMS Downloader remains retired—this is a
+separate narrow, read-only invoice-status automation. It scans the 15 seeded
+Ultrafine invoice queues, dynamically follows every DataTables page, finds the
+Status column by header, and counts any normalized status other than `booked`.
+It rejects repeated pages and validates the scanned count against the displayed
+total when available. A failure in one queue aborts the whole run and mail.
+
+The tracker follows the IOCL ownership model: one admin-owned encrypted DMS
+login/session, sender, schedule, To/Cc, templates, mapping set, database lease,
+and date-idempotent notification outbox. Assigned regular users can run manual
+checks and read complete check/mail history, but API routes—not only the UI—
+reserve configuration and mapping writes for administrators. Manual checks do
+not send the scheduled daily mail. A portal attempt retries at most three times,
+with attempts two and three discarding saved session state. Never put the
+plaintext credentials from the reference DOCX into code, seed SQL, logs, job
+arguments, documentation, or Git.
+
+DMS enforces a single active session for this username. Live verification
+proved that merely closing headless Chromium leaves the account marked logged
+in, so `fetch_tracker()` must best-effort click the portal's visible logout (or
+use its logout route) in `finally`. Do not remove this cleanup: the 08:00 run
+must release the ID before staff arrive. A manual collision is a deliberately
+safe public exception—regular users may see that the account is already in use,
+while every unrelated technical error remains administrator-only.
 
 An expired XTRAPOWER storage state can briefly redirect away from the login
 route while Angular starts and then bounce back to `/account/login`. Do not

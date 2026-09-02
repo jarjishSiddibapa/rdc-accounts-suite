@@ -58,6 +58,7 @@ _ALLOWED_TASKS = frozenset(
         "app.routers.creditors_ageing:_run_process_job",
         "app.routers.trial_balance_formatter:_run_process_job",
         "app.services.iocl_balance.monitor:run_check_job",
+        "app.services.invoice_booking_tracker.monitor:run_check_job",
         "app.routers.gst_invoice_adder:_job_enrich",
         "app.routers.rdc_payables:_run_process_job",
         "app.routers.trial_balance:_run_process_job_from_stash",
@@ -85,6 +86,7 @@ _DETACHED_TASKS = frozenset(
         "app.routers.ultrafine_balance_confirmation:_job_send",
         "app.routers.ultrafine_payment_reminder:_job_send",
         "app.services.iocl_balance.monitor:run_check_job",
+        "app.services.invoice_booking_tracker.monitor:run_check_job",
     }
 )
 

@@ -21,6 +21,7 @@ from app.database import SessionLocal
 from app.models import BackupSettings, RateLimitBucket, TrialBalanceUploadToken
 from app.regional import now_ist
 from app.services.iocl_balance import monitor as iocl_monitor
+from app.services.invoice_booking_tracker import monitor as invoice_booking_monitor
 
 logger = logging.getLogger(__name__)
 
@@ -195,6 +196,10 @@ def _loop() -> None:
             iocl_monitor.enqueue_due_check()
         except Exception:  # noqa: BLE001 - portal scheduling must not stop other duties
             logger.exception("[scheduler] IOCL balance scheduling failed")
+        try:
+            invoice_booking_monitor.enqueue_due_check()
+        except Exception:  # noqa: BLE001 - tracker scheduling must not stop other duties
+            logger.exception("[scheduler] invoice booking tracker scheduling failed")
         time.sleep(_POLL_SECONDS)
 
 

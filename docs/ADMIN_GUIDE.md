@@ -50,6 +50,26 @@ Regular users can check the balance and review the complete check/notification
 history, but cannot see or change credentials, recipients, templates, or rules.
 Confirm the sender is ready before relying on scheduled delivery.
 
+## Invoice Booking Tracker
+
+The tracker has one shared administrator-owned configuration: encrypted DMS
+credentials and optional browser session, one dedicated sender, exact IST send
+time, To/Cc, subject/body templates, and centralized location-to-work-queue
+mappings. The body supports `{date}`, `{total_pending}`, `{location_count}`, and
+`{tracker_table}`; the subject supports every placeholder except the HTML table.
+
+Mappings are seeded additively from `hitanshi.docx`. Search and edit them in the
+tracker page; pause a queue with **Active**, or archive/restore it. Never edit
+these tables directly or reintroduce mapping import/export. Before enabling the
+schedule, use **Check tracker now** and confirm the per-location record/page
+counts, then send the test mail only to your own administrator address.
+
+The DMS portal permits only one active session for this ID. The scheduled run
+explicitly logs out after its complete scan so it does not block staff arriving
+later. A manual run made while a person is already signed in records the check
+as failed and shows an “account already logged in” state; it never attempts to
+force that person out.
+
 ## Audit and maintenance
 
 Use **Audit log** to search by user, API/action, status, or date. Use **System

@@ -278,6 +278,104 @@ class IoclBalanceNotification(Base):
     is_deleted = Column(Boolean, default=False, nullable=False, index=True)
 
 
+class InvoiceBookingTrackerSettings(Base):
+    """Singleton, administrator-owned DMS tracker and mail configuration."""
+
+    __tablename__ = "invoice_booking_tracker_settings"
+
+    id = Column(Integer, primary_key=True)
+    enabled = Column(Boolean, default=False, nullable=False)
+    login_url = Column(String(500), default="https://dms.rdc.in/", nullable=False)
+    username = Column(String(255), nullable=True)
+    password_encrypted = Column(Text, nullable=True)
+    session_state_encrypted = Column(LONGTEXT, nullable=True)
+    login_timeout_seconds = Column(Integer, default=90, nullable=False)
+
+    sender_email = Column(String(255), nullable=True)
+    sender_app_password_encrypted = Column(Text, nullable=True)
+    scheduled_email_enabled = Column(Boolean, default=True, nullable=False)
+    scheduled_email_time = Column(String(5), default="08:00", nullable=False)
+    mail_to = Column(Text, nullable=True)
+    mail_cc = Column(Text, nullable=True)
+    subject_template = Column(Text, nullable=False)
+    body_template = Column(LONGTEXT, nullable=False)
+    last_scheduled_sent_date = Column(Date, nullable=True)
+    last_scheduled_attempt_date = Column(Date, nullable=True)
+
+    check_lock_token = Column(String(36), nullable=True)
+    check_lock_expires_at = Column(DateTime, nullable=True, index=True)
+    last_total_pending = Column(Integer, nullable=True)
+    last_checked_at = Column(DateTime, nullable=True)
+    last_check_status = Column(String(20), nullable=True)
+    last_error = Column(Text, nullable=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    version = Column(Integer, default=1, nullable=False)
+    is_deleted = Column(Boolean, default=False, nullable=False)
+
+
+class InvoiceBookingTrackerMapping(Base):
+    """Centralized, editable DMS work-queue to tracker-row mapping."""
+
+    __tablename__ = "invoice_booking_tracker_mappings"
+    __table_args__ = (
+        UniqueConstraint("location_key", name="uq_invoice_booking_tracker_location_key"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    location_key = Column(String(255), nullable=False)
+    location = Column(String(255), nullable=False)
+    responsible_person = Column(String(255), nullable=False)
+    queue_label = Column(String(500), nullable=False)
+    queue_key = Column(String(500), nullable=True)
+    sort_order = Column(Integer, default=0, nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    is_deleted = Column(Boolean, default=False, nullable=False, index=True)
+
+
+class InvoiceBookingTrackerCheck(Base):
+    """Append-only history for manual and scheduled DMS scans."""
+
+    __tablename__ = "invoice_booking_tracker_checks"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    trigger = Column(String(20), nullable=False, index=True)
+    status = Column(String(20), nullable=False, index=True)
+    total_pending = Column(Integer, nullable=True)
+    total_records_scanned = Column(Integer, nullable=True)
+    total_pages_scanned = Column(Integer, nullable=True)
+    result_json = Column(LONGTEXT, nullable=True)
+    error_message = Column(Text, nullable=True)
+    checked_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    duration_seconds = Column(Float, nullable=True)
+    is_deleted = Column(Boolean, default=False, nullable=False, index=True)
+
+
+class InvoiceBookingTrackerNotification(Base):
+    """Idempotent scheduled-mail outbox and delivery history."""
+
+    __tablename__ = "invoice_booking_tracker_notifications"
+    __table_args__ = (
+        UniqueConstraint("notification_key", name="uq_invoice_booking_tracker_notification_key"),
+    )
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    notification_key = Column(String(160), nullable=False)
+    check_id = Column(BigInteger, ForeignKey("invoice_booking_tracker_checks.id"), nullable=True, index=True)
+    subject = Column(Text, nullable=False)
+    body = Column(LONGTEXT, nullable=False)
+    to_recipients = Column(Text, nullable=False)
+    cc_recipients = Column(Text, nullable=True)
+    result_json = Column(LONGTEXT, nullable=False)
+    attachment_filename = Column(String(500), nullable=False)
+    status = Column(String(20), nullable=False, index=True)
+    error_message = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    attempted_at = Column(DateTime, nullable=True)
+    sent_at = Column(DateTime, nullable=True)
+    is_deleted = Column(Boolean, default=False, nullable=False, index=True)
+
+
 class BackgroundJob(Base):
     """Durable work queue shared by every API and worker process."""
 

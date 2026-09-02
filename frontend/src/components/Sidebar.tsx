@@ -25,6 +25,7 @@ import {
   PanelLeftOpen,
   X,
   WalletCards,
+  ClipboardCheck,
   ChartNoAxesCombined,
 } from 'lucide-react'
 import { cn } from '@/utils/cn'
@@ -70,6 +71,7 @@ const mainNav: NavItem[] = [
   { to: '/tools/gst-invoice-adder', label: 'GST Invoice Number Adder', icon: FileCheck2, appKey: 'gst-invoice-adder' },
   { to: '/tools/closing-period-report', label: 'Closing Period Report Generator', icon: PackageCheck, appKey: 'closing-period-report' },
   { to: '/tools/iocl-balance', label: 'Ultrafine IOCL Balance Monitor', icon: WalletCards, appKey: 'iocl-balance-monitor' },
+  { to: '/tools/invoice-booking-tracker', label: 'Ultrafine Invoice Booking Tracker', icon: ClipboardCheck, appKey: 'invoice-booking-tracker' },
   { to: '/tools/creditors-ageing', label: 'Ultrafine Creditors Ageing Report Generator', icon: ChartNoAxesCombined, appKey: 'creditors-ageing-report' },
   { to: '/tools/trial-balance-formatter', label: 'Ultrafine Trial Balance Formatter', icon: FileSpreadsheet, appKey: 'trial-balance-formatter' },
 ]
