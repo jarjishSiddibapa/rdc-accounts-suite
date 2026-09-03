@@ -41,7 +41,18 @@ class InvoiceBookingTrackerTests(unittest.TestCase):
             "In Review",
             "",
         ]
-        self.assertEqual(monitor.classify_statuses(statuses), (3, 2))
+        self.assertEqual(monitor.classify_statuses(statuses), (3, 2, 0))
+
+    def test_locked_rows_are_excluded_from_both_buckets_even_with_a_countable_status(self):
+        """A locked row can genuinely show Pending for approval or Submitted
+        to accounts while someone else is working on it - confirmed live and
+        not just a Booked-only edge case. It must never inflate the count."""
+        statuses = ["Pending for Approval", "Pending for Approval", "Submitted to Accounts", "Submitted to Accounts", "Booked"]
+        locked = [True, False, True, False, True]
+        self.assertEqual(monitor.classify_statuses(statuses, locked), (1, 1, 3))
+
+    def test_classify_statuses_without_locked_argument_counts_everything(self):
+        self.assertEqual(monitor.classify_statuses(["Pending for Approval", "Booked"]), (1, 0, 0))
 
     def test_rendered_mail_contains_complete_table_and_computed_total(self):
         rows = [
@@ -199,7 +210,7 @@ class InvoiceBookingTrackerTests(unittest.TestCase):
             wait_for_timeout=lambda milliseconds: None,
         )
         with patch.object(monitor, "_find_status_table", return_value=None), patch.object(monitor, "_queue_has_no_results", return_value=True):
-            self.assertEqual(monitor._scan_queue(page, "https://example.invalid/queue"), (0, 0, 0, 1))
+            self.assertEqual(monitor._scan_queue(page, "https://example.invalid/queue"), (0, 0, 0, 0, 1))
 
     def test_page_size_uses_largest_finite_datatables_option(self):
         class Option:
@@ -293,31 +304,41 @@ class InvoiceBookingTrackerTests(unittest.TestCase):
         self.assertEqual(url, "https://example.invalid/console/workflowcases?Q=ACCOUNTS_PAYMENT_ULTRAFINE_INVOICES_TELENGANA")
         self.assertEqual(calls["count"], 2)
 
-    def test_single_page_scan_counts_only_pending_for_approval_and_submitted_to_accounts(self):
+    def test_single_page_scan_counts_only_pending_for_approval_and_submitted_to_accounts_and_excludes_locked_rows(self):
+        """Row 6 shows "Pending for Approval" (would otherwise be counted)
+        but carries the live-confirmed "i.bi-lock" marker - it must be
+        excluded from the count and show up only in the locked total."""
         class CellLocator:
             def __init__(self, values): self.values = values
             def all_inner_texts(self): return self.values
+        class LockLocator:
+            def __init__(self, locked): self._locked = locked
+            def count(self): return 1 if self._locked else 0
         class Row:
-            def __init__(self, values): self.values = values
-            def locator(self, selector): return CellLocator(self.values)
+            def __init__(self, values, locked=False): self.values = values; self.locked = locked
+            def locator(self, selector):
+                if selector == "td": return CellLocator(self.values)
+                if selector == "i.bi-lock": return LockLocator(self.locked)
+                raise AssertionError(selector)
         class Rows:
-            def __init__(self, values): self.values = values
-            def count(self): return len(self.values)
-            def nth(self, index): return Row(self.values[index])
+            def __init__(self, rows): self.rows = rows
+            def count(self): return len(self.rows)
+            def nth(self, index): return self.rows[index]
         class Table:
-            def __init__(self, values): self.rows = Rows(values)
-            def locator(self, selector): return self.rows
+            def __init__(self, rows): self._rows = Rows(rows)
+            def locator(self, selector): return self._rows
         class Empty:
             def count(self): return 0
         class Info:
             count = lambda self: 1
-            first = SimpleNamespace(inner_text=lambda: "Showing 1 to 5 of 5 entries")
+            first = SimpleNamespace(inner_text=lambda: "Showing 1 to 6 of 6 entries")
         table = Table([
-            ["1", "BOOKED"],
-            ["2", " Pending for Approval "],
-            ["3", "SUBMITTED TO ACCOUNTS"],
-            ["4", "Rejected"],
-            ["5", ""],
+            Row(["1", "BOOKED"]),
+            Row(["2", " Pending for Approval "]),
+            Row(["3", "SUBMITTED TO ACCOUNTS"]),
+            Row(["4", "Rejected"]),
+            Row(["5", ""]),
+            Row(["6", "Pending for Approval"], locked=True),
         ])
         def locator(selector):
             if "dataTables_info" in selector: return Info()
@@ -325,12 +346,13 @@ class InvoiceBookingTrackerTests(unittest.TestCase):
             raise AssertionError(selector)
         page = SimpleNamespace(goto=lambda *args, **kwargs: None, wait_for_timeout=lambda milliseconds: None, locator=locator)
         with patch.object(monitor, "_status_table", return_value=(table, 1)), patch.object(monitor, "_maximize_page_size", return_value=False):
-            self.assertEqual(monitor._scan_queue(page, "https://example.invalid/queue"), (1, 1, 5, 1))
+            self.assertEqual(monitor._scan_queue(page, "https://example.invalid/queue"), (1, 1, 1, 6, 1))
 
     def test_scan_rejects_a_partial_result_set(self):
         class CellLocator:
             def __init__(self, values): self.values = values
             def all_inner_texts(self): return self.values
+            def count(self): return 0
         class Row:
             def __init__(self, values): self.values = values
             def locator(self, selector): return CellLocator(self.values)
@@ -412,7 +434,7 @@ class InvoiceBookingTrackerTests(unittest.TestCase):
              patch.object(monitor, "_login", return_value=None), \
              patch.object(monitor, "_logout", side_effect=lambda page: (logout_calls.append(page), True)[1]), \
              patch.object(monitor, "_discover_queue_url", return_value="https://example.invalid/queue"), \
-             patch.object(monitor, "_scan_queue", return_value=(1, 2, 3, 1)):
+             patch.object(monitor, "_scan_queue", return_value=(1, 2, 0, 3, 1)):
             monitor.fetch_tracker(snapshot, [mapping])
         self.assertEqual(len(logout_calls), 1)
         self.assertTrue(browser.closed)
@@ -439,6 +461,7 @@ class InvoiceBookingTrackerTests(unittest.TestCase):
         class CellLocator:
             def __init__(self, values): self.values = values
             def all_inner_texts(self): return self.values
+            def count(self): return 0
         class Row:
             def __init__(self, values): self.values = values
             def locator(self, selector): return CellLocator(self.values)
@@ -516,7 +539,7 @@ class InvoiceBookingTrackerTests(unittest.TestCase):
              patch.object(monitor, "_login", return_value=None), \
              patch.object(monitor, "_logout", return_value=True), \
              patch.object(monitor, "_discover_queue_url", return_value="https://example.invalid/queue"), \
-             patch.object(monitor, "_scan_queue", return_value=(0, 0, 0, 1)):
+             patch.object(monitor, "_scan_queue", return_value=(0, 0, 0, 0, 1)):
             monitor.fetch_tracker(snapshot, mappings, heartbeat=lambda: calls.append("hb"))
 
         self.assertEqual(len(calls), 2)

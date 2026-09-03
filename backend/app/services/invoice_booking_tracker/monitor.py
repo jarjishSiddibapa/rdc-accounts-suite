@@ -218,22 +218,32 @@ STATUS_PENDING_FOR_APPROVAL = "pending for approval"
 STATUS_SUBMITTED_TO_ACCOUNTS = "submitted to accounts"
 
 
-def classify_statuses(statuses: list[str]) -> tuple[int, int]:
+def classify_statuses(statuses: list[str], locked: list[bool] | None = None) -> tuple[int, int, int]:
     """Count only the two DMS statuses the tracker reports on.
 
     A work queue carries many statuses (Booked, Rejected, On Hold, ...).
     Only "Pending for approval" and "Submitted to accounts" represent
     invoices genuinely awaiting action; every other status - including
     Booked - is intentionally excluded from both counts.
+
+    A row DMS marks locked (the "bi-lock" icon - someone else currently has
+    that record open) is excluded from both buckets regardless of its
+    Accounting Status text, and counted separately instead. A locked row can
+    genuinely show Pending for approval or Submitted to accounts while
+    someone else is working on it; it is not safely actionable in that state,
+    so it must never inflate what this tracker asks people to book.
     """
-    pending_for_approval = submitted_to_accounts = 0
-    for status in statuses:
+    pending_for_approval = submitted_to_accounts = locked_count = 0
+    for index, status in enumerate(statuses):
+        if locked is not None and index < len(locked) and locked[index]:
+            locked_count += 1
+            continue
         normalized = status.strip().casefold()
         if normalized == STATUS_PENDING_FOR_APPROVAL:
             pending_for_approval += 1
         elif normalized == STATUS_SUBMITTED_TO_ACCOUNTS:
             submitted_to_accounts += 1
-    return pending_for_approval, submitted_to_accounts
+    return pending_for_approval, submitted_to_accounts, locked_count
 
 
 def _find_login_fields(page):
@@ -442,15 +452,16 @@ def _maximize_page_size(page) -> bool:
         page.wait_for_timeout(250)
 
 
-def _scan_queue(page, queue_url: str, heartbeat=None) -> tuple[int, int, int, int]:
+def _scan_queue(page, queue_url: str, heartbeat=None) -> tuple[int, int, int, int, int]:
     page.goto(queue_url, wait_until="domcontentloaded", timeout=60_000)
     statuses: list[str] = []
+    locked: list[bool] = []
     pages = 0
     seen: set[str] = set()
     expected_total: int | None = None
     status_table = _status_table(page)
     if status_table is None:
-        return 0, 0, 0, 1
+        return 0, 0, 0, 0, 1
     if _maximize_page_size(page):
         status_table = _status_table(page)
     while True:
@@ -458,20 +469,24 @@ def _scan_queue(page, queue_url: str, heartbeat=None) -> tuple[int, int, int, in
             heartbeat()
         status_table = status_table or _status_table(page)
         if status_table is None:
-            return 0, 0, 0, 1
+            return 0, 0, 0, 0, 1
         table, status_index = status_table
         rows = table.locator("tbody tr:visible")
         page_rows: list[list[str]] = []
+        page_locked: list[bool] = []
         for index in range(rows.count()):
-            cells = rows.nth(index).locator("td").all_inner_texts()
+            row = rows.nth(index)
+            cells = row.locator("td").all_inner_texts()
             if cells and status_index < len(cells) and not (len(cells) == 1 and "no data" in cells[0].casefold()):
                 page_rows.append(cells)
+                page_locked.append(row.locator("i.bi-lock").count() > 0)
         fingerprint = json.dumps(page_rows, ensure_ascii=False)
         if fingerprint in seen:
             raise RuntimeError("DMS pagination repeated a page before reaching the final page")
         seen.add(fingerprint)
         pages += 1
         statuses.extend(cells[status_index] for cells in page_rows)
+        locked.extend(page_locked)
 
         info = page.locator(".dataTables_info:visible, [id$=_info]:visible")
         if info.count():
@@ -510,8 +525,8 @@ def _scan_queue(page, queue_url: str, heartbeat=None) -> tuple[int, int, int, in
             raise RuntimeError("DMS pagination exceeded the safety limit")
     if expected_total is not None and len(statuses) != expected_total:
         raise RuntimeError(f"DMS pagination was incomplete: scanned {len(statuses)} of {expected_total} records")
-    pending_for_approval, submitted_to_accounts = classify_statuses(statuses)
-    return pending_for_approval, submitted_to_accounts, len(statuses), pages
+    pending_for_approval, submitted_to_accounts, locked_count = classify_statuses(statuses, locked)
+    return pending_for_approval, submitted_to_accounts, locked_count, len(statuses), pages
 
 
 def fetch_tracker(snapshot: dict[str, Any], mappings: list[dict[str, Any]], heartbeat=None) -> tuple[list[dict[str, Any]], dict[str, Any]]:
@@ -533,13 +548,14 @@ def fetch_tracker(snapshot: dict[str, Any], mappings: list[dict[str, Any]], hear
                     heartbeat()
                 try:
                     queue_url = _discover_queue_url(page, snapshot["login_url"], mapping["queue_label"], mapping.get("queue_key"))
-                    pending_for_approval, submitted_to_accounts, records, pages = _scan_queue(page, queue_url, heartbeat=heartbeat)
+                    pending_for_approval, submitted_to_accounts, locked, records, pages = _scan_queue(page, queue_url, heartbeat=heartbeat)
                 except Exception as exc:
                     raise RuntimeError(f"{mapping['location']}: {exc}") from exc
                 results.append({
                     **mapping,
                     "pending_for_approval": pending_for_approval,
                     "submitted_to_accounts": submitted_to_accounts,
+                    "locked": locked,
                     "pending": pending_for_approval + submitted_to_accounts,
                     "records_scanned": records,
                     "pages_scanned": pages,
