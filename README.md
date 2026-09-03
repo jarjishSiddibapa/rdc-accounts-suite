@@ -40,7 +40,7 @@ control access, mappings, email defaults, automation, audit history, and recover
 | GST Invoice Number Adder | Enriches GST workbooks with invoice numbers | Oracle ERP |
 | Closing Period Report Generator | Combines Oracle BI Publisher HTML-XLS exports into a formula-backed report | HTML-XLS files |
 | Ultrafine IOCL Balance Monitor | Checks CCMS balance, maintains complete history, and sends scheduled morning and threshold reminders | Playwright + SMTP |
-| Ultrafine Invoice Booking Tracker | Scans every page of every configured DMS work queue, counts non-booked invoices, and sends the daily tracker | Playwright + Excel + SMTP |
+| Ultrafine Invoice Booking Tracker | Scans every page of every configured DMS work queue, keeps the latest complete tracker visible, and sends the daily tracker | Playwright + SMTP |
 | Ultrafine Creditors Ageing Report Generator | Builds classified creditors, advances, and intercompany ageing schedules from Tally | Excel files |
 | Ultrafine Trial Balance Formatter | Reproduces the approved Ultrafine trial-balance layout from a raw Tally export | Excel files |
 
@@ -140,6 +140,7 @@ protection model.
 | Frontend | React, TypeScript, Vite, Tailwind CSS, Geist, Lucide icons |
 | API | FastAPI, Pydantic, SQLAlchemy |
 | Durable coordination | MySQL jobs, leases, resource slots, rate limits, sessions, and audit events |
+| Burst-safe request auditing | Immediate independent file trail; MySQL mirror runs after the response so bounded pools do not deadlock |
 | Workbook processing | Streaming OOXML, openpyxl, pure-Python formula caching, file-format-aware parsers |
 | Integrations | Oracle Database, SMTP, Playwright Chromium |
 | Operations | Windows supervisor, multi-process API/workers, scheduler, committed static bundle |

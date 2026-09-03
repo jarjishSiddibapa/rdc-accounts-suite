@@ -51,6 +51,8 @@ production database. They are repeatable and do not hard-delete business data.
 - `deployment/mysql/20260831_iocl_reminder_minutes.sql`
 - `deployment/mysql/20260831_rename_rdc_payables.sql`
 - `deployment/mysql/20260902_invoice_booking_tracker.sql`
+- `deployment/mysql/20260902_invoice_booking_tracker_queue_keys.sql`
+- `deployment/mysql/20260902_invoice_booking_tracker_signature_and_template.sql`
 
 If the production database is not named `rdc_accounts_suite`, change only the
 database name in the `CREATE DATABASE`/`USE` statements before running a script.
@@ -72,6 +74,22 @@ check-history, and notification-history tables; additively inserts the 15
 reference tracker mappings; and registers the application. It never stores the
 plaintext credentials from `hitanshi.docx` and never revives an archived
 mapping on repeat runs. Configure credentials and recipients in the admin UI.
+
+Run the tracker queue-key correction immediately after the base tracker script.
+It changes only five rows that still have the exact original bundled label and
+key, aligning them with the live DMS `Q` values for Andhra, FlyAsh Trading,
+Head Office, `TELENGANA`, and Visakhapatnam. It is repeatable, does not revive
+archived rows, and skips mappings that an administrator has already edited.
+
+Run the tracker signature/template script after that. It adds the nullable
+`signature` column to `invoice_booking_tracker_settings` and replaces the
+bundled default `body_template` with the proven wording - but only where the
+row still holds the exact original bundled text word-for-word, so an
+administrator's own edited template is never overwritten. The mailed Excel
+attachment was removed in this release; the rendered HTML table in the mail
+body is now the sole deliverable, restyled to match the original manual
+tracker's colors (salmon header/title, peach grand-total row, black grid
+lines). Configure the optional signature in the admin UI after running it.
 
 The foreign-key migration checks each relationship for orphaned rows before
 adding its constraint and skips (printing a warning row, not an error) any
@@ -150,3 +168,7 @@ active subgroup rows. Later counts may change through the centralized editor.
    results. Confirm total records and pages, then send a test mail only to the
    signed-in administrator.
 7. Review `backend/logs/` for tracebacks, deadlocks, or credential material.
+8. Send a short concurrent burst to `/api/health` and an authenticated read
+   endpoint. All responses should complete without `QueuePool limit` messages;
+   confirm the matching rows arrive in both `backend/logs/audit.log` and the
+   MySQL audit-log page.

@@ -78,9 +78,16 @@ only.
 
 Assigned users can choose **Check tracker now** at any time and review the
 complete per-location result. Each successful history row shows the pending
-count, records scanned, pages scanned, responsible person, and every location.
-The checker treats `Booked`, `BOOKED`, and any other letter case as booked; all
-other statuses are pending. Manual checks never send the daily scheduled mail.
+breakdown (pending for approval, submitted to accounts), records scanned,
+pages scanned, responsible person, and every location. The newest successful
+result is also kept in the always-visible **Latest tracker** table, which
+matches the table used for the next scheduled email (mailed as a styled HTML
+table in the message body, with no Excel attachment). A later failed attempt
+does not erase that last complete snapshot.
+Only two DMS statuses count as pending, matched case- and whitespace-
+insensitively: **Pending for approval** and **Submitted to accounts**. Every
+other status - Booked, Rejected, or anything else - is excluded from the
+count. Manual checks never send the daily scheduled mail.
 
 The daily schedule, DMS credentials, recipients, sender, templates, and work-
 queue mappings are administrator-only. A scan is all-or-nothing: if even one

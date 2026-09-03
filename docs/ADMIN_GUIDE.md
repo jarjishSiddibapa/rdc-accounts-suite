@@ -54,15 +54,30 @@ Confirm the sender is ready before relying on scheduled delivery.
 
 The tracker has one shared administrator-owned configuration: encrypted DMS
 credentials and optional browser session, one dedicated sender, exact IST send
-time, To/Cc, subject/body templates, and centralized location-to-work-queue
-mappings. The body supports `{date}`, `{total_pending}`, `{location_count}`, and
-`{tracker_table}`; the subject supports every placeholder except the HTML table.
+time, To/Cc, subject/body templates, an optional signature, and centralized
+location-to-work-queue mappings. The body supports `{date}`, `{total_pending}`,
+`{location_count}`, and `{tracker_table}`; the subject supports every
+placeholder except the HTML table. The **Signature** field is appended below
+the table on every scheduled and test mail - leave it blank for none.
+
+Only two DMS Accounting Status values count as pending: **Pending for
+approval** and **Submitted to accounts**. The web app shows the breakdown
+between the two per location; the mailed table shows only the combined total,
+matching the original manual tracker's format exactly (no Excel attachment -
+the styled HTML table in the mail body is the sole deliverable).
 
 Mappings are seeded additively from `hitanshi.docx`. Search and edit them in the
 tracker page; pause a queue with **Active**, or archive/restore it. Never edit
 these tables directly or reintroduce mapping import/export. Before enabling the
 schedule, use **Check tracker now** and confirm the per-location record/page
 counts, then send the test mail only to your own administrator address.
+
+The **Latest tracker** table remains visible near the top of the page after the
+first successful scan and is the same complete snapshot used for scheduled
+mail. A later failed check does not replace it. The header shows **Automation
+off** and an administrator warning whenever the master automation checkbox is
+disabled; an enabled send-time checkbox alone is not enough to schedule the
+08:00 job.
 
 The DMS portal permits only one active session for this ID. The scheduled run
 explicitly logs out after its complete scan so it does not block staff arriving

@@ -59,10 +59,40 @@ fatal: it means pagination could not prove that every row was counted. Correct
 the queue mapping or portal issue and run a manual check; do not bypass this
 guard or send a partial tracker.
 
+If the administrator page says **Automation off**, enable **Enable daily
+tracker automation** and save. The separate **Send the scheduled tracker mail**
+checkbox and a visible 08:00 time do not override the master switch. For an
+older installation whose untouched seeded Andhra, FlyAsh, HO, Telangana, or
+Vizag queue fails, run
+`deployment/mysql/20260902_invoice_booking_tracker_queue_keys.sql` and restart
+the suite; the script preserves any administrator-edited mapping.
+
 “The DMS account is already logged in” is an expected portal state, not a
 server fault. Ask the current DMS user to sign out, then retry. The automated
 08:00 run performs a best-effort explicit DMS logout after every browser run so
 it does not keep the single-login account occupied after processing.
+
+“A tracker check is already running” is a *different* condition from the one
+above - it is this application's own DB concurrency lock
+(`check_lock_token`/`check_lock_expires_at`), unrelated to DMS session state.
+It self-renews in short windows while a real scan is active and self-expires
+within a few minutes of the last renewal if the worker process died outright
+(crash, OOM, service restart) mid-scan. If it persists for longer than that
+with no Chromium/Python process actually running, it is a genuinely orphaned
+lock; confirm with
+`SELECT check_lock_token, check_lock_expires_at, NOW() FROM invoice_booking_tracker_settings WHERE id = 1;`
+and, only once nothing is actually still scanning, clear it with
+`UPDATE invoice_booking_tracker_settings SET check_lock_token = NULL, check_lock_expires_at = NULL WHERE id = 1;`.
+
+## API requests time out with `QueuePool limit`
+
+Use only `start_all.bat`, confirm the role-specific pool settings have not been
+overridden to smaller values, and check that `audit_middleware.py` still defers
+the MySQL audit insert until after the response. The audit JSON-lines file is
+written immediately, but performing the database mirror synchronously can ask
+for a second connection while the endpoint still holds its first and cause a
+burst-time deadlock. Do not solve this only by raising the pool without first
+restoring the deferred audit behavior.
 
 ## Frontend changes are not visible
 

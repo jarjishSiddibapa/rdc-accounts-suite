@@ -293,6 +293,7 @@ class InvoiceBookingTrackerSettings(Base):
 
     sender_email = Column(String(255), nullable=True)
     sender_app_password_encrypted = Column(Text, nullable=True)
+    signature = Column(Text, nullable=True)
     scheduled_email_enabled = Column(Boolean, default=True, nullable=False)
     scheduled_email_time = Column(String(5), default="08:00", nullable=False)
     mail_to = Column(Text, nullable=True)

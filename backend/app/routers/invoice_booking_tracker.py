@@ -4,10 +4,7 @@ from __future__ import annotations
 
 import json
 import re
-import shutil
-import uuid
 from datetime import UTC, datetime
-from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel, EmailStr, Field, SecretStr, field_validator
@@ -16,7 +13,6 @@ from sqlalchemy.orm import Session
 
 from app import security
 from app.auth import get_current_user, require_admin
-from app.config import SCRATCH_DIR
 from app.database import get_db
 from app.jobs import cancel_job, get_job, submit_job
 from app.models import (
@@ -45,6 +41,25 @@ def _utcnow() -> datetime:
     return datetime.now(UTC).replace(tzinfo=None)
 
 
+def _is_complete_tracker_rows(value) -> bool:
+    if not isinstance(value, list) or not value:
+        return False
+    required_counts = ("pending", "records_scanned", "pages_scanned")
+    return all(
+        isinstance(item, dict)
+        and isinstance(item.get("location"), str)
+        and bool(item["location"].strip())
+        and isinstance(item.get("responsible_person"), str)
+        and all(
+            isinstance(item.get(field), int)
+            and not isinstance(item.get(field), bool)
+            and item[field] >= 0
+            for field in required_counts
+        )
+        for item in value
+    )
+
+
 class SettingsBody(BaseModel):
     version: int
     enabled: bool
@@ -60,6 +75,7 @@ class SettingsBody(BaseModel):
     mail_cc: list[EmailStr]
     subject_template: str = Field(min_length=1, max_length=1000)
     body_template: str = Field(min_length=1, max_length=20_000)
+    signature: str = Field(default="", max_length=5000)
 
     @field_validator("login_url")
     @classmethod
@@ -144,6 +160,7 @@ def _settings(row: InvoiceBookingTrackerSettings) -> dict:
         "mail_cc": monitor.parse_recipients(row.mail_cc),
         "subject_template": row.subject_template,
         "body_template": row.body_template,
+        "signature": row.signature or "",
     }
 
 
@@ -163,6 +180,55 @@ def _mapping(row: InvoiceBookingTrackerMapping) -> dict:
 @router.get("/status")
 def get_status(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
     return _status(monitor.get_or_create_settings(db), user.role == "admin")
+
+
+def _latest_complete_check(db: Session) -> tuple[InvoiceBookingTrackerCheck | None, list[dict] | None]:
+    """The newest successful, non-deleted check whose stored rows are complete."""
+    candidates = (
+        db.query(InvoiceBookingTrackerCheck)
+        .filter(
+            InvoiceBookingTrackerCheck.is_deleted.is_(False),
+            InvoiceBookingTrackerCheck.status == "success",
+            InvoiceBookingTrackerCheck.result_json.isnot(None),
+        )
+        .order_by(desc(InvoiceBookingTrackerCheck.checked_at), desc(InvoiceBookingTrackerCheck.id))
+        .yield_per(20)
+    )
+    for candidate in candidates:
+        try:
+            parsed = json.loads(candidate.result_json or "")
+        except (TypeError, ValueError):
+            continue
+        if _is_complete_tracker_rows(parsed):
+            return candidate, parsed
+    return None, None
+
+
+@router.get("/latest")
+def latest_tracker(db: Session = Depends(get_db)):
+    """Return the newest complete snapshot used by the tracker/mail workflow."""
+    row, rows = _latest_complete_check(db)
+    if row is None or rows is None:
+        return {
+            "available": False,
+            "check_id": None,
+            "trigger": None,
+            "checked_at": None,
+            "total_pending": None,
+            "total_records_scanned": None,
+            "total_pages_scanned": None,
+            "rows": [],
+        }
+    return {
+        "available": True,
+        "check_id": row.id,
+        "trigger": row.trigger,
+        "checked_at": to_ist_iso(row.checked_at),
+        "total_pending": row.total_pending,
+        "total_records_scanned": row.total_records_scanned,
+        "total_pages_scanned": row.total_pages_scanned,
+        "rows": rows,
+    }
 
 
 @router.get("/settings", dependencies=[Depends(require_admin)])
@@ -214,6 +280,7 @@ def put_settings(body: SettingsBody, db: Session = Depends(get_db)):
     row.mail_cc = json.dumps([str(value) for value in body.mail_cc])
     row.subject_template = body.subject_template
     row.body_template = body.body_template
+    row.signature = body.signature.strip() or None
     row.updated_at = _utcnow()
     row.version += 1
     row.is_deleted = False
@@ -263,20 +330,19 @@ def test_mail(body: TestMailBody, db: Session = Depends(get_db), user: User = De
     settings = monitor.get_or_create_settings(db)
     if not settings.sender_email or not settings.sender_app_password_encrypted:
         raise HTTPException(400, "Configure the dedicated sender before sending a test mail")
-    rows = [
-        {"location": row.location, "responsible_person": row.responsible_person, "pending": index % 4}
-        for index, row in enumerate(db.query(InvoiceBookingTrackerMapping).filter(InvoiceBookingTrackerMapping.is_deleted.is_(False), InvoiceBookingTrackerMapping.is_active.is_(True)).order_by(InvoiceBookingTrackerMapping.sort_order).all(), 1)
-    ]
-    subject, html_body = monitor.render_templates(body.subject_template, body.body_template, rows)
-    temp_dir = SCRATCH_DIR / f"tracker-test-{uuid.uuid4().hex}"
-    output_path = temp_dir / "Ultrafine Pending Invoice Booking Tracker - Test.xlsx"
+    _, rows = _latest_complete_check(db)
+    if not rows:
+        # No real check has ever succeeded yet - show placeholder numbers
+        # purely so the template's layout can still be previewed.
+        rows = [
+            {"location": row.location, "responsible_person": row.responsible_person, "pending": index % 4}
+            for index, row in enumerate(db.query(InvoiceBookingTrackerMapping).filter(InvoiceBookingTrackerMapping.is_deleted.is_(False), InvoiceBookingTrackerMapping.is_active.is_(True)).order_by(InvoiceBookingTrackerMapping.sort_order).all(), 1)
+        ]
+    subject, html_body = monitor.render_templates(body.subject_template, body.body_template, rows, signature=settings.signature)
     try:
-        monitor.create_workbook(rows, output_path)
-        send_mail(from_email=settings.sender_email, app_password=security.decrypt(settings.sender_app_password_encrypted), to_addresses=[user.email], cc_addresses=[], subject=f"[Test] {subject}", html_body=html_body, attachments=[str(output_path)])
+        send_mail(from_email=settings.sender_email, app_password=security.decrypt(settings.sender_app_password_encrypted), to_addresses=[user.email], cc_addresses=[], subject=f"[Test] {subject}", html_body=html_body, attachments=[])
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(502, f"Could not send the test mail: {exc}") from exc
-    finally:
-        shutil.rmtree(temp_dir, ignore_errors=True)
     return {"ok": True, "sent_to": user.email}
 
 

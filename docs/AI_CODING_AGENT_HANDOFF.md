@@ -94,9 +94,33 @@ The Invoice Booking Tracker lives in
 reference is `hitanshi.docx`. The old DMS Downloader remains retired—this is a
 separate narrow, read-only invoice-status automation. It scans the 15 seeded
 Ultrafine invoice queues, dynamically follows every DataTables page, finds the
-Status column by header, and counts any normalized status other than `booked`.
-It rejects repeated pages and validates the scanned count against the displayed
-total when available. A failure in one queue aborts the whole run and mail.
+results grid **by its `Accounting Status` header** (`_find_status_table()`),
+and counts only two normalized values there - `pending for approval` and
+`submitted to accounts` - via `classify_statuses()`; every other value,
+Booked included, is intentionally excluded from the count. The live table
+carries three different status-like columns: a coarse `Status`
+(Approved/Booked), `Accounting Status` (the field the tracker reports on),
+and a separate `Workflow Status` (e.g. Rejected). Matching the wrong one
+silently zeroes every count with no error - confirmed live on 2026-09-02
+when the scanner's original `Status` match returned `Approved` for 100% of
+rows across two sampled queues while `Accounting Status` held the real
+values. Do not revert to matching a bare `status` header. Each row carries
+the breakdown (`pending_for_approval`, `submitted_to_accounts`) plus their
+sum (`pending`). It rejects repeated pages and validates the scanned count
+against the displayed total when available. A failure in one queue aborts
+the whole run and mail.
+
+The live DMS route returns its shell before Angular/DataTables renders the
+results grid. Never replace the explicit table-readiness poll with a fixed
+sleep. Queue discovery likewise waits for the asynchronously inserted console
+links and prefers an exact `Q` key over fuzzy label text. The scanner selects
+the largest finite DataTables page size, verifies that the requested window was
+actually applied, follows every remaining page, and treats the portal's
+explicit `0 Workflow cases found` state as a successful zero-row queue. The
+five corrected live keys (Andhra, FlyAsh Trading, Head Office, the portal's
+`TELENGANA` spelling, and Visakhapatnam) are protected by the idempotent
+`20260902_invoice_booking_tracker_queue_keys.sql` migration, which updates only
+untouched bundled values.
 
 The tracker follows the IOCL ownership model: one admin-owned encrypted DMS
 login/session, sender, schedule, To/Cc, templates, mapping set, database lease,
@@ -115,6 +139,42 @@ use its logout route) in `finally`. Do not remove this cleanup: the 08:00 run
 must release the ID before staff arrive. A manual collision is a deliberately
 safe public exception—regular users may see that the account is already in use,
 while every unrelated technical error remains administrator-only.
+
+`run_check_job`'s DB concurrency lock (`check_lock_token`/`check_lock_expires_at`)
+is renewed in short windows (`_renew_lock`, `_LOCK_HEARTBEAT_WINDOW_SECONDS`,
+threaded as a `heartbeat` callback through `fetch_tracker_with_retries` ->
+`fetch_tracker` -> `_scan_queue`, called once per mapping and once per scanned
+page) rather than reserved once for the whole worst-case run duration. A worker
+process can die outright mid-scan (crash, OOM, service restart) with nothing
+able to run `finally` cleanup at that point; live production hit exactly this
+on 2026-09-02 and left every check "skipped" with a message that read like a
+DMS conflict but was actually just this app's own orphaned lock, for up to the
+old ~72-minute worst case. Renewing little and often shrinks that orphaned
+window to a few minutes regardless of total run length. Do not revert to
+reserving the lock for the whole run up front.
+
+The scheduled/manual/test mail sends only the rendered HTML table in the body
+- no Excel attachment. `create_workbook()` was removed entirely along with it;
+do not reintroduce it without a real use site. `_table_html()` reproduces the
+original manual tracker's exact colors (salmon `#F4B183` title/header banner,
+peach `#FBE5D6` grand-total row, black grid lines, "-" for zero) and takes no
+explicit font-family so it inherits the mail client's serif default, matching
+the reference exactly. An optional per-installation `signature` column on
+`invoice_booking_tracker_settings` (admin-editable, `render_templates()`'s
+`signature` parameter) is appended below the table on every send using the
+same escape-and-`<br>`-join pattern as `mailer_shared.py`'s per-user
+signature - this is a separate, admin-owned field, not the per-user
+`EmailSettings.signature` used by tools where the logged-in user sends
+personally. The `/test-mail` endpoint prefers the newest real complete check
+(`_latest_complete_check()`, shared with `/latest`) over synthetic
+placeholder rows, falling back to the `index % 4` pattern only before any
+real check has ever succeeded.
+
+`GET /api/tools/invoice-booking-tracker/latest` returns the newest successful,
+non-deleted complete snapshot. The frontend always renders this per-location
+table (or an explicit pre-first-success empty state); later failed attempts do
+not erase the last proven tracker. It is the same stored `result_json` used by
+the scheduled email and workbook rather than a separately recomputed view.
 
 An expired XTRAPOWER storage state can briefly redirect away from the login
 route while Angular starts and then bounce back to `/account/login`. Do not
@@ -273,6 +333,17 @@ app_key` is a real foreign key to `applications.key`. These were added by
 validated only in the application layer for a while — see that file's
 idempotent, orphan-checking pattern before adding any other implicit
 relationship as a bare unconstrained column.
+
+Request audit logging deliberately has two stages. The independent JSON-lines
+trail is appended immediately, while the MySQL `audit_logs` insert is attached
+to the response as a background task in `backend/app/audit_middleware.py`.
+Do not move that insert back into the synchronous response path: yielding route
+dependencies may still own their connections when `call_next()` returns, so a
+burst can otherwise make every request wait for a second connection and
+deadlock a correctly bounded SQLAlchemy pool. Preserve any response background
+task that already exists (especially temporary-download cleanup) and append the
+audit insert after it. Regression coverage is in
+`backend/tests/test_audit_middleware.py`.
 
 Job functions must be module-level and registered in the allowlist in
 `backend/app/jobs.py`. Arguments/results pass through its lossless JSON codec.

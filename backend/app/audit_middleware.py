@@ -24,6 +24,7 @@ import re
 import time
 from datetime import datetime, timezone
 from fastapi import Request
+from starlette.background import BackgroundTask, BackgroundTasks
 
 from app import auth, config
 from app.database import SessionLocal
@@ -68,7 +69,7 @@ def _should_log(request: Request) -> bool:
     return True
 
 
-def _write_log(
+def _write_db_log(
     *,
     user_id: int | None,
     actor_email: str | None,
@@ -77,18 +78,6 @@ def _write_log(
     ip_address: str | None,
     details: dict | None = None,
 ) -> None:
-    # Mirrored to logs/audit.log independently of the DB write below, so the
-    # trail exists even if MySQL is down, mid-restore, or the row insert
-    # itself fails.
-    _append_audit_file(
-        user_id=user_id,
-        actor_email=actor_email,
-        action=action,
-        status_code=status_code,
-        ip_address=ip_address,
-        details=details,
-    )
-
     db = SessionLocal()
     try:
         db.add(
@@ -106,6 +95,56 @@ def _write_log(
         logger.exception("Failed to write audit log row", exc_info=exc)
     finally:
         db.close()
+
+
+def _write_log(
+    *,
+    user_id: int | None,
+    actor_email: str | None,
+    action: str,
+    status_code: int | None,
+    ip_address: str | None,
+    details: dict | None = None,
+) -> None:
+    """Synchronously mirror an event to the file and MySQL audit trails."""
+    _append_audit_file(
+        user_id=user_id,
+        actor_email=actor_email,
+        action=action,
+        status_code=status_code,
+        ip_address=ip_address,
+        details=details,
+    )
+    _write_db_log(
+        user_id=user_id,
+        actor_email=actor_email,
+        action=action,
+        status_code=status_code,
+        ip_address=ip_address,
+        details=details,
+    )
+
+
+def _defer_request_db_log(response, **fields) -> None:
+    """Attach the MySQL insert after the response without losing other tasks.
+
+    ``call_next`` may return while a yielding endpoint dependency still owns
+    its connection.  Acquiring another connection here synchronously can
+    deadlock a full pool: the request cannot finish and release its endpoint
+    session because audit logging is waiting for a second connection.  The
+    independent file trail is written immediately; only the best-effort
+    MySQL mirror is deferred until the response has been sent.
+    """
+    _append_audit_file(**fields)
+
+    audit_task = BackgroundTask(_write_db_log, **fields)
+    existing = response.background
+    if existing is None:
+        response.background = audit_task
+    elif isinstance(existing, BackgroundTasks):
+        existing.tasks.append(audit_task)
+    else:
+        response.background = BackgroundTasks([existing, audit_task])
 
 
 async def audit_middleware(request: Request, call_next):
@@ -132,7 +171,8 @@ async def audit_middleware(request: Request, call_next):
         if _should_log(request):
             user_id, actor_email = _resolve_actor(request)
             ip_address = request.client.host if request.client else None
-            _write_log(
+            _defer_request_db_log(
+                response,
                 user_id=user_id,
                 actor_email=actor_email,
                 action=f"{request.method} {request.url.path}",
