@@ -20,6 +20,7 @@ APP_KEYS = [
     "unapplied-receipts", "ultrafine-balance-confirmation", "ultrafine-payment-reminder",
     "gst-invoice-adder", "closing-period-report",
     "iocl-balance-monitor", "invoice-booking-tracker", "creditors-ageing-report", "trial-balance-formatter",
+    "it-po-lookup",
 ]
 RETIRED_APP_KEYS = {"dms"}
 
@@ -38,7 +39,14 @@ APP_LABELS = {
     "invoice-booking-tracker": "Ultrafine Invoice Booking Tracker",
     "creditors-ageing-report": "Ultrafine Creditors Ageing Report Generator",
     "trial-balance-formatter": "Ultrafine Trial Balance Formatter",
+    "it-po-lookup": "IT PO Lookup",
 }
+
+# 'it' | 'accounts' | 'both' - IT PO Lookup's own per-user role, stored on
+# User.po_lookup_role. Kept alongside APP_KEYS/APP_LABELS since it's the
+# other piece of per-user, per-app configuration this suite has (so far
+# only one app needs it - a generic table is unwarranted for one user).
+PO_LOOKUP_ROLES = ("it", "accounts", "both")
 
 APP_COMPANIES = ("RDC", "Ultrafine")
 DEFAULT_APP_COMPANY = "RDC"
@@ -76,6 +84,18 @@ def parse_allowed_apps(user: User) -> list[str]:
     if not isinstance(value, list):
         return []
     return [key for key in value if isinstance(key, str) and key in APP_KEYS]
+
+
+def effective_po_lookup_role(user: User) -> str:
+    """Admins are always 'both'. A regular user with no role set (an admin
+    granted app access but forgot to also pick a role) fails closed to
+    'it' - the most restricted behavior - rather than defaulting to the
+    upload-and-see-everything 'accounts'/'both' capability."""
+    if user.role == "admin":
+        return "both"
+    if user.po_lookup_role in PO_LOOKUP_ROLES:
+        return user.po_lookup_role
+    return "it"
 
 
 def user_has_app_access(user: User, app_key: str) -> bool:

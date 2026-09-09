@@ -43,6 +43,7 @@ control access, mappings, email defaults, automation, audit history, and recover
 | Ultrafine Invoice Booking Tracker | Scans every page of every configured DMS work queue, keeps the latest complete tracker visible, and sends the daily tracker | Playwright + SMTP |
 | Ultrafine Creditors Ageing Report Generator | Builds classified creditors, advances, and intercompany ageing schedules from Tally | Excel files |
 | Ultrafine Trial Balance Formatter | Reproduces the approved Ultrafine trial-balance layout from a raw Tally export | Excel files |
+| IT PO Lookup | Looks up a PO's ERP payment document number and matches it against uploaded bank statements to find the UTR | Oracle ERP + Excel files |
 
 The DMS Downloader is retired and intentionally excluded from the catalogue.
 

@@ -21,6 +21,7 @@ from app.routers import (
     gst_invoice_adder,
     iocl_balance,
     invoice_booking_tracker,
+    it_po_lookup,
     gstr2b,
     job_control,
     rdc_payables,
@@ -144,6 +145,7 @@ app.include_router(ultrafine_payment_reminder.router)
 app.include_router(closing_period.router)
 app.include_router(iocl_balance.router)
 app.include_router(invoice_booking_tracker.router)
+app.include_router(it_po_lookup.router)
 app.include_router(creditors_ageing.router)
 app.include_router(trial_balance_formatter.router)
 

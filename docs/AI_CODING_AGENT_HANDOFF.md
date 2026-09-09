@@ -637,6 +637,66 @@ Region -> Incharge concept at all. Regression coverage:
 `backend/tests/test_unaccounted_mappings.py`,
 `backend/tests/test_rdc_payables_mappings.py`.
 
+### IT PO Lookup
+
+Looks up a PO's ERP payment document number
+(`backend/app/services/it_po_lookup/oracle_lookup.py` — the accounts team's
+own proven query, verbatim CTE shape) and matches it against bank-statement
+transactions stored in `po_lookup_bank_transactions`
+(`backend/app/services/it_po_lookup/search.py`). The document number does
+**not** equal the bank's own Reference No./UTR — live verification against
+the real ERP and 4 real statement exports found it embedded as a distinct
+token inside `Transaction Description` (e.g. `NEFT - ... - 20270001460 -
+...`), with the transaction's `Reference No.` being the actual UTR. Matching
+uses a word-boundary regex (`(?<!\d)<doc>(?!\d)`), not a bare substring
+check — a naive `LIKE '%444%'` would false-positive match inside
+`20270001444`. A locked-open row is not a concern here (that's Invoice
+Booking Tracker's problem, a different DMS module); confirmed live that a
+document number can also appear *exactly equal to* `Reference No.` for some
+payment types, so both are checked.
+
+Four outcomes, not the accounts team's original three: `found` (matched a
+stored transaction), `payment_in_process` (ERP has a document number, no
+stored transaction matches it yet), `payment_not_processed` (covers all
+three of the query's own no-document fallback strings — not booked, entry
+passed but unpaid, booked but unpaid), and `po_not_found` (the PO doesn't
+exist in `po_headers_all` at all — the query silently omits it from its
+result set rather than returning a row, so this has to be detected by
+absence, not a returned status string). Do not collapse `po_not_found` back
+into `payment_not_processed`; a nonexistent PO is a data-entry problem, not
+a payment-status fact.
+
+Bank statement uploads are parsed immediately
+(`bank_statement_parser.py` — locates the metadata block and the
+`Transaction Date` header row by label, not fixed position, so column
+reordering is tolerated) and only the extracted transaction rows are
+stored — the uploaded file itself is deleted right after parsing, never
+archived. Storage (`storage.py`) is a single bulk `INSERT IGNORE`
+(MySQL-specific) against the unique constraint on (account_number,
+transaction_date, reference_no, transaction_amount), making repeat/
+overlapping-date-range uploads idempotent. Do not "fix" this into a
+per-row loop with `try/except IntegrityError: db.rollback()` — that rolls
+back the *whole* uncommitted transaction, including every row already
+flushed earlier in the same batch, not just the offending row (a real bug
+caught during implementation, before it shipped). Build the `Insert()`
+against `PoLookupBankTransaction.__table__`, not the mapped class — passing
+a list of dicts to `insert(MappedClass)` triggers SQLAlchemy 2.0's ORM
+bulk-insert path, whose result has no `.rowcount` at all.
+
+IT PO Lookup has its own per-user role — `User.po_lookup_role` ('it' |
+'accounts' | 'both'), set in the same admin "app access" dialog as the
+app-key checkboxes (`app/permissions.py`'s `effective_po_lookup_role()`).
+Admins are always 'both' regardless of the stored value; a regular user
+with app access but no role set fails closed to 'it' (the most
+restricted), not to some default upload capability. This is the suite's
+first per-app user attribute beyond the plain allowed-apps list — reuse
+this pattern (a nullable column + a `effective_*` helper) rather than
+inventing a generic per-app-settings table for a single app that needs it.
+The router's `_shape_result()` is the actual security boundary: 'it' never
+receives `document_number` or `transaction_date` in the JSON at all, not
+just a hidden frontend column — verify any future field addition there
+against both roles, see `backend/tests/test_it_po_lookup_router.py`.
+
 ## 5. Email behavior
 
 Default recipients and other system mail configuration are managed centrally

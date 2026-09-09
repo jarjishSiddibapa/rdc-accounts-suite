@@ -48,6 +48,14 @@ class User(Base):
     # access regardless of this field.
     allowed_apps = Column(Text, nullable=True)
 
+    # IT PO Lookup's own per-user role: 'it' | 'accounts' | 'both'. Only
+    # meaningful for a user who also has "it-po-lookup" in allowed_apps -
+    # see app/services/it_po_lookup for what each role can do. Admins are
+    # always treated as 'both' in code regardless of this column; it stays
+    # NULL for admins on purpose. A regular user with app access but no
+    # role set here fails closed to the most restricted ('it') behavior.
+    po_lookup_role = Column(String(16), nullable=True)
+
     email_settings = relationship(
         "EmailSettings", back_populates="user", uselist=False,
         cascade="save-update, merge",
@@ -469,4 +477,51 @@ class TrialBalanceUploadToken(Base):
     download_filename = Column(String(255), nullable=False)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     expires_at = Column(DateTime, nullable=False, index=True)
+    is_deleted = Column(Boolean, default=False, nullable=False, index=True)
+
+
+class PoLookupStatementUpload(Base):
+    """Append-only audit trail for every bank-statement file an Accounts
+    user (or admin) has uploaded into IT PO Lookup."""
+
+    __tablename__ = "po_lookup_statement_uploads"
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    filename = Column(String(255), nullable=False)
+    account_number = Column(String(64), nullable=True)
+    from_date = Column(Date, nullable=True)
+    to_date = Column(Date, nullable=True)
+    row_count = Column(Integer, nullable=False)
+    inserted_count = Column(Integer, nullable=False)
+    duplicate_count = Column(Integer, nullable=False)
+    uploaded_by_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    uploaded_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    is_deleted = Column(Boolean, default=False, nullable=False, index=True)
+
+
+class PoLookupBankTransaction(Base):
+    """One row per bank-statement transaction line, accumulated across every
+    upload. The unique constraint makes repeat/overlapping-date-range
+    uploads of the same statement idempotent - re-uploading never creates
+    duplicate rows, only adds genuinely new transactions."""
+
+    __tablename__ = "po_lookup_bank_transactions"
+    __table_args__ = (
+        UniqueConstraint(
+            "account_number", "transaction_date", "reference_no", "transaction_amount",
+            name="uq_po_lookup_transaction",
+        ),
+    )
+
+    id = Column(BigInteger, primary_key=True, autoincrement=True)
+    account_number = Column(String(64), nullable=False, index=True)
+    transaction_date = Column(DateTime, nullable=False)
+    transaction_description = Column(Text, nullable=False)
+    transaction_amount = Column(Numeric(16, 2), nullable=False)
+    debit_credit = Column(String(1), nullable=True)
+    reference_no = Column(String(64), nullable=True, index=True)
+    value_date = Column(Date, nullable=True)
+    transaction_branch = Column(String(128), nullable=True)
+    running_balance = Column(Numeric(16, 2), nullable=True)
+    upload_id = Column(BigInteger, ForeignKey("po_lookup_statement_uploads.id"), nullable=True, index=True)
     is_deleted = Column(Boolean, default=False, nullable=False, index=True)

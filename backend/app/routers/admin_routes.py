@@ -12,7 +12,9 @@ from sqlalchemy.orm import Session
 from app import auth, security, system_mailer
 from app.database import get_db
 from app.models import Application, SystemEmailSettings, User
-from app.permissions import APP_COMPANIES, APP_KEYS, APP_LABELS, REPORT_RECIPIENT_APP_KEYS, parse_allowed_apps
+from app.permissions import (
+    APP_COMPANIES, APP_KEYS, APP_LABELS, PO_LOOKUP_ROLES, REPORT_RECIPIENT_APP_KEYS, parse_allowed_apps,
+)
 from app.regional import to_ist_iso
 from app.services.mailer_shared import (
     get_report_recipient_defaults,
@@ -83,6 +85,17 @@ class ResetPasswordBody(BaseModel):
 class PermissionsBody(BaseModel):
     # Omitted means no access. Only an admin can place application keys here.
     allowed_apps: list[str] = Field(default_factory=list)
+    # IT PO Lookup's own per-user role: 'it' | 'accounts' | 'both' | None.
+    # Ignored for every other app; irrelevant unless "it-po-lookup" is also
+    # in allowed_apps.
+    po_lookup_role: str | None = None
+
+    @field_validator("po_lookup_role")
+    @classmethod
+    def valid_po_lookup_role(cls, value: str | None) -> str | None:
+        if value is not None and value not in PO_LOOKUP_ROLES:
+            raise ValueError(f"po_lookup_role must be one of {PO_LOOKUP_ROLES} or null")
+        return value
 
 
 class ApplicationCompanyBody(BaseModel):
@@ -150,6 +163,7 @@ def _user_dict(user: User) -> dict:
         "is_active": user.is_active,
         "is_deleted": user.is_deleted,
         "allowed_apps": None if user.role == "admin" else parse_allowed_apps(user),
+        "po_lookup_role": None if user.role == "admin" else user.po_lookup_role,
     }
 
 
@@ -469,6 +483,7 @@ def set_permissions(user_id: int, body: PermissionsBody, db: Session = Depends(g
     # remain deterministic and easy to audit.
     selected = set(body.allowed_apps)
     user.allowed_apps = json.dumps([key for key in APP_KEYS if key in selected])
+    user.po_lookup_role = body.po_lookup_role if "it-po-lookup" in selected else None
 
     db.commit()
     db.refresh(user)

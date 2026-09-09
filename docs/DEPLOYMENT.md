@@ -53,6 +53,7 @@ production database. They are repeatable and do not hard-delete business data.
 - `deployment/mysql/20260902_invoice_booking_tracker.sql`
 - `deployment/mysql/20260902_invoice_booking_tracker_queue_keys.sql`
 - `deployment/mysql/20260902_invoice_booking_tracker_signature_and_template.sql`
+- `deployment/mysql/20260909_it_po_lookup.sql`
 
 If the production database is not named `rdc_accounts_suite`, change only the
 database name in the `CREATE DATABASE`/`USE` statements before running a script.
@@ -90,6 +91,14 @@ attachment was removed in this release; the rendered HTML table in the mail
 body is now the sole deliverable, restyled to match the original manual
 tracker's colors (salmon header/title, peach grand-total row, black grid
 lines). Configure the optional signature in the admin UI after running it.
+
+The IT PO Lookup script adds the nullable `po_lookup_role` column to `users`
+and creates its two new tables (`po_lookup_statement_uploads`,
+`po_lookup_bank_transactions`). It stores only parsed transaction data, never
+the uploaded file itself. After running it, each user who should have access
+needs both the "IT PO Lookup" app grant *and* an explicit role (IT / Accounts
+/ Both) set in the same admin dialog - a user with the app but no role fails
+closed to the most restricted (IT) behavior.
 
 The foreign-key migration checks each relationship for orphaned rows before
 adding its constraint and skips (printing a warning row, not an error) any

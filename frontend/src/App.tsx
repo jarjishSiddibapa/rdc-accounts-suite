@@ -26,6 +26,7 @@ const IoclBalanceMonitor = lazy(() => import('@/pages/tools/IoclBalanceMonitor')
 const InvoiceBookingTracker = lazy(() => import('@/pages/tools/InvoiceBookingTracker'))
 const CreditorsAgeing = lazy(() => import('@/pages/tools/CreditorsAgeing'))
 const TrialBalanceFormatter = lazy(() => import('@/pages/tools/TrialBalanceFormatter'))
+const ItPoLookup = lazy(() => import('@/pages/tools/ItPoLookup'))
 
 function ScrollToTop() {
   const { pathname } = useLocation()
@@ -206,6 +207,12 @@ export default function App() {
             path="/tools/trial-balance-formatter"
             element={
               protectedPage(<AppGuard appKey="trial-balance-formatter"><TrialBalanceFormatter /></AppGuard>)
+            }
+          />
+          <Route
+            path="/tools/it-po-lookup"
+            element={
+              protectedPage(<AppGuard appKey="it-po-lookup"><ItPoLookup /></AppGuard>)
             }
           />
 

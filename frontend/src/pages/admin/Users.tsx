@@ -25,6 +25,7 @@ interface AdminUser {
   is_active: boolean
   is_deleted: boolean
   allowed_apps: string[] | null
+  po_lookup_role: 'it' | 'accounts' | 'both' | null
 }
 
 interface AppInfo {
@@ -69,6 +70,7 @@ export default function Users() {
 
   const [permsTarget, setPermsTarget] = useState<AdminUser | null>(null)
   const [permsSelected, setPermsSelected] = useState<Set<string>>(new Set())
+  const [permsPoLookupRole, setPermsPoLookupRole] = useState<'it' | 'accounts' | 'both' | null>(null)
   const [permsSearch, setPermsSearch] = useState('')
   const [permsCompany, setPermsCompany] = useState<CompanyFilter>('all')
 
@@ -184,6 +186,7 @@ export default function Users() {
   function openPerms(u: AdminUser) {
     setPermsTarget(u)
     setPermsSelected(new Set(u.allowed_apps ?? []))
+    setPermsPoLookupRole(u.po_lookup_role)
     setPermsSearch('')
     setPermsCompany('all')
   }
@@ -194,6 +197,7 @@ export default function Users() {
     try {
       await put(`/admin/users/${permsTarget.id}/permissions`, {
         allowed_apps: Array.from(permsSelected),
+        po_lookup_role: permsPoLookupRole,
       })
       setPermsTarget(null)
       await loadUsers()
@@ -820,6 +824,20 @@ export default function Users() {
                         <span className="block truncate text-sm font-medium text-ink">{app.label}</span>
                         <span className="mt-0.5 block truncate text-xs text-ink-faint">{app.key}</span>
                       </span>
+                      {app.key === 'it-po-lookup' && selected && (
+                        <select
+                          value={permsPoLookupRole ?? ''}
+                          onClick={(event) => event.stopPropagation()}
+                          onChange={(event) => setPermsPoLookupRole((event.target.value || null) as typeof permsPoLookupRole)}
+                          className="field-control h-9 w-32 shrink-0 py-1 text-xs"
+                          aria-label="IT PO Lookup role"
+                        >
+                          <option value="">Role not set</option>
+                          <option value="it">IT</option>
+                          <option value="accounts">Accounts</option>
+                          <option value="both">Both</option>
+                        </select>
+                      )}
                       <span
                         className={cn(
                           'shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold tracking-wide uppercase',

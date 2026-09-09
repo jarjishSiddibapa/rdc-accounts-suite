@@ -85,6 +85,19 @@ later. A manual run made while a person is already signed in records the check
 as failed and shows an “account already logged in” state; it never attempts to
 force that person out.
 
+## IT PO Lookup
+
+A user needs two things to use this tool: the "IT PO Lookup" app grant, and
+an explicit role picked in the same dialog - **IT**, **Accounts**, or
+**Both**. A user with the app grant but no role fails closed to the most
+restricted (IT) behavior, so always set both together. Admins are always
+treated as Both regardless of this field. IT sees only the UTR and
+transaction detail for a matched payment; Accounts and Both additionally see
+the ERP payment document number and can upload bank statements. Uploaded
+statements are parsed immediately and only their transaction data is kept -
+the original file is discarded, and re-uploading an overlapping date range is
+safe (never creates duplicate transactions).
+
 ## Audit and maintenance
 
 Use **Audit log** to search by user, API/action, status, or date. Use **System

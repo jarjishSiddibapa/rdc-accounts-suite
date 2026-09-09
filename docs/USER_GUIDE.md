@@ -97,6 +97,20 @@ If a manual update finds the shared DMS ID already active, the page says so
 directly. Wait for that DMS user to sign out and try again; other technical
 failures continue to use the normal safe support message for regular users.
 
+## IT PO Lookup
+
+Paste one or more PO numbers (comma-separated) and search. Each PO comes back
+as one of four outcomes: **Found** (the payment's UTR and transaction detail),
+**Payment in process** (ERP has a payment document number, but no uploaded
+bank statement covers it yet), **Payment not processed** (ERP has no payment
+for this PO at all), or **PO not found in ERP** (the number doesn't exist -
+check for a typo). IT users see only the UTR, value date, transaction
+description, and amount - never the ERP document number. Accounts users (and
+admins) can also upload bank statements: upload is a one-time action per
+statement - transactions accumulate permanently, and re-uploading an
+overlapping date range never creates duplicates. The original uploaded file
+is never kept; only the parsed transaction data is stored.
+
 ## If something fails
 
 Regular users see `We have encountered an issue, please contact Jarjish 🥲`
