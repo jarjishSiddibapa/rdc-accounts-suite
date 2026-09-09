@@ -97,7 +97,7 @@ If a manual update finds the shared DMS ID already active, the page says so
 directly. Wait for that DMS user to sign out and try again; other technical
 failures continue to use the normal safe support message for regular users.
 
-## IT PO Lookup
+## IT POs Lookup
 
 Paste one or more PO numbers (comma-separated) and search. Each PO comes back
 as one of four outcomes: **Found** (the payment's UTR and transaction detail),

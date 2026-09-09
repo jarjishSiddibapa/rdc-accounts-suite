@@ -48,7 +48,7 @@ class User(Base):
     # access regardless of this field.
     allowed_apps = Column(Text, nullable=True)
 
-    # IT PO Lookup's own per-user role: 'it' | 'accounts' | 'both'. Only
+    # IT POs Lookup's own per-user role: 'it' | 'accounts' | 'both'. Only
     # meaningful for a user who also has "it-po-lookup" in allowed_apps -
     # see app/services/it_po_lookup for what each role can do. Admins are
     # always treated as 'both' in code regardless of this column; it stays
@@ -482,7 +482,7 @@ class TrialBalanceUploadToken(Base):
 
 class PoLookupStatementUpload(Base):
     """Append-only audit trail for every bank-statement file an Accounts
-    user (or admin) has uploaded into IT PO Lookup."""
+    user (or admin) has uploaded into IT POs Lookup."""
 
     __tablename__ = "po_lookup_statement_uploads"
 

@@ -36,6 +36,12 @@ class BuildQueryTests(unittest.TestCase):
         for po in binds.values():
             self.assertNotIn(po, query)
 
+    def test_joins_ap_suppliers_for_the_po_headers_all_vendor(self):
+        query, _ = _build_query(["654377"])
+        self.assertIn("pha.vendor_id AS vendor_id", query)
+        self.assertIn("APPS.ap_suppliers asup ON asup.vendor_id = p.vendor_id", query)
+        self.assertIn("asup.vendor_name AS vendor_name", query)
+
 
 if __name__ == "__main__":
     unittest.main()

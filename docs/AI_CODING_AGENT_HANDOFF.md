@@ -637,7 +637,7 @@ Region -> Incharge concept at all. Regression coverage:
 `backend/tests/test_unaccounted_mappings.py`,
 `backend/tests/test_rdc_payables_mappings.py`.
 
-### IT PO Lookup
+### IT POs Lookup
 
 Looks up a PO's ERP payment document number
 (`backend/app/services/it_po_lookup/oracle_lookup.py` — the accounts team's
@@ -683,7 +683,7 @@ against `PoLookupBankTransaction.__table__`, not the mapped class — passing
 a list of dicts to `insert(MappedClass)` triggers SQLAlchemy 2.0's ORM
 bulk-insert path, whose result has no `.rowcount` at all.
 
-IT PO Lookup has its own per-user role — `User.po_lookup_role` ('it' |
+IT POs Lookup has its own per-user role — `User.po_lookup_role` ('it' |
 'accounts' | 'both'), set in the same admin "app access" dialog as the
 app-key checkboxes (`app/permissions.py`'s `effective_po_lookup_role()`).
 Admins are always 'both' regardless of the stored value; a regular user

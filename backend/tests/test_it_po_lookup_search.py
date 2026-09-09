@@ -107,11 +107,11 @@ class SearchPoNumbersTests(unittest.TestCase):
         self.db.commit()
 
         fake_statuses = {
-            "651842": "20270001460",  # has a document number AND a stored matching transaction -> found
-            "648811": "20270001347",  # has a document number but no stored transaction -> in process
-            "654377": STATUS_PO_NOT_BOOKED,
-            "654423": STATUS_PAYMENT_ENTRY_NOT_MADE,
-            "654634": STATUS_BOOKED_PAYMENT_NOT_MADE,
+            "651842": ("20270001460", "Sai Computer Care - HO"),  # document number AND a stored matching transaction -> found
+            "648811": ("20270001347", "RUBIX DATA SCIENCES PRIVATE LIMITED"),  # document number but no stored transaction -> in process
+            "654377": (STATUS_PO_NOT_BOOKED, "Some Vendor"),
+            "654423": (STATUS_PAYMENT_ENTRY_NOT_MADE, "Some Vendor"),
+            "654634": (STATUS_BOOKED_PAYMENT_NOT_MADE, "Some Vendor"),
             # "999999999" deliberately absent -> po_not_found
         }
         with patch.object(search, "fetch_document_numbers", return_value=fake_statuses):
@@ -121,12 +121,16 @@ class SearchPoNumbersTests(unittest.TestCase):
         self.assertEqual(by_po["651842"].outcome, "found")
         self.assertEqual(by_po["651842"].utr_number, "HDFCH01251324154")
         self.assertEqual(by_po["651842"].transaction_amount, 9608.85)
+        self.assertEqual(by_po["651842"].vendor_name, "Sai Computer Care - HO")
         self.assertEqual(by_po["648811"].outcome, "payment_in_process")
         self.assertEqual(by_po["648811"].document_number, "20270001347")
+        self.assertEqual(by_po["648811"].vendor_name, "RUBIX DATA SCIENCES PRIVATE LIMITED")
         self.assertEqual(by_po["654377"].outcome, "payment_not_processed")
+        self.assertEqual(by_po["654377"].vendor_name, "Some Vendor")
         self.assertEqual(by_po["654423"].outcome, "payment_not_processed")
         self.assertEqual(by_po["654634"].outcome, "payment_not_processed")
         self.assertEqual(by_po["999999999"].outcome, "po_not_found")
+        self.assertIsNone(by_po["999999999"].vendor_name)
 
     def test_empty_po_text_returns_no_results_without_calling_oracle(self):
         with patch.object(search, "fetch_document_numbers") as mocked:

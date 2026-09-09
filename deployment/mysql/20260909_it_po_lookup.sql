@@ -1,4 +1,4 @@
--- IT PO Lookup: PO -> ERP payment document number -> bank statement UTR
+-- IT POs Lookup: PO -> ERP payment document number -> bank statement UTR
 -- Safe to run repeatedly in MySQL Workbench. No business row is deleted.
 
 USE `rdc_accounts_suite`;
@@ -64,7 +64,7 @@ CREATE TABLE IF NOT EXISTS `po_lookup_bank_transactions` (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_bin;
 
 INSERT INTO `applications` (`key`, `label`, `company`, `is_deleted`)
-VALUES ('it-po-lookup', 'IT PO Lookup', 'RDC', FALSE)
+VALUES ('it-po-lookup', 'IT POs Lookup', 'RDC', FALSE)
 ON DUPLICATE KEY UPDATE
-  `label` = 'IT PO Lookup',
+  `label` = 'IT POs Lookup',
   `is_deleted` = FALSE;

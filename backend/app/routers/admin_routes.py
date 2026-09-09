@@ -85,7 +85,7 @@ class ResetPasswordBody(BaseModel):
 class PermissionsBody(BaseModel):
     # Omitted means no access. Only an admin can place application keys here.
     allowed_apps: list[str] = Field(default_factory=list)
-    # IT PO Lookup's own per-user role: 'it' | 'accounts' | 'both' | None.
+    # IT POs Lookup's own per-user role: 'it' | 'accounts' | 'both' | None.
     # Ignored for every other app; irrelevant unless "it-po-lookup" is also
     # in allowed_apps.
     po_lookup_role: str | None = None

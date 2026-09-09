@@ -39,10 +39,10 @@ APP_LABELS = {
     "invoice-booking-tracker": "Ultrafine Invoice Booking Tracker",
     "creditors-ageing-report": "Ultrafine Creditors Ageing Report Generator",
     "trial-balance-formatter": "Ultrafine Trial Balance Formatter",
-    "it-po-lookup": "IT PO Lookup",
+    "it-po-lookup": "IT POs Lookup",
 }
 
-# 'it' | 'accounts' | 'both' - IT PO Lookup's own per-user role, stored on
+# 'it' | 'accounts' | 'both' - IT POs Lookup's own per-user role, stored on
 # User.po_lookup_role. Kept alongside APP_KEYS/APP_LABELS since it's the
 # other piece of per-user, per-app configuration this suite has (so far
 # only one app needs it - a generic table is unwarranted for one user).

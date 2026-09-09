@@ -4,6 +4,7 @@ import { AppShell } from '@/components/AppShell'
 import { Button } from '@/components/Button'
 import { GlassCard } from '@/components/GlassCard'
 import { LoadingNotice } from '@/components/LoadingNotice'
+import { Modal } from '@/components/Modal'
 import { Pagination } from '@/components/Pagination'
 import { ApiError, get, post, postForm } from '@/lib/api'
 import { PUBLIC_ISSUE_MESSAGE } from '@/lib/error-visibility'
@@ -19,12 +20,22 @@ interface StatusResponse {
 interface SearchResultRow {
   po_number: string
   outcome: 'found' | 'payment_in_process' | 'payment_not_processed' | 'po_not_found'
+  vendor_name?: string | null
   document_number?: string | null
   utr_number?: string | null
   transaction_date?: string | null
   value_date?: string | null
   transaction_description?: string | null
   transaction_amount?: number | null
+}
+
+interface InvoiceDetailRow {
+  invoice_number: string
+  invoice_date: string | null
+  invoice_amount: number | null
+  amount_paid: number | null
+  vendor_name: string | null
+  po_number: string | null
 }
 
 interface UploadRow {
@@ -64,6 +75,9 @@ export default function ItPoLookup() {
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState<string | null>(null)
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null)
+  const [invoiceDetails, setInvoiceDetails] = useState<{ documentNumber: string; invoices: InvoiceDetailRow[] } | null>(null)
+  const [invoiceDetailsLoading, setInvoiceDetailsLoading] = useState(false)
+  const [invoiceDetailsError, setInvoiceDetailsError] = useState<string | null>(null)
 
   const loadUploads = useCallback(async () => {
     const page = await get<Page<UploadRow>>(`${BASE}/uploads?limit=10&offset=${(uploadPage - 1) * 10}`)
@@ -100,6 +114,21 @@ export default function ItPoLookup() {
     }
   }
 
+  async function openInvoiceDetails(documentNumber: string) {
+    setInvoiceDetails(null); setInvoiceDetailsError(null); setInvoiceDetailsLoading(true)
+    try {
+      const response = await get<{ document_number: string; invoices: InvoiceDetailRow[] }>(
+        `${BASE}/invoice-details?document_number=${encodeURIComponent(documentNumber)}`,
+      )
+      setInvoiceDetails({ documentNumber: response.document_number, invoices: response.invoices })
+    } catch (error) {
+      setInvoiceDetails({ documentNumber, invoices: [] })
+      setInvoiceDetailsError(error instanceof ApiError ? error.message : PUBLIC_ISSUE_MESSAGE)
+    } finally {
+      setInvoiceDetailsLoading(false)
+    }
+  }
+
   async function uploadStatement(file: File) {
     setBusy('upload'); setMessage(null)
     try {
@@ -114,12 +143,12 @@ export default function ItPoLookup() {
     }
   }
 
-  if (loading || !status) return <AppShell title="IT PO Lookup"><LoadingNotice className="glass rounded-2xl" /></AppShell>
+  if (loading || !status) return <AppShell title="IT POs Lookup"><LoadingNotice className="glass rounded-2xl" /></AppShell>
 
   const isRestricted = status.role === 'it'
 
   return (
-    <AppShell title="IT PO Lookup">
+    <AppShell title="IT POs Lookup">
       <div className="flex flex-col gap-6">
         <GlassCard padding="lg" className="overflow-hidden">
           <div className="flex items-start gap-4">
@@ -160,9 +189,9 @@ export default function ItPoLookup() {
                     <th className="px-3 py-3">PO number</th>
                     <th className="px-3 py-3">Status</th>
                     {!isRestricted && <th className="px-3 py-3">Document number</th>}
+                    <th className="px-3 py-3">Vendor</th>
                     <th className="px-3 py-3">UTR number</th>
                     <th className="px-3 py-3">Value date</th>
-                    <th className="px-3 py-3">Transaction description</th>
                     <th className="px-3 py-3 text-right">Amount</th>
                   </tr>
                 </thead>
@@ -172,10 +201,21 @@ export default function ItPoLookup() {
                       <td className="px-3 py-3 font-semibold text-ink">{row.po_number}</td>
                       <td className="px-3 py-3"><OutcomeBadge outcome={row.outcome} /></td>
                       {!isRestricted && <td className="px-3 py-3 text-ink-dim">{row.document_number ?? '—'}</td>}
+                      <td className="px-3 py-3 text-ink-dim">{row.vendor_name ?? '—'}</td>
                       <td className="px-3 py-3 text-ink-dim">{row.utr_number ?? '—'}</td>
                       <td className="px-3 py-3 text-ink-dim">{row.value_date ? formatIndianDate(row.value_date) : '—'}</td>
-                      <td className="max-w-md whitespace-pre-wrap break-words px-3 py-3 text-xs text-ink-dim">{row.transaction_description ?? '—'}</td>
-                      <td className="px-3 py-3 text-right tabular-nums text-ink">{row.transaction_amount == null ? '—' : formatIndianNumber(row.transaction_amount)}</td>
+                      <td className="px-3 py-3 text-right tabular-nums text-ink">
+                        {row.transaction_amount == null ? '—' : formatIndianNumber(row.transaction_amount)}
+                        {!isRestricted && row.outcome === 'found' && row.document_number && (
+                          <button
+                            type="button"
+                            className="ml-2 text-xs font-semibold text-accent underline-offset-2 hover:underline"
+                            onClick={() => void openInvoiceDetails(row.document_number as string)}
+                          >
+                            Invoice details
+                          </button>
+                        )}
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -237,6 +277,43 @@ export default function ItPoLookup() {
           </GlassCard>
         )}
       </div>
+
+      <Modal
+        open={invoiceDetails !== null || invoiceDetailsLoading}
+        onClose={() => setInvoiceDetails(null)}
+        title={invoiceDetails ? `Invoices paid in document ${invoiceDetails.documentNumber}` : 'Invoice details'}
+        className="max-w-3xl"
+      >
+        {invoiceDetailsLoading && <LoadingNotice />}
+        {invoiceDetailsError && <p role="alert" className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-500">{invoiceDetailsError}</p>}
+        {invoiceDetails && !invoiceDetailsLoading && !invoiceDetailsError && (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[42rem] text-left text-sm">
+              <thead>
+                <tr className="border-b border-border text-xs text-ink-faint">
+                  <th className="px-2 py-3">Invoice number</th>
+                  <th className="px-2 py-3">Invoice date</th>
+                  <th className="px-2 py-3">PO number</th>
+                  <th className="px-2 py-3 text-right">Invoice amount</th>
+                  <th className="px-2 py-3 text-right">Amount paid</th>
+                </tr>
+              </thead>
+              <tbody>
+                {invoiceDetails.invoices.map((row, index) => (
+                  <tr key={`${row.invoice_number}-${index}`} className="border-b border-border/60 align-top">
+                    <td className="px-2 py-3 font-semibold text-ink">{row.invoice_number}</td>
+                    <td className="px-2 py-3 text-ink-dim">{row.invoice_date ? formatIndianDate(row.invoice_date) : '—'}</td>
+                    <td className="px-2 py-3 text-ink-dim">{row.po_number ?? '—'}</td>
+                    <td className="px-2 py-3 text-right tabular-nums text-ink-dim">{row.invoice_amount == null ? '—' : formatIndianNumber(row.invoice_amount)}</td>
+                    <td className="px-2 py-3 text-right tabular-nums text-ink">{row.amount_paid == null ? '—' : formatIndianNumber(row.amount_paid)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {invoiceDetails.invoices.length === 0 && <p className="py-8 text-center text-sm text-ink-faint">No invoices were found for this document number.</p>}
+          </div>
+        )}
+      </Modal>
     </AppShell>
   )
 }

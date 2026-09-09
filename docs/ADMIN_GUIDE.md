@@ -85,9 +85,9 @@ later. A manual run made while a person is already signed in records the check
 as failed and shows an “account already logged in” state; it never attempts to
 force that person out.
 
-## IT PO Lookup
+## IT POs Lookup
 
-A user needs two things to use this tool: the "IT PO Lookup" app grant, and
+A user needs two things to use this tool: the "IT POs Lookup" app grant, and
 an explicit role picked in the same dialog - **IT**, **Accounts**, or
 **Both**. A user with the app grant but no role fails closed to the most
 restricted (IT) behavior, so always set both together. Admins are always

@@ -1,4 +1,4 @@
-"""IT PO Lookup: PO -> ERP payment document number -> bank statement UTR.
+"""IT POs Lookup: PO -> ERP payment document number -> bank statement UTR.
 
 Every route is gated by app access (require_app_access). Within the app,
 role further restricts what a route can do: only 'accounts'/'both' may
@@ -44,7 +44,7 @@ _ORACLE_CFG = oracle_lookup.OracleConfig(
 oracle_lookup.init_oracle_client(ORACLE_INSTANT_CLIENT_DIR)
 
 
-def _require_upload_role(user: User = Depends(get_current_user)) -> User:
+def _require_full_access_role(user: User = Depends(get_current_user)) -> User:
     if effective_po_lookup_role(user) == "it":
         raise HTTPException(status_code=403, detail="Only Accounts or Both may upload or view bank statements.")
     return user
@@ -55,15 +55,15 @@ class SearchBody(BaseModel):
 
 
 def _shape_result(result: SearchResult, role: str) -> dict:
-    base = {"po_number": result.po_number, "outcome": result.outcome}
+    base = {"po_number": result.po_number, "outcome": result.outcome, "vendor_name": result.vendor_name}
     if role == "it":
-        # IT may only see: whether it was found, the UTR, and the three
-        # named fields - never the ERP document number or raw ledger detail.
+        # IT may only see: the PO's own vendor, whether it was found, the
+        # UTR, and the three named fields - never the ERP document number
+        # or raw ledger detail.
         if result.outcome == "found":
             base.update(
                 utr_number=result.utr_number,
                 value_date=result.value_date,
-                transaction_description=result.transaction_description,
                 transaction_amount=result.transaction_amount,
             )
         return base
@@ -93,7 +93,15 @@ def search(body: SearchBody, db: Session = Depends(get_db), user: User = Depends
     return {"items": [_shape_result(r, role) for r in results]}
 
 
-@router.post("/upload", dependencies=[Depends(_require_upload_role)])
+@router.get("/invoice-details", dependencies=[Depends(_require_full_access_role)])
+def invoice_details(document_number: str):
+    if not document_number.strip():
+        raise HTTPException(status_code=400, detail="document_number is required.")
+    invoices = oracle_lookup.fetch_invoice_details(_ORACLE_CFG, document_number.strip())
+    return {"document_number": document_number.strip(), "invoices": invoices}
+
+
+@router.post("/upload", dependencies=[Depends(_require_full_access_role)])
 async def upload(
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
@@ -121,7 +129,7 @@ async def upload(
     }
 
 
-@router.get("/uploads", dependencies=[Depends(_require_upload_role)])
+@router.get("/uploads", dependencies=[Depends(_require_full_access_role)])
 def uploads(limit: int = 20, offset: int = 0, db: Session = Depends(get_db)):
     limit, offset = max(1, min(limit, 100)), max(0, offset)
     query = db.query(PoLookupStatementUpload).filter(PoLookupStatementUpload.is_deleted.is_(False))

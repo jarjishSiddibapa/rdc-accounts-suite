@@ -75,7 +75,7 @@ const mainNav: NavItem[] = [
   { to: '/tools/invoice-booking-tracker', label: 'Ultrafine Invoice Booking Tracker', icon: ClipboardCheck, appKey: 'invoice-booking-tracker' },
   { to: '/tools/creditors-ageing', label: 'Ultrafine Creditors Ageing Report Generator', icon: ChartNoAxesCombined, appKey: 'creditors-ageing-report' },
   { to: '/tools/trial-balance-formatter', label: 'Ultrafine Trial Balance Formatter', icon: FileSpreadsheet, appKey: 'trial-balance-formatter' },
-  { to: '/tools/it-po-lookup', label: 'IT PO Lookup', icon: Search, appKey: 'it-po-lookup' },
+  { to: '/tools/it-po-lookup', label: 'IT POs Lookup', icon: Search, appKey: 'it-po-lookup' },
 ]
 
 interface SidebarProps {

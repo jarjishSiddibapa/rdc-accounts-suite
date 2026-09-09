@@ -830,7 +830,7 @@ export default function Users() {
                           onClick={(event) => event.stopPropagation()}
                           onChange={(event) => setPermsPoLookupRole((event.target.value || null) as typeof permsPoLookupRole)}
                           className="field-control h-9 w-32 shrink-0 py-1 text-xs"
-                          aria-label="IT PO Lookup role"
+                          aria-label="IT POs Lookup role"
                         >
                           <option value="">Role not set</option>
                           <option value="it">IT</option>

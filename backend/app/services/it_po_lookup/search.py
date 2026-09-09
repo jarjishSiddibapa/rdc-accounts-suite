@@ -33,6 +33,7 @@ from .oracle_lookup import OracleConfig, NO_DOCUMENT_STATUSES, fetch_document_nu
 class SearchResult:
     po_number: str
     outcome: str
+    vendor_name: str | None = None
     document_number: str | None = None
     utr_number: str | None = None
     transaction_date: str | None = None
@@ -87,20 +88,26 @@ def search_po_numbers(db: Session, oracle_cfg: OracleConfig, raw_po_text: str) -
         if po not in statuses:
             results.append(SearchResult(po_number=po, outcome="po_not_found"))
             continue
-        raw_status = statuses[po]
+        raw_status, vendor_name = statuses[po]
         if raw_status in NO_DOCUMENT_STATUSES:
-            results.append(SearchResult(po_number=po, outcome="payment_not_processed"))
+            results.append(SearchResult(po_number=po, outcome="payment_not_processed", vendor_name=vendor_name))
             continue
 
         document_number = raw_status
         match = _find_matching_transaction(db, document_number)
         if match is None:
-            results.append(SearchResult(po_number=po, outcome="payment_in_process", document_number=document_number))
+            results.append(
+                SearchResult(
+                    po_number=po, outcome="payment_in_process",
+                    vendor_name=vendor_name, document_number=document_number,
+                )
+            )
             continue
         results.append(
             SearchResult(
                 po_number=po,
                 outcome="found",
+                vendor_name=vendor_name,
                 document_number=document_number,
                 utr_number=match.reference_no,
                 transaction_date=match.transaction_date.isoformat(),
