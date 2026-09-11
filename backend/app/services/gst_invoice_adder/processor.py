@@ -53,6 +53,7 @@ from __future__ import annotations
 
 import copy
 import logging
+import os
 import re as _re
 from dataclasses import dataclass
 from datetime import date as _date_type, datetime
@@ -62,6 +63,7 @@ from threading import Lock
 import oracledb
 import pandas as pd
 from openpyxl import Workbook, load_workbook
+from openpyxl.cell import WriteOnlyCell
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import column_index_from_string, get_column_letter
 
@@ -108,6 +110,7 @@ COL_GST_NEW = "GST Invoice Number"
 THREAD_WORKERS = 8
 POOL_MIN = 2
 POOL_MAX = THREAD_WORKERS
+BULK_QUERY_SIZE = max(20, min(500, int(os.environ.get("GST_ORACLE_BATCH_SIZE", "200"))))
 
 # ── GST query (byte-for-byte identical to the original v9/v12 query) ─────────
 
@@ -135,6 +138,53 @@ WHERE
     AND jtl.entity_code      = 'TRANSACTIONS'
     AND jtl.trx_date         = :trx_date
 """
+
+
+def _bulk_query(pairs: list[tuple[str, str]]) -> tuple[str, dict[str, str]]:
+    """Build one bind-only query for a bounded set of invoice/date pairs.
+
+    The joins and aggregation are identical to ``GST_QUERY``; the difference
+    is that Oracle receives up to ``BULK_QUERY_SIZE`` pairs per round trip
+    instead of one.  No uploaded value is interpolated into SQL.
+    """
+    selects = []
+    binds: dict[str, str] = {}
+    for index, (inv_no, trx_date) in enumerate(pairs):
+        selects.append(
+            f"SELECT :inv_no_{index} AS inv_no, :trx_date_{index} AS trx_date FROM dual"
+        )
+        binds[f"inv_no_{index}"] = inv_no
+        binds[f"trx_date_{index}"] = trx_date
+    inputs = "\nUNION ALL\n".join(selects)
+    return f"""
+WITH input_pairs (inv_no, trx_date) AS (
+{inputs}
+)
+SELECT
+    p.inv_no,
+    p.trx_date,
+    rtrim(
+        regexp_replace(
+            LISTAGG(jtl.tax_invoice_num, ', ')
+                WITHIN GROUP (ORDER BY jtl.tax_invoice_num),
+            '([^-]*)(-\\1)+($|-)',
+            '\\1\\3'
+        ),
+        '-'
+    ) AS gst_inv_num
+FROM input_pairs p
+LEFT JOIN apps.ra_customer_trx_all rcta
+    ON rcta.trx_number = p.inv_no
+LEFT JOIN apps.ra_customer_trx_lines_all rctl
+    ON rctl.customer_trx_id = rcta.customer_trx_id
+   AND rctl.line_type = 'LINE'
+LEFT JOIN apps.jai_tax_det_factors jtl
+    ON jtl.trx_line_id = rctl.customer_trx_line_id
+   AND jtl.trx_id = rctl.customer_trx_id
+   AND jtl.entity_code = 'TRANSACTIONS'
+   AND jtl.trx_date = p.trx_date
+GROUP BY p.inv_no, p.trx_date
+""", binds
 
 
 # ── Date helpers (verbatim logic from the original) ──────────────────────────
@@ -196,12 +246,20 @@ _INVALID_INV = frozenset({"nan", "none", "nat", ""})
 def _extract_pairs_vectorized(df, inv_no_col, inv_date_col) -> list:
     """Extract unique (inv_no, oracle_date) pairs using vectorised pandas
     ops. Each unique date value is parsed only once (lookup table)."""
-    inv = (df[inv_no_col]
+    raw_inv = df[inv_no_col]
+    inv = (raw_inv
            .astype(str)
            .str.strip()
            .str.replace(r'\.0$', '', regex=True))
 
-    valid_mask = ~inv.str.lower().isin(_INVALID_INV)
+    # pandas 3.x's Series.astype(str) leaves a genuine NaN cell as an actual
+    # float NaN instead of stringifying it to "nan" (verified directly
+    # against pandas 3.0.5 - a behavior change from older pandas, where this
+    # same line used to reliably produce the literal string "nan"). Without
+    # raw_inv.notna() here, a truly blank invoice-number cell survives the
+    # string-based _INVALID_INV check below and gets sent toward Oracle as a
+    # non-string bind value.
+    valid_mask = raw_inv.notna() & ~inv.str.lower().isin(_INVALID_INV)
     inv = inv[valid_mask]
     raw_dates = df.loc[valid_mask, inv_date_col]
 
@@ -283,8 +341,15 @@ def _cell_value_for_output(raw_val, is_date_col: bool):
     return raw_val, False
 
 
-def build_gst_report_pure_python(df, inv_no_col: str, inv_date_col: str,
-                                  gst_map: dict, output_path: str, log_q) -> tuple[int, int, int]:
+def build_gst_report_pure_python(
+    df,
+    inv_no_col: str,
+    inv_date_col: str,
+    gst_map: dict,
+    output_path: str,
+    log_q,
+    progress_cb=None,
+) -> tuple[int, int, int]:
     """Build the enriched output workbook directly from the already-read
     .xlsb data, with no Excel/COM/LibreOffice involved at all. Returns
     (total, found, blank), same contract as insert_gst_column()."""
@@ -296,66 +361,97 @@ def build_gst_report_pure_python(df, inv_no_col: str, inv_date_col: str,
     # insert_gst_column() places it for .xlsx uploads.
     new_cols = orig_cols[:inv_idx] + [COL_GST_NEW] + orig_cols[inv_idx:]
 
-    wb = Workbook()
-    ws = wb.active
-    ws.title = "GST Enriched"
+    raw_inv = df[inv_no_col]
+    inv_values = (raw_inv
+                  .astype(str)
+                  .str.strip()
+                  .str.replace(r'\.0$', '', regex=True))
+    # See _extract_pairs_vectorized's comment: astype(str) alone no longer
+    # catches a genuinely blank/NaN cell on pandas 3.x, so a row that must be
+    # skipped entirely (matching insert_gst_column's dtype-independent
+    # pd.isna() check for the .xlsx path) would otherwise be written to the
+    # output as a spurious "blank" row instead of being excluded.
+    valid_mask = raw_inv.notna() & ~inv_values.str.lower().isin(_INVALID_INV)
+    raw_dates = df[inv_date_col]
+    unique_dates = raw_dates[valid_mask].unique()
+    date_lookup = {value: _to_oracle_date(value) for value in unique_dates}
+    oracle_dates = raw_dates.map(date_lookup).fillna("")
+    valid_array = valid_mask.to_numpy()
+    valid_positions = valid_array.nonzero()[0]
 
-    for ci, name in enumerate(new_cols, 1):
-        c = ws.cell(row=1, column=ci, value=name)
-        c.font = _HDR_FONT
-        c.fill = _HDR_FILL
-        c.alignment = _HDR_ALIGN
-        c.border = _THIN_BORDER
+    # Write-only mode avoids constructing hundreds of thousands of Python
+    # Cell objects in memory. Column widths must be known before rows are
+    # streamed, so sample the same first 199 output rows the prior writer used.
+    widths = [len(str(name)) for name in new_cols]
+    source_indices = {name: index for index, name in enumerate(orig_cols)}
+    for position in valid_positions[:199]:
+        values = df.iloc[position]
+        gst = gst_map.get((inv_values.iat[position], oracle_dates.iat[position]), "")
+        for output_index, name in enumerate(new_cols):
+            if name == COL_GST_NEW:
+                value = gst or None
+            else:
+                value, _ = _cell_value_for_output(
+                    values.iat[source_indices[name]], name == inv_date_col,
+                )
+            if value is not None:
+                widths[output_index] = max(widths[output_index], len(str(value)))
+
+    wb = Workbook(write_only=True)
+    ws = wb.create_sheet("GST Enriched")
+    ws.freeze_panes = "A2"
     ws.row_dimensions[1].height = 26
+    total = len(valid_positions)
+    if total:
+        ws.auto_filter.ref = f"A1:{get_column_letter(len(new_cols))}{total + 1}"
+    for ci, max_len in enumerate(widths, 1):
+        ws.column_dimensions[get_column_letter(ci)].width = min(max_len + 3, 45)
 
-    total = found = blank = 0
-    row_idx = 2
-    for row in df.itertuples(index=False):
-        row_dict = dict(zip(orig_cols, row))
-        raw_inv = row_dict.get(inv_no_col)
-        raw_date = row_dict.get(inv_date_col)
-        if pd.isna(raw_inv) and pd.isna(raw_date):
+    header_cells = []
+    for name in new_cols:
+        cell = WriteOnlyCell(ws, value=name)
+        cell.font = _HDR_FONT
+        cell.fill = _HDR_FILL
+        cell.alignment = _HDR_ALIGN
+        cell.border = _THIN_BORDER
+        header_cells.append(cell)
+    ws.append(header_cells)
+
+    found = blank = 0
+    for position, row in enumerate(df.itertuples(index=False, name=None)):
+        if not valid_array[position]:
             continue
-
-        inv_no = _clean_inv_no(raw_inv) if not pd.isna(raw_inv) else ""
-        trx_date = _to_oracle_date(raw_date) if not pd.isna(raw_date) else ""
-        if not inv_no or inv_no in ("nan", "None", ""):
-            continue
-
-        total += 1
-        gst = gst_map.get((inv_no, trx_date), "")
+        gst = gst_map.get((inv_values.iat[position], oracle_dates.iat[position]), "")
         if gst:
             found += 1
         else:
             blank += 1
 
-        for ci, name in enumerate(new_cols, 1):
-            cell = ws.cell(row=row_idx, column=ci)
+        output_cells = []
+        for name in new_cols:
+            if name == COL_GST_NEW:
+                value, is_date = gst or None, False
+            else:
+                value, is_date = _cell_value_for_output(
+                    row[source_indices[name]], name == inv_date_col,
+                )
+            cell = WriteOnlyCell(ws, value=value)
             cell.border = _THIN_BORDER
             if name == COL_GST_NEW:
-                cell.value = gst or None
                 cell.font = _GST_FONT
-                continue
-            val, is_date = _cell_value_for_output(row_dict.get(name), name == inv_date_col)
-            cell.value = val
-            cell.font = _DAT_FONT
-            if is_date:
-                cell.number_format = "DD-MMM-YYYY"
-        row_idx += 1
+            else:
+                cell.font = _DAT_FONT
+                if is_date:
+                    cell.number_format = "DD-MMM-YYYY"
+            output_cells.append(cell)
+        ws.append(output_cells)
 
-    n_data_rows = row_idx - 1
-    for ci, name in enumerate(new_cols, 1):
-        col_letter = get_column_letter(ci)
-        max_len = len(str(name))
-        for r in range(2, min(n_data_rows, 200) + 1):
-            v = ws.cell(row=r, column=ci).value
-            if v is not None:
-                max_len = max(max_len, len(str(v)))
-        ws.column_dimensions[col_letter].width = min(max_len + 3, 45)
-
-    ws.freeze_panes = "A2"
-    if n_data_rows >= 1:
-        ws.auto_filter.ref = f"A1:{get_column_letter(len(new_cols))}{n_data_rows}"
+        completed = found + blank
+        if progress_cb and (completed % 5000 == 0 or completed == total):
+            progress_cb(
+                0.92 + (0.07 * completed / max(total, 1)),
+                f"Writing {completed:,} / {total:,} output rows",
+            )
 
     log_q.put(("info", "Saving enriched output..."))
     wb.save(output_path)
@@ -550,23 +646,49 @@ def _fetch_batch_pooled(
                     active_connections.add(conn)
             try:
                 cursor = conn.cursor()
-                cursor.prefetchrows = 2
-                for inv_no, trx_date in pairs:
+                cursor.prefetchrows = max(len(pairs), 2)
+                results = {pair: "" for pair in pairs}
+                try:
+                    query, binds = _bulk_query(pairs)
+                    cursor.execute(query, binds)
+                    for inv_no, trx_date, raw_gst in cursor.fetchall():
+                        key = (str(inv_no).strip(), str(trx_date).strip())
+                        results[key] = (
+                            str(raw_gst).strip() if raw_gst is not None else ""
+                        )
+                except JobCancelled:
+                    raise
+                except Exception as bulk_error:
                     if cancel_event is not None and cancel_event.is_set():
-                        raise JobCancelled("Oracle lookup cancelled")
-                    key = (inv_no, trx_date)
-                    try:
-                        cursor.execute(GST_QUERY, inv_no=inv_no, trx_date=trx_date)
-                        row = cursor.fetchone()
-                        gst = str(row[0]).strip() if (row and row[0] is not None) else ""
-                        results[key] = gst
-                    except JobCancelled:
-                        raise
-                    except Exception as e:
+                        raise JobCancelled("Oracle lookup cancelled") from bulk_error
+                    # Compatibility fallback: one malformed source date must
+                    # not blank a whole bulk batch. Retry with the proven
+                    # legacy one-pair query path.
+                    log_q.put((
+                        "warn",
+                        f"Bulk Oracle lookup failed for {len(pairs)} pairs; "
+                        f"retrying them individually: {bulk_error}",
+                    ))
+                    for inv_no, trx_date in pairs:
                         if cancel_event is not None and cancel_event.is_set():
-                            raise JobCancelled("Oracle lookup cancelled") from e
-                        results[key] = ""
-                        log_q.put(("err", f"inv={inv_no!r} date={trx_date!r} -> {e}"))
+                            raise JobCancelled("Oracle lookup cancelled")
+                        key = (inv_no, trx_date)
+                        try:
+                            cursor.execute(GST_QUERY, inv_no=inv_no, trx_date=trx_date)
+                            row = cursor.fetchone()
+                            results[key] = (
+                                str(row[0]).strip()
+                                if row and row[0] is not None else ""
+                            )
+                        except JobCancelled:
+                            raise
+                        except Exception as pair_error:
+                            if cancel_event is not None and cancel_event.is_set():
+                                raise JobCancelled("Oracle lookup cancelled") from pair_error
+                            log_q.put((
+                                "err",
+                                f"inv={inv_no!r} date={trx_date!r} -> {pair_error}",
+                            ))
                 cursor.close()
             finally:
                 if active_connections is not None and active_lock is not None:
@@ -594,11 +716,11 @@ def _fetch_all_parallel(
     cancel_event=None,
 ) -> dict:
     n = len(pairs_unique)
-    batch_sz = max(20, min(50, max(1, n // (THREAD_WORKERS * 4))))
+    batch_sz = BULK_QUERY_SIZE
     batches = [pairs_unique[i:i + batch_sz] for i in range(0, n, batch_sz)]
 
-    log_q.put(("info", f"Fetching {n} unique pairs in {len(batches)} batch(es), "
-                        f"{THREAD_WORKERS} workers"))
+    log_q.put(("info", f"Fetching {n} unique pairs in {len(batches)} bulk batch(es), "
+                        f"{THREAD_WORKERS} workers, up to {batch_sz} pairs per query"))
 
     merged: dict = {}
     done = 0
@@ -732,6 +854,7 @@ def process_report(input_path: str, output_path: str, oracle_cfg: OracleConfig,
             progress_cb(0.92, "Building enriched output (pure Python)...")
         total, found, blank = build_gst_report_pure_python(
             df, inv_no_col_pd, inv_date_col_pd, gst_map, output_path, log_q,
+            progress_cb=progress_cb,
         )
     else:
         if progress_cb:
