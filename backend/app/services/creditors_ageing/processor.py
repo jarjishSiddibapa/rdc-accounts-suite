@@ -56,8 +56,12 @@ def _stamp(destination, template):
 
 
 def _clear_rows(sheet, first: int, last: int):
+    # sheet.max_column recomputes by scanning every cell on the sheet (not
+    # cached) - reading it once outside the loop instead of once per row
+    # avoids that O(total_cells) scan running (last - first + 1) times.
+    max_column = sheet.max_column
     for row_number in range(first, last + 1):
-        for column in range(1, sheet.max_column + 1):
+        for column in range(1, max_column + 1):
             sheet.cell(row_number, column).value = None
 
 
@@ -546,13 +550,14 @@ def _build_workbook(
                 sheet.cell(row, 1).value = f"{prefix} | As on {report_date_text}"
 
         data_start = header + 1
-        template_cells = {column: sheet.cell(data_start, column) for column in range(1, sheet.max_column + 1)}
+        sheet_max_column = sheet.max_column
+        template_cells = {column: sheet.cell(data_start, column) for column in range(1, sheet_max_column + 1)}
         _clear_rows(sheet, data_start, old_max)
         row_number = data_start
         numeric_values_by_column: dict[int, list[float]] = defaultdict(list)
         last_formula_column = None
         for serial, (name, classification) in enumerate(data, start=1):
-            for column in range(1, sheet.max_column + 1):
+            for column in range(1, sheet_max_column + 1):
                 _stamp(sheet.cell(row_number, column), template_cells[column])
             sheet.cell(row_number, 1).value = serial
             sheet.cell(row_number, name_column).value = name
