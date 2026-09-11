@@ -243,6 +243,48 @@ class _FakePage:
         pass
 
 
+class _FakeToggleButton:
+    def __init__(self):
+        self.clicked = False
+
+    @property
+    def first(self):
+        return self
+
+    def is_visible(self):
+        return True
+
+    def click(self, timeout=None):
+        self.clicked = True
+
+
+class _FakeCollapsibleNavElement:
+    """Hidden until the sidebar toggle is clicked - mirrors the portal's
+    collapsed icon-only sidebar, where the label exists in the DOM the
+    whole time but only becomes visible after expanding it."""
+
+    def __init__(self, toggle):
+        self._toggle = toggle
+        self.clicked = False
+
+    def is_visible(self) -> bool:
+        return self._toggle.clicked
+
+    def click(self, timeout=None):
+        self.clicked = True
+
+
+class _FakePageWithToggle(_FakePage):
+    def __init__(self, elements, toggle):
+        super().__init__(elements)
+        self._toggle = toggle
+
+    def locator(self, selector):
+        if selector == "button.header-item-outer":
+            return self._toggle
+        return _FakeOverlayLocator()
+
+
 class ClickNavVisibilityTests(unittest.TestCase):
     """Regression coverage for a production failure: the IOCL portal's SPA
     keeps more than one element matching a nav label in the DOM at once
@@ -271,6 +313,22 @@ class ClickNavVisibilityTests(unittest.TestCase):
 
         with self.assertRaisesRegex(RuntimeError, "No visible 'Financials'"):
             monitor._click_nav(page, "Financials", timeout_ms=100)
+
+    def test_click_nav_expands_a_collapsed_icon_only_sidebar_before_giving_up(self):
+        """Regression coverage for a second, distinct production failure
+        (2026-09-11): the portal's sidebar can render in a collapsed
+        icon-only mode where the nav label exists in the DOM the whole time
+        but is never visible - no overlay is present, so
+        _wait_for_overlays_gone can't fix it. _click_nav must try expanding
+        the sidebar once before reporting "not found"."""
+        toggle = _FakeToggleButton()
+        element = _FakeCollapsibleNavElement(toggle)
+        page = _FakePageWithToggle([element], toggle)
+
+        monitor._click_nav(page, "Financials", timeout_ms=100)
+
+        self.assertTrue(toggle.clicked)
+        self.assertTrue(element.clicked)
 
 
 class _FakeCloseButton:

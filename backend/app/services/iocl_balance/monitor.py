@@ -242,6 +242,21 @@ def _dismiss_welcome_popup(page, timeout_ms: int = 800) -> None:
         pass
 
 
+def _dismiss_password_expiry_popup(page, timeout_ms: int = 800) -> None:
+    """Best-effort dismissal of the portal's "Password Expiry Notification"
+    modal (confirmed live 2026-09-11 - a new popup, unrelated to any login
+    change, that otherwise sits over the page and blocks every nav click).
+    "Remind Me Later" declines without touching the stored password, unlike
+    "Update Now" which would invalidate the credentials this job runs with."""
+    try:
+        button = page.get_by_text("Remind Me Later", exact=True).first
+        button.wait_for(state="visible", timeout=timeout_ms)
+        button.click()
+        page.wait_for_timeout(300)
+    except Exception:
+        pass
+
+
 def _dismiss_blocking_modal(page, timeout_ms: int = 500) -> None:
     """Best-effort dismissal of an ng-bootstrap modal dialog.
 
@@ -401,6 +416,7 @@ def _wait_until_logged_in(page, timeout_seconds: int) -> bool:
 def _wait_for_overlays_gone(page, timeout_ms: int = 4000) -> None:
     """Best-effort wait for the portal's intermittent blocking UI layers."""
     _dismiss_welcome_popup(page, timeout_ms=min(timeout_ms, 800))
+    _dismiss_password_expiry_popup(page, timeout_ms=min(timeout_ms, 800))
     _dismiss_blocking_modal(page, timeout_ms=min(timeout_ms, 800))
     try:
         page.locator(".ngx-spinner-overlay").first.wait_for(
@@ -439,9 +455,29 @@ def _find_visible_nav_link(page, label: str, timeout_ms: int):
         page.wait_for_timeout(200)
 
 
+def _ensure_sidebar_expanded(page) -> None:
+    """The sidebar can render in a collapsed icon-only mode where nav
+    labels exist in the DOM but are not visible at all - not merely
+    obscured by an overlay, so _wait_for_overlays_gone doesn't help
+    (confirmed live 2026-09-11: an account-level layout preference, unrelated
+    to login). This toggle switches back to icon+label; best-effort only,
+    so a failure here just means the caller's own visibility search still
+    finds nothing and reports that clearly."""
+    try:
+        toggle = page.locator("button.header-item-outer").first
+        if toggle.is_visible():
+            toggle.click()
+            page.wait_for_timeout(500)
+    except Exception:
+        pass
+
+
 def _click_nav(page, label: str, timeout_ms: int = 8000) -> None:
     _wait_for_overlays_gone(page, timeout_ms=min(timeout_ms, 3000))
     link = _find_visible_nav_link(page, label, timeout_ms)
+    if link is None:
+        _ensure_sidebar_expanded(page)
+        link = _find_visible_nav_link(page, label, min(timeout_ms, 4000))
     if link is None:
         raise RuntimeError(f"No visible '{label}' navigation link was found")
     last_error = None
@@ -481,6 +517,7 @@ def fetch_balance(
             page = context.new_page()
             page.goto(login_url, wait_until="domcontentloaded", timeout=60_000)
             _dismiss_welcome_popup(page)
+            _dismiss_password_expiry_popup(page)
 
             logged_in = bool(saved_session) and _wait_until_logged_in(page, 8)
             if not logged_in:
@@ -506,6 +543,7 @@ def fetch_balance(
                 pass
             page.wait_for_timeout(1000)
             _dismiss_welcome_popup(page)
+            _dismiss_password_expiry_popup(page)
             _click_nav(page, "Financials", timeout_ms=20_000)
             page.wait_for_timeout(1000)
             _click_nav(page, "Online CCMS Recharge", timeout_ms=15_000)
