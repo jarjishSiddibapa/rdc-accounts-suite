@@ -104,6 +104,46 @@ class XlsxFormulaCacheTests(unittest.TestCase):
             self.assertEqual(wb_v["Summary"]["A3"].value, 7)
             wb_v.close()
 
+    def test_many_formula_cells_each_get_their_own_value_not_a_neighbors(self):
+        """Regression test for a real bug found while making injection a
+        single pass instead of one regex compile+scan per cell: a naive
+        "match from <c r=...> up to the next <f>...</f>" pattern lets
+        non-greedy .*? skip straight past a text-only cell's own </c> and
+        attach a later, unrelated cell's formula/value to the wrong
+        coordinate. Every row here starts with a plain text cell (no
+        formula) immediately followed by two formula cells, mirroring
+        Creditors Ageing's real per-row shape (vendor name, then TB
+        Balance/bucket formula cells) - exactly the layout that triggered
+        the bug."""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            path = Path(temp_dir) / "report.xlsx"
+            wb = Workbook()
+            ws = wb.active
+            ws.title = "Main"
+            vendors = [("Acme Traders", 10, 20), ("Bharat Steel", 30, 40), ("Coastal Logistics", 50, 60)]
+            for row, (name, a, b) in enumerate(vendors, start=1):
+                ws.cell(row, 1, name)
+                ws.cell(row, 2, a)
+                ws.cell(row, 3, b)
+            formula_row = len(vendors) + 1
+            ws.cell(formula_row, 1, "Total")
+            ws.cell(formula_row, 2, f"=SUBTOTAL(9,B1:B{len(vendors)})")
+            ws.cell(formula_row, 3, f"=SUBTOTAL(9,C1:C{len(vendors)})")
+
+            cached = cache_formula_values(wb)
+            wb.save(path)
+            inject_cached_values(str(path), cached)
+
+            wb_f = load_workbook(path, data_only=False)
+            for row, (name, _a, _b) in enumerate(vendors, start=1):
+                self.assertEqual(wb_f["Main"].cell(row, 1).value, name)
+            wb_f.close()
+
+            wb_v = load_workbook(path, data_only=True)
+            self.assertEqual(wb_v["Main"].cell(formula_row, 2).value, 10 + 30 + 50)
+            self.assertEqual(wb_v["Main"].cell(formula_row, 3).value, 20 + 40 + 60)
+            wb_v.close()
+
     def test_file_remains_structurally_valid_after_injection(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             path = Path(temp_dir) / "report.xlsx"
