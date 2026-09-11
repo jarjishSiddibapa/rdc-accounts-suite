@@ -196,7 +196,11 @@ def _read_raw(path: str) -> dict:
         rows: list[dict] = []
         grand_total_debit = grand_total_credit = None
         r = header_row + 1
-        while r <= ws.max_row:
+        # ws.max_row is not cached - reading it once instead of once per
+        # ledger row avoids the same repeated-property-scan cost measured
+        # elsewhere in this suite (see creditors_ageing/processor.py).
+        last_row = ws.max_row
+        while r <= last_row:
             name = _s(ws.cell(r, particulars_col).value)
             if not name:
                 r += 1
