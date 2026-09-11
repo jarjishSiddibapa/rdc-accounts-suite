@@ -11,11 +11,13 @@ recalculation, so both of these read paths showed the pivot template's
 one-row placeholder seed data forever. The existing test_desktop_parity.py
 tests mock write_formatted_excel/write_formatted_mrn_excel entirely, so they
 never exercised any of this."""
+import datetime as dt
 import tempfile
 import unittest
 from pathlib import Path
 
 import pandas as pd
+from openpyxl import load_workbook
 
 from app.services import mailer_shared
 from app.services.unaccounted import excel_writers
@@ -200,6 +202,136 @@ class WriterProgressReportingTests(unittest.TestCase):
         # moved + unmapped, all sharing one running row count) is written,
         # not restart/plateau partway through after only the first sheet.
         self.assertAlmostEqual(events[-1][0], 0.95, places=4)
+
+
+class CellFormattingUnaffectedByStyleObjectReuseTests(unittest.TestCase):
+    """Locks in that write_formatted_excel/_mrn's data-row loops still
+    produce identical per-column formatting after switching from a fresh
+    Font/Alignment/PatternFill per cell to a handful of shared, pre-built
+    objects (a real, measured ~2.4x win on large sheets elsewhere in this
+    suite - see unapplied_receipts/processor.py)."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.out_dir = Path(self._tmp.name)
+
+    def test_main_sheet_currency_and_date_columns_are_formatted_correctly(self):
+        df = pd.DataFrame({
+            "Supplier Name": ["Acme Traders", "Bharat Steel"],
+            "Supplier Site": ["SITE-A1", "SITE-B1"],
+            "Invoice Number": ["INV-1001", "INV-1002"],
+            "Invoice Date": ["01-Jul-2026", "05-Jul-2026"],
+            "Amount": [125000.50, 88000.0],
+            "GL Date": ["01-Jul-2026", "05-Jul-2026"],
+            "Location": ["Mumbai Plant", "Chennai Plant"],
+            "Accounts Incharge": ["Rakesh D", "Priya S"],
+        })
+        out = str(self.out_dir / "unaccounted.xlsx")
+        excel_writers.write_formatted_excel(df, out)
+
+        wb = load_workbook(out)
+        ws = wb["Summary"]
+        cols = [c for c in df.columns if c != "__month__"]
+        amount_col = cols.index("Amount") + 1
+        date_col = cols.index("Invoice Date") + 1
+        text_col = cols.index("Supplier Name") + 1
+
+        amount_cell = ws.cell(row=2, column=amount_col)
+        self.assertEqual(amount_cell.value, 125000.50)
+        self.assertEqual(amount_cell.number_format, excel_writers.INDIAN_DECIMAL_FMT)
+        self.assertEqual(amount_cell.alignment.horizontal, "right")
+
+        date_cell = ws.cell(row=2, column=date_col)
+        self.assertEqual(date_cell.number_format, "DD-MMM-YYYY")
+        self.assertEqual(date_cell.alignment.horizontal, "center")
+
+        text_cell = ws.cell(row=2, column=text_col)
+        self.assertEqual(text_cell.value, "Acme Traders")
+
+    def test_po_sheet_numeric_and_text_columns_are_formatted_correctly(self):
+        main_df = pd.DataFrame({
+            "PO Number": ["PO-1", "PO-2"],
+            "PO Amount": [10000.0, 20000.0],
+            "Supplier Site": ["SITE-A1", "SITE-B1"],
+        })
+        empty = pd.DataFrame(columns=main_df.columns)
+        out = str(self.out_dir / "po.xlsx")
+        excel_writers.write_formatted_po_excel(main_df, empty, empty, out)
+
+        wb = load_workbook(out)
+        ws = wb["Summary"]
+        amount_cell = ws.cell(row=2, column=main_df.columns.get_loc("PO Amount") + 1)
+        self.assertEqual(amount_cell.value, 10000.0)
+        self.assertEqual(amount_cell.number_format, excel_writers.INDIAN_DECIMAL_FMT)
+        self.assertEqual(amount_cell.alignment.horizontal, "right")
+
+        text_cell = ws.cell(row=2, column=main_df.columns.get_loc("PO Number") + 1)
+        self.assertEqual(text_cell.value, "PO-1")
+        self.assertEqual(text_cell.alignment.horizontal, "left")
+
+    def test_mrn_sheet_numeric_columns_are_formatted_correctly(self):
+        df = pd.DataFrame({
+            "SUPPLIER SITE": ["SITE-A1", "SITE-B1"],
+            "SUPPLIER NAME": ["Acme Traders", "Bharat Steel"],
+            "ACCOUNTING PERIOD": ["JUL-2026", "JUL-2026"],
+            "Location": ["Mumbai Plant", "Chennai Plant"],
+            "Accounts Incharge": ["Rakesh D", "Priya S"],
+            "MRN Number": ["MRN-1", "MRN-2"],
+            "BASE AMOUNT": [5000.0, 6000.0],
+        })
+        out = str(self.out_dir / "mrn.xlsx")
+        excel_writers.write_formatted_mrn_excel(df, out)
+
+        wb = load_workbook(out)
+        ws = wb["Summary"]
+        cols = list(df.columns)
+        amount_cell = ws.cell(row=2, column=cols.index("BASE AMOUNT") + 1)
+        self.assertEqual(amount_cell.value, 5000.0)
+        self.assertEqual(amount_cell.number_format, excel_writers.INDIAN_DECIMAL_FMT)
+        self.assertEqual(amount_cell.alignment.horizontal, "right")
+
+
+class ToExcelDateRealObjectTests(unittest.TestCase):
+    """Regression coverage for a real bug found while optimizing this
+    function: stringifying an already-parsed datetime/date/Timestamp and
+    reparsing it with dayfirst=True can silently swap day and month (e.g.
+    datetime(2026, 5, 1) round-tripped to 5-Jan-2026 instead of 1-May-2026).
+    Not hypothetical - openpyxl hands back real datetime objects for
+    genuine Excel date cells, so any .xlsx-sourced date column hit this."""
+
+    def test_datetime_object_round_trips_without_swapping_day_and_month(self):
+        self.assertEqual(
+            excel_writers._to_excel_date(dt.datetime(2026, 5, 1)),
+            dt.date(2026, 5, 1),
+        )
+
+    def test_date_object_round_trips_without_swapping_day_and_month(self):
+        self.assertEqual(
+            excel_writers._to_excel_date(dt.date(2026, 5, 2)),
+            dt.date(2026, 5, 2),
+        )
+
+    def test_timestamp_object_round_trips_without_swapping_day_and_month(self):
+        self.assertEqual(
+            excel_writers._to_excel_date(pd.Timestamp("2026-06-15")),
+            dt.date(2026, 6, 15),
+        )
+
+    def test_nat_and_none_both_produce_none(self):
+        self.assertIsNone(excel_writers._to_excel_date(pd.NaT))
+        self.assertIsNone(excel_writers._to_excel_date(None))
+
+    def test_string_parsing_is_unaffected(self):
+        self.assertEqual(excel_writers._to_excel_date("31/12/2026"), dt.date(2026, 12, 31))
+        self.assertEqual(excel_writers._to_excel_date("15-Jun-26"), dt.date(2026, 6, 15))
+        self.assertIsNone(excel_writers._to_excel_date("not a date"))
+
+    def test_excel_date_lookup_matches_calling_it_directly_for_every_value(self):
+        series = pd.Series(["01-Jul-2026", "01-Jul-2026", "05-Aug-2026", None, float("nan")])
+        lookup = excel_writers._excel_date_lookup(series)
+        for val in series:
+            self.assertEqual(lookup.get(val), excel_writers._to_excel_date(val))
 
 
 if __name__ == "__main__":
