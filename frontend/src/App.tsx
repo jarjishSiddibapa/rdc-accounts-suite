@@ -20,6 +20,7 @@ const Gstr2bCombinator = lazy(() => import('@/pages/tools/Gstr2bCombinator'))
 const UnappliedReceipts = lazy(() => import('@/pages/tools/UnappliedReceipts'))
 const UltrafineBalanceConfirmation = lazy(() => import('@/pages/tools/UltrafineBalanceConfirmation'))
 const UltrafinePaymentReminder = lazy(() => import('@/pages/tools/UltrafinePaymentReminder'))
+const UltrafineFseReminder = lazy(() => import('@/pages/tools/UltrafineFseReminder'))
 const GstInvoiceAdder = lazy(() => import('@/pages/tools/GstInvoiceAdder'))
 const ClosingPeriodReport = lazy(() => import('@/pages/tools/ClosingPeriodReport'))
 const IoclBalanceMonitor = lazy(() => import('@/pages/tools/IoclBalanceMonitor'))
@@ -169,6 +170,16 @@ export default function App() {
               protectedPage(
                 <AppGuard appKey="ultrafine-payment-reminder">
                   <UltrafinePaymentReminder />
+                </AppGuard>
+              )
+            }
+          />
+          <Route
+            path="/tools/ultrafine-fse-reminder"
+            element={
+              protectedPage(
+                <AppGuard appKey="ultrafine-fse-reminder">
+                  <UltrafineFseReminder />
                 </AppGuard>
               )
             }

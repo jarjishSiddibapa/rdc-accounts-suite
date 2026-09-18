@@ -28,6 +28,7 @@ import {
   ClipboardCheck,
   ChartNoAxesCombined,
   Search,
+  Megaphone,
 } from 'lucide-react'
 import { cn } from '@/utils/cn'
 import { useAuth } from '@/lib/auth-context'
@@ -68,6 +69,12 @@ const mainNav: NavItem[] = [
     label: 'Ultrafine Payment Reminder',
     icon: BellRing,
     appKey: 'ultrafine-payment-reminder',
+  },
+  {
+    to: '/tools/ultrafine-fse-reminder',
+    label: 'Ultrafine FSE Bulk Reminder',
+    icon: Megaphone,
+    appKey: 'ultrafine-fse-reminder',
   },
   { to: '/tools/gst-invoice-adder', label: 'GST Invoice Number Adder', icon: FileCheck2, appKey: 'gst-invoice-adder' },
   { to: '/tools/closing-period-report', label: 'Closing Period Report Generator', icon: PackageCheck, appKey: 'closing-period-report' },

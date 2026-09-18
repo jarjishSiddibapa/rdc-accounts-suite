@@ -16,6 +16,7 @@ import {
   FilePlus2,
   ChartNoAxesCombined,
   ClipboardCheck,
+  Megaphone,
 } from 'lucide-react'
 import { AppShell } from '@/components/AppShell'
 import { Reveal, RevealGroup } from '@/components/Reveal'
@@ -96,6 +97,15 @@ const tools = [
     description: 'Send per-customer aging/dunning payment reminder emails in bulk.',
     icon: BellRing,
     appKey: 'ultrafine-payment-reminder',
+    category: 'Ultrafine customer communication',
+    company: 'Ultrafine' as Company,
+  },
+  {
+    to: '/tools/ultrafine-fse-reminder',
+    title: 'Ultrafine FSE Bulk Reminder',
+    description: 'Send per-FSE collection vs target reminders, plus one combined broadcast to management.',
+    icon: Megaphone,
+    appKey: 'ultrafine-fse-reminder',
     category: 'Ultrafine customer communication',
     company: 'Ultrafine' as Company,
   },

@@ -18,6 +18,7 @@ from app.models import Application, User
 APP_KEYS = [
     "erp-to-excel", "rdc-payables", "unaccounted", "trial-balance", "gstr2b-combinator",
     "unapplied-receipts", "ultrafine-balance-confirmation", "ultrafine-payment-reminder",
+    "ultrafine-fse-reminder",
     "gst-invoice-adder", "closing-period-report",
     "iocl-balance-monitor", "invoice-booking-tracker", "creditors-ageing-report", "trial-balance-formatter",
     "it-po-lookup",
@@ -33,6 +34,7 @@ APP_LABELS = {
     "unapplied-receipts": "Unapplied Receipts Report Generator",
     "ultrafine-balance-confirmation": "Ultrafine Balance Confirmation Bulk Sender",
     "ultrafine-payment-reminder": "Ultrafine Bulk Payment Reminder Sender",
+    "ultrafine-fse-reminder": "Ultrafine FSE Bulk Reminder",
     "gst-invoice-adder": "GST Invoice Number Adder",
     "closing-period-report": "Closing Period Report Generator",
     "iocl-balance-monitor": "Ultrafine IOCL Balance Monitor",
@@ -55,6 +57,7 @@ DEFAULT_APP_COMPANY = "RDC"
 _ULTRAFINE_APP_KEYS = {
     "ultrafine-balance-confirmation",
     "ultrafine-payment-reminder",
+    "ultrafine-fse-reminder",
     "iocl-balance-monitor",
     "invoice-booking-tracker",
     "creditors-ageing-report",
