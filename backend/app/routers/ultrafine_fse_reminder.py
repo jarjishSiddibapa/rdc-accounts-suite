@@ -22,7 +22,7 @@ from typing import Optional
 
 import openpyxl
 import pandas as pd
-from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -72,11 +72,14 @@ def download_template():
     Received/Short Fall header (no duplicate FSE column and no unrelated
     decoy Target columns - the app never needed either; they were just
     clutter carried over from the original tracker), two real example FSEs
-    (with their real customer names and figures, so the shape is
-    immediately recognisable) each ending in a bold Total row, then one
-    Grand Total row. The "as on"/month-end dates stay dynamic so the
-    downloaded file never looks stale, while the illustrative rows use real
-    historical figures for clarity."""
+    with their real customer names and figures, so the shape is immediately
+    recognisable. Deliberately has NO per-FSE "Total" rows and no "Grand
+    Total" row: read_coll_vs_target() only ever sums the detail rows itself
+    (see build_send_plan) and never reads a Total row's own numbers, so
+    asking a filler to hand-total anything would be pure busywork. The "as
+    on"/month-end dates stay dynamic so the downloaded file never looks
+    stale, while the illustrative rows use real historical figures for
+    clarity."""
     today = pd.Timestamp.now()
     month_end = (today + pd.offsets.MonthEnd(0)).strftime("%d-%b-%y")
     as_on = today.strftime("%d-%b-%y")
@@ -103,30 +106,25 @@ def download_template():
 
     # Real illustrative figures (kept from an actual month's tracker) so the
     # layout is self-explanatory: one FSE with two customers, one FSE with a
-    # single customer - both patterns a filler will actually hit.
+    # single customer - both patterns a filler will actually hit. No Total /
+    # Grand Total rows - see the docstring above for why they're not needed.
     rows = [
         ("Abhishek Nayak", "Dineshchandra R. Agarwal Infracon Pvt Ltd - Drs", 3.0403255, 2.4426, 0.5977255),
         ("Abhishek Nayak", "New India Ceramic Engineers - Drs", 10.72791, 0, 10.72791),
-        ("Abhishek Nayak", "Abhishek Nayak Total", 13.7682355, 2.4426, 11.3256355),
         ("Balram Chakrawarti", "Ahluwalia Construction Group - Drs", 19.4248, 0, 19.4248),
-        ("Balram Chakrawarti", "Balram Chakrawarti Total", 19.4248, 0, 19.4248),
     ]
     row_num = 2
     for fse, party, target, received, shortfall in rows:
         row_num += 1
         ws.append([fse, party, target, received, shortfall])
-        _style_row(ws, row_num, ncols, _BODY_FILL, bold=party.endswith("Total"))
-
-    row_num += 1
-    ws.append([None, "Grand Total", 33.1930355, 2.4426, 30.7504355])
-    _style_row(ws, row_num, ncols, _BODY_FILL, bold=True)
+        _style_row(ws, row_num, ncols, _BODY_FILL)
 
     row_num += 2
     ws.cell(row_num, 1).value = (
-        "Add one row per party under each FSE, end every FSE's block with a bold "
-        "\"<FSE name> Total\" row, and end the sheet with a single \"Grand Total\" "
-        "row summing everyone - exactly like the example above. Everything below "
-        "\"Grand Total\" is ignored, so this note is safe to leave in."
+        "Add one row per party under each FSE - that's it. Don't add \"<FSE> Total\" "
+        "or \"Grand Total\" rows: the app always computes every FSE's total and the "
+        "overall grand total itself from the rows above, so there's nothing to "
+        "hand-total or keep in sync."
     )
     ws.cell(row_num, 1).font = Font(italic=True, color="808080")
     ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=ncols)
@@ -149,18 +147,20 @@ def download_template():
     )
 
 
-def _cpu_phase_preview(path: str, mapping: dict, signature: str) -> dict:
+def _cpu_phase_preview(path: str, mapping: dict, signature: str, as_on_date: Optional[str]) -> dict:
     """100% CPU (openpyxl read + plan building), no I/O - runs on the CPU
     process pool, matching the sibling ultrafine mail tools."""
     parsed = processor.read_coll_vs_target(path)
+    if as_on_date:
+        processor.apply_as_on_override(parsed, as_on_date)
     return processor.build_send_plan(parsed, mapping, signature)
 
 
-def _job_preview(path: str, mapping: dict, signature: str, progress_cb=None) -> dict:
+def _job_preview(path: str, mapping: dict, signature: str, as_on_date: Optional[str], progress_cb=None) -> dict:
     try:
         if progress_cb:
             progress_cb(0.05, "Reading tracker file...")
-        plan = run_cpu_phase(_cpu_phase_preview, path, mapping, signature)
+        plan = run_cpu_phase(_cpu_phase_preview, path, mapping, signature, as_on_date)
         if progress_cb:
             progress_cb(0.95, "Preview ready")
     finally:
@@ -171,13 +171,19 @@ def _job_preview(path: str, mapping: dict, signature: str, progress_cb=None) -> 
 @router.post("/preview")
 async def preview(
     file: UploadFile = File(...),
+    as_on_date: Optional[str] = Form(None),
     user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     """Step 1 of 2: parse the uploaded tracker workbook and build both the
-    per-FSE and broadcast send plans as a background job. Never sends
-    anything - the frontend shows this to the user, who can edit
-    subject/body/to/cc directly before calling /send or /send-broadcast."""
+    per-FSE and broadcast send plans as a background job. `as_on_date`
+    (ISO "YYYY-MM-DD", from the frontend's date picker, defaulting to today
+    but user-editable) overrides the date baked into the subject/body/table
+    header - it's independent of the file's own "received as on" column,
+    which is only ever used to locate the right column, never its value.
+    Never sends anything - the frontend shows this to the user, who can
+    edit subject/body/to/cc directly before calling /send or
+    /send-broadcast."""
     settings = mailer_shared.get_email_settings(user.id)
     if not settings.get("configured"):
         raise HTTPException(
@@ -195,6 +201,7 @@ async def preview(
         path,
         mapping,
         settings.get("signature", ""),
+        as_on_date,
         owner_id=user.id,
     )
     return {"job_id": job_id}

@@ -20,9 +20,10 @@ import { LoadingNotice } from '@/components/LoadingNotice'
 import { MappingTable, type MappingColumn, type MappingRow } from '@/components/MappingTable'
 import { RichTextEditor } from '@/components/RichTextEditor'
 import { Pagination } from '@/components/Pagination'
+import { DatePicker } from '@/components/TemporalPicker'
 import { usePagination } from '@/hooks/usePagination'
 import { ApiError, apiUrl, del, get, post, postForm, put } from '@/lib/api'
-import { formatIndianNumber } from '@/lib/regional'
+import { formatIndianDate, formatIndianNumber, getIndianDateInputValue } from '@/lib/regional'
 
 const BASE = '/tools/ultrafine-fse-reminder'
 
@@ -439,6 +440,7 @@ function MappingSection() {
 
 export default function UltrafineFseReminder() {
   const [file, setFile] = useState<File | null>(null)
+  const [asOnDate, setAsOnDate] = useState(getIndianDateInputValue)
   const [submitting, setSubmitting] = useState(false)
   const [previewJobId, setPreviewJobId] = useState<string | null>(null)
   const [previewResult, setPreviewResult] = useState<PreviewResult | null>(null)
@@ -477,6 +479,7 @@ export default function UltrafineFseReminder() {
     try {
       const fd = new FormData()
       fd.append('file', file)
+      fd.append('as_on_date', formatIndianDate(asOnDate))
       const res = await postForm<{ job_id: string }>(`${BASE}/preview`, fd)
       setPreviewJobId(res.job_id)
     } catch (err) {
@@ -512,6 +515,7 @@ export default function UltrafineFseReminder() {
 
   function handleClearAll() {
     setFile(null)
+    setAsOnDate(getIndianDateInputValue())
     setPreviewJobId(null)
     setPreviewResult(null)
     setPreviewError(null)
@@ -628,6 +632,11 @@ export default function UltrafineFseReminder() {
               onRemove={() => setFile(null)}
             />
           </div>
+
+          <label className="flex max-w-xs flex-col gap-1.5 text-sm">
+            <span className="font-medium text-ink-dim">As-on date (shown in the subject &amp; body)</span>
+            <DatePicker value={asOnDate} onValueChange={setAsOnDate} aria-label="As-on date" />
+          </label>
 
           <div className="flex flex-wrap justify-end gap-3">
             <Button type="button" variant="ghost" onClick={handleClearAll}>

@@ -6,8 +6,10 @@ from openpyxl import Workbook
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
+from app import jobs
 from app.database import Base
 from app.jobs import JobUserError
+from app.routers import ultrafine_fse_reminder as router
 from app.routers.ultrafine_fse_reminder import download_template
 from app.services.ultrafine_fse_reminder import mapping_store, processor
 from app.services.ultrafine_fse_reminder.models import FseEmailMap
@@ -63,6 +65,24 @@ def _write_tracker(path: Path, include_decoy: bool = True, include_junk: bool = 
     wb.save(path)
 
 
+class JobRegistrationTests(unittest.TestCase):
+    """submit_job() silently refuses any task function not listed in
+    jobs._ALLOWED_TASKS, and that raw RuntimeError isn't a JobUserError, so
+    it surfaces to the user as the generic "contact Jarjish" message - a real
+    incident that shipped this way because nothing exercised the job-dispatch
+    layer end to end. Guard every task this router actually submits."""
+
+    def test_preview_and_send_tasks_are_allow_listed(self):
+        for fn in (router._job_preview, router._job_send_rows, router._job_send_broadcast):
+            with self.subTest(fn=fn.__qualname__):
+                self.assertEqual(jobs._task_name(fn), f"{fn.__module__}:{fn.__qualname__}")
+
+    def test_send_tasks_are_detached_so_a_closed_tab_cannot_stop_mid_batch(self):
+        for fn in (router._job_send_rows, router._job_send_broadcast):
+            with self.subTest(fn=fn.__qualname__):
+                self.assertIn(jobs._task_name(fn), jobs._DETACHED_TASKS)
+
+
 class TemplateGenerationTests(unittest.TestCase):
     def test_generated_template_has_single_fse_column_and_parses_cleanly(self):
         import openpyxl
@@ -79,6 +99,10 @@ class TemplateGenerationTests(unittest.TestCase):
             self.assertEqual(headers.count("FSE"), 1, f"expected exactly one 'FSE' column, got headers={headers}")
 
             parsed = processor.read_coll_vs_target(str(path))
+            self.assertFalse(
+                any(row["party"].endswith("Total") for row in parsed["rows"]),
+                "template should not need hand-filled Total/Grand Total rows",
+            )
             groups = processor.group_by_fse(parsed["rows"])
             self.assertIn("Abhishek Nayak", groups)
             self.assertIn("Balram Chakrawarti", groups)

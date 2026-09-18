@@ -72,6 +72,9 @@ _ALLOWED_TASKS = frozenset(
         "app.routers.ultrafine_balance_confirmation:_job_send",
         "app.routers.ultrafine_payment_reminder:_job_preview",
         "app.routers.ultrafine_payment_reminder:_job_send",
+        "app.routers.ultrafine_fse_reminder:_job_preview",
+        "app.routers.ultrafine_fse_reminder:_job_send_rows",
+        "app.routers.ultrafine_fse_reminder:_job_send_broadcast",
     }
 )
 
@@ -86,6 +89,8 @@ _DETACHED_TASKS = frozenset(
         "app.routers.unaccounted_txn:_job_mail_send",
         "app.routers.ultrafine_balance_confirmation:_job_send",
         "app.routers.ultrafine_payment_reminder:_job_send",
+        "app.routers.ultrafine_fse_reminder:_job_send_rows",
+        "app.routers.ultrafine_fse_reminder:_job_send_broadcast",
         "app.services.iocl_balance.monitor:run_check_job",
         "app.services.invoice_booking_tracker.monitor:run_check_job",
     }

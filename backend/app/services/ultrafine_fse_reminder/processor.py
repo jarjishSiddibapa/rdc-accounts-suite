@@ -141,6 +141,20 @@ def parse_as_on_date(received_header: str) -> tuple[str, str]:
         return raw, raw
 
 
+def apply_as_on_override(parsed: dict, as_on_date: str) -> None:
+    """Overrides parsed's as_on_raw/as_on_long (and the received column's own
+    header text) with a user-picked date, so the subject/body/table agree
+    even when it differs from the file's own "received as on" header - e.g.
+    the app is being used a couple of days after the data was pulled."""
+    picked = pd.to_datetime(as_on_date)
+    raw = picked.strftime("%d-%b-%y")
+    match = _AS_ON_RE.search(parsed["received_header"])
+    if match:
+        parsed["received_header"] = parsed["received_header"][: match.start(1)] + raw
+    parsed["as_on_raw"] = raw
+    parsed["as_on_long"] = picked.strftime("%d-%b-%Y")
+
+
 def read_coll_vs_target(path: str) -> dict:
     """Parse the tracker workbook's 'Coll vs Target' sheet into
     {title, target_header, received_header, as_on_raw, as_on_long, rows}
