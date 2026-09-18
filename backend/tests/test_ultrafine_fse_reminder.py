@@ -1,6 +1,7 @@
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from openpyxl import Workbook
 from sqlalchemy import create_engine
@@ -228,6 +229,114 @@ class BuildSendPlanTests(unittest.TestCase):
                 "Collection Target VS Actual Collection Received as on 16-Sep-26",
             )
             self.assertEqual(plan["broadcast"]["subject"], plan["individual"][0]["subject"])
+
+    def test_advisory_and_note_overrides_apply_to_every_individual_and_broadcast(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "tracker.xlsx"
+            _write_tracker(path)
+            parsed = processor.read_coll_vs_target(str(path))
+            mapping = {"Abhishek Nayak": "abhishek.nayak@ultrafine.in", "Balram Chakrawarti": "balram@ultrafine.in"}
+            plan = processor.build_send_plan(
+                parsed, mapping, signature="",
+                advisory_html="<p>Custom advisory wording</p>",
+                extra_note_html="<p>Please treat this as urgent.</p>",
+            )
+            for row in plan["individual"]:
+                self.assertIn("Custom advisory wording", row["body_html"])
+                self.assertIn("Please treat this as urgent.", row["body_html"])
+            self.assertIn("Custom advisory wording", plan["broadcast"]["body_html"])
+            self.assertIn("Please treat this as urgent.", plan["broadcast"]["body_html"])
+
+    def test_default_advisory_used_when_no_override_given(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "tracker.xlsx"
+            _write_tracker(path)
+            parsed = processor.read_coll_vs_target(str(path))
+            plan = processor.build_send_plan(parsed, {}, signature="")
+            self.assertIn("It is critical that we prioritize", plan["individual"][0]["body_html"])
+
+    def test_broadcast_plan_exposes_table_rows_for_excel_attachment(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "tracker.xlsx"
+            _write_tracker(path)
+            parsed = processor.read_coll_vs_target(str(path))
+            plan = processor.build_send_plan(parsed, {}, signature="")
+            self.assertEqual(plan["broadcast"]["table_rows"], parsed["rows"])
+            self.assertEqual(plan["broadcast"]["table_title"], parsed["title"])
+            self.assertEqual(plan["broadcast"]["target_header"], parsed["target_header"])
+            self.assertEqual(plan["broadcast"]["received_header"], parsed["received_header"])
+
+
+class BroadcastWorkbookTests(unittest.TestCase):
+    def test_workbook_totals_match_the_source_rows(self):
+        import openpyxl
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "tracker.xlsx"
+            _write_tracker(path)
+            parsed = processor.read_coll_vs_target(str(path))
+            data = processor.build_broadcast_workbook(
+                parsed["title"], parsed["target_header"], parsed["received_header"], parsed["rows"],
+            )
+            out = Path(tmp) / "out.xlsx"
+            out.write_bytes(data)
+            wb = openpyxl.load_workbook(out)
+            ws = wb.active
+            values = [[ws.cell(r, c).value for c in range(1, 6)] for r in range(1, ws.max_row + 1)]
+
+            self.assertEqual(values[1], ["FSE", "Party's Name", parsed["target_header"], parsed["received_header"], "Short Fall"])
+            party_names = {row[1] for row in values[2:]}
+            self.assertIn("Abhishek Nayak Total", party_names)
+            self.assertIn("Grand Total", party_names)
+            grand_total_row = next(row for row in values if row[1] == "Grand Total")
+            expected_target = sum(r["target"] for r in parsed["rows"])
+            self.assertAlmostEqual(grand_total_row[2], expected_target, places=4)
+
+
+class SendBroadcastAttachmentTests(unittest.TestCase):
+    """_job_send_broadcast actually sends mail via Gmail SMTP, so these mock
+    mailer_shared.send_mail rather than ever contacting a real mail server."""
+
+    def test_attaches_excel_workbook_and_cleans_up_temp_file(self):
+        captured: dict = {}
+
+        def fake_send_mail(from_email, app_password, to, cc, subject, html_body, attachments):
+            self.assertEqual(len(attachments), 1)
+            path = attachments[0]
+            self.assertTrue(path.endswith(".xlsx"))
+            self.assertTrue(Path(path).exists(), "attachment file should exist while send_mail runs")
+            captured["path"] = path
+
+        table_rows = [
+            {"fse": "Abhishek Nayak", "party": "Customer A - Drs", "target": 3.0, "received": 2.5, "shortfall": 0.5},
+        ]
+        with patch.object(
+            router.mailer_shared, "get_email_settings",
+            return_value={"email": "sender@example.com", "app_password": "x", "configured": True},
+        ), patch.object(router.mailer_shared, "send_mail", side_effect=fake_send_mail):
+            result = router._job_send_broadcast(
+                1, ["to@example.com"], [], "Subj", "<p>Body</p>",
+                True, "Collection VS Target Summary for Sep-26",
+                "Collection Target considering dues upto 30-Sep-26",
+                "Coll Received as on 16-Sep-26", table_rows,
+            )
+
+        self.assertEqual(result["status"], "sent")
+        self.assertIn("path", captured)
+        self.assertFalse(Path(captured["path"]).exists(), "temp attachment should be cleaned up after send")
+
+    def test_no_attachment_when_attach_excel_is_false(self):
+        def fake_send_mail(from_email, app_password, to, cc, subject, html_body, attachments):
+            self.assertEqual(attachments, [])
+
+        with patch.object(
+            router.mailer_shared, "get_email_settings",
+            return_value={"email": "sender@example.com", "app_password": "x", "configured": True},
+        ), patch.object(router.mailer_shared, "send_mail", side_effect=fake_send_mail):
+            router._job_send_broadcast(
+                1, ["to@example.com"], [], "Subj", "<p>Body</p>",
+                False, "", "", "", [],
+            )
 
 
 class MappingStoreTests(unittest.TestCase):

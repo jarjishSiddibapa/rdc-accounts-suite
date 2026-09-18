@@ -43,6 +43,14 @@ interface IndividualPlanRow {
   body_html: string
 }
 
+interface BroadcastTableRow {
+  fse: string
+  party: string
+  target: number
+  received: number
+  shortfall: number
+}
+
 interface BroadcastPlan {
   to: string[]
   cc: string[]
@@ -53,6 +61,10 @@ interface BroadcastPlan {
   total_shortfall: number
   fse_count: number
   missing_email_count: number
+  table_title: string
+  target_header: string
+  received_header: string
+  table_rows: BroadcastTableRow[]
 }
 
 interface PreviewResult {
@@ -341,12 +353,12 @@ function IndividualCard({
       </div>
 
       <label className="flex flex-col gap-1 text-sm">
-        <span className="font-medium text-ink-dim">Subject</span>
+        <span className="font-medium text-ink-dim">Subject (same for every reminder)</span>
         <input className="field-control" value={edited.subject} onChange={(e) => onChange({ subject: e.target.value })} />
       </label>
 
       <label className="flex flex-col gap-1 text-sm">
-        <span className="font-medium text-ink-dim">Body</span>
+        <span className="font-medium text-ink-dim">Body (this FSE only — use the fields above to change every reminder)</span>
         <RichTextEditor value={edited.body_html} onChange={(html) => onChange({ body_html: html })} minHeight={200} />
       </label>
 
@@ -441,6 +453,8 @@ function MappingSection() {
 export default function UltrafineFseReminder() {
   const [file, setFile] = useState<File | null>(null)
   const [asOnDate, setAsOnDate] = useState(getIndianDateInputValue)
+  const [advisoryHtml, setAdvisoryHtml] = useState('')
+  const [extraNoteHtml, setExtraNoteHtml] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [previewJobId, setPreviewJobId] = useState<string | null>(null)
   const [previewResult, setPreviewResult] = useState<PreviewResult | null>(null)
@@ -460,6 +474,7 @@ export default function UltrafineFseReminder() {
   const [broadcastResult, setBroadcastResult] = useState<BroadcastSendResult | null>(null)
   const [broadcastError, setBroadcastError] = useState<string | null>(null)
   const [broadcastSending, setBroadcastSending] = useState(false)
+  const [attachExcel, setAttachExcel] = useState(true)
 
   const [sampleKey, setSampleKey] = useState<string | null>(null)
   const sampleRef = useRef<HTMLDivElement | null>(null)
@@ -483,6 +498,8 @@ export default function UltrafineFseReminder() {
       const fd = new FormData()
       fd.append('file', file)
       fd.append('as_on_date', formatIndianDate(asOnDate))
+      if (advisoryHtml.trim()) fd.append('advisory_html', advisoryHtml)
+      if (extraNoteHtml.trim()) fd.append('extra_note_html', extraNoteHtml)
       const res = await postForm<{ job_id: string }>(`${BASE}/preview`, fd)
       setPreviewJobId(res.job_id)
     } catch (err) {
@@ -521,6 +538,9 @@ export default function UltrafineFseReminder() {
   function handleClearAll() {
     setFile(null)
     setAsOnDate(getIndianDateInputValue())
+    setAdvisoryHtml('')
+    setExtraNoteHtml('')
+    setAttachExcel(true)
     setPreviewJobId(null)
     setPreviewResult(null)
     setPreviewError(null)
@@ -575,7 +595,7 @@ export default function UltrafineFseReminder() {
   }
 
   async function handleSendBroadcast() {
-    if (!editableBroadcast) return
+    if (!editableBroadcast || !previewResult) return
     setBroadcastSending(true)
     setBroadcastError(null)
     try {
@@ -584,6 +604,11 @@ export default function UltrafineFseReminder() {
         cc: splitAddrs(editableBroadcast.cc),
         subject: editableBroadcast.subject,
         body_html: editableBroadcast.body_html,
+        attach_excel: attachExcel,
+        table_title: previewResult.broadcast.table_title,
+        target_header: previewResult.broadcast.target_header,
+        received_header: previewResult.broadcast.received_header,
+        table_rows: previewResult.broadcast.table_rows,
       })
       setBroadcastJobId(res.job_id)
       setBroadcastResult(null)
@@ -643,6 +668,29 @@ export default function UltrafineFseReminder() {
             <span className="font-medium text-ink-dim">As-on date (shown in the subject &amp; body)</span>
             <DatePicker value={asOnDate} onValueChange={setAsOnDate} aria-label="As-on date" />
           </label>
+
+          <div className="flex flex-col gap-1.5 text-sm">
+            <span className="font-medium text-ink-dim">
+              Message before the table (optional — applies to every individual reminder and the broadcast)
+            </span>
+            <RichTextEditor
+              value={advisoryHtml}
+              onChange={setAdvisoryHtml}
+              placeholder="It is critical that we prioritize the immediate collection of these outstanding amounts to ensure timely vendor payments and maintain our operational flow without disruption"
+              minHeight={80}
+            />
+          </div>
+
+          <div className="flex flex-col gap-1.5 text-sm">
+            <span className="font-medium text-ink-dim">
+              Additional note (optional — appended to the bottom of every individual reminder and the broadcast)
+            </span>
+            <RichTextEditor value={extraNoteHtml} onChange={setExtraNoteHtml} placeholder="e.g. a one-off urgency line for this send" minHeight={80} />
+          </div>
+          <p className="text-xs text-ink-faint">
+            These two apply to every mail as soon as you (re)build the preview. Editing a single reminder's body
+            directly below only changes that one FSE's mail.
+          </p>
 
           <div className="flex flex-wrap justify-end gap-3">
             <Button type="button" variant="ghost" onClick={handleClearAll}>
@@ -783,7 +831,16 @@ export default function UltrafineFseReminder() {
                       }}
                     />
                   )}
-                  <div className="flex justify-end">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <label className="flex items-center gap-2 text-sm text-ink-dim">
+                      <input
+                        type="checkbox"
+                        checked={attachExcel}
+                        onChange={(e) => setAttachExcel(e.target.checked)}
+                        className="h-4 w-4 rounded border-border"
+                      />
+                      Attach Excel version of the table
+                    </label>
                     <Button
                       icon={<Send className="h-4 w-4" />}
                       onClick={() => void handleSendBroadcast()}
@@ -886,9 +943,20 @@ export default function UltrafineFseReminder() {
                         <IndividualCard
                           row={row}
                           edited={editableRows[sampleKey]}
-                          onChange={(patch) =>
-                            setEditableRows((prev) => ({ ...prev, [sampleKey]: { ...prev[sampleKey], ...patch } }))
-                          }
+                          onChange={(patch) => {
+                            if (patch.subject !== undefined) {
+                              // Subject is identical for every FSE by construction, so editing it
+                              // once applies everywhere - unlike To/Cc/Body, which stay per-FSE.
+                              const subject = patch.subject
+                              setEditableRows((prev) => {
+                                const next: typeof prev = {}
+                                for (const key of Object.keys(prev)) next[key] = { ...prev[key], subject }
+                                return next
+                              })
+                            } else {
+                              setEditableRows((prev) => ({ ...prev, [sampleKey]: { ...prev[sampleKey], ...patch } }))
+                            }
+                          }}
                           onSend={() => void handleSendOne(sampleKey)}
                           sending={sendingKey === sampleKey}
                           reportStatus={reportByKey[sampleKey]}

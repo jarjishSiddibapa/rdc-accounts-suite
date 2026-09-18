@@ -377,37 +377,56 @@ def _signature_html(signature: str) -> str:
     return '<p style="margin-top:24px;font-family:Calibri,Arial,sans-serif;font-size:12pt;">' + "<br>".join(html.escape(line) for line in lines) + "</p>"
 
 
+DEFAULT_ADVISORY_HTML = (
+    "<p>It is critical that we prioritize the immediate collection of these outstanding amounts "
+    "to ensure timely vendor payments and maintain our operational flow without disruption</p>"
+)
+
+
 def build_individual_body(
     fse_name: str, group: dict, table_html: str, as_on_long: str, signature: str,
+    advisory_html: Optional[str] = None, extra_note_html: str = "",
 ) -> str:
+    advisory = advisory_html if advisory_html is not None else DEFAULT_ADVISORY_HTML
     return f"""<html><body style="font-family:Calibri,Arial,sans-serif;font-size:12pt;color:#1a1a1a;">
 <p>Dear Sir/ Ma'am,</p>
 <p>Please find the collection v/s target Summary from 1 to {html.escape(as_on_long)}. We have only collected {_fmt(group['total_received'])} Lakh against a target of {_fmt(group['total_target'])} Lakhs</p>
-<p>It is critical that we prioritize the immediate collection of these outstanding amounts to ensure timely vendor payments and maintain our operational flow without disruption</p>
+{advisory}
 {table_html}
+{extra_note_html}
 {_signature_html(signature)}
 </body></html>"""
 
 
 def build_broadcast_body(
     grand_total: dict, table_html: str, as_on_long: str, signature: str,
+    advisory_html: Optional[str] = None, extra_note_html: str = "",
 ) -> str:
+    advisory = advisory_html if advisory_html is not None else DEFAULT_ADVISORY_HTML
     return f"""<html><body style="font-family:Calibri,Arial,sans-serif;font-size:12pt;color:#1a1a1a;">
 <p>Dear All</p>
 <p>Please find the collection v/s target Summary from 1 to {html.escape(as_on_long)}. We have only collected {_fmt(grand_total['total_received'])} Lakh against a target of {_fmt(grand_total['total_target'])} Lakhs</p>
-<p>It is critical that we prioritize the immediate collection of these outstanding amounts to ensure timely vendor payments and maintain our operational flow without disruption</p>
+{advisory}
 {table_html}
+{extra_note_html}
 {_signature_html(signature)}
 </body></html>"""
 
 
 # ── Send-plan assembly ───────────────────────────────────────────────────────
 
-def build_send_plan(parsed: dict, mapping: dict[str, str], signature: str) -> dict:
+def build_send_plan(
+    parsed: dict, mapping: dict[str, str], signature: str,
+    advisory_html: Optional[str] = None, extra_note_html: str = "",
+) -> dict:
     """parsed: read_coll_vs_target's return value. mapping: fse_name -> email
-    (from mapping_store.load_all). Returns {individual: [...], broadcast: {...}}
-    with every subject/body/to/cc already built, ready for the frontend to
-    show and let the user edit before send."""
+    (from mapping_store.load_all). advisory_html/extra_note_html (shared
+    across every individual reminder AND the broadcast - see the module
+    docstring on why per-row body edits don't propagate but these do)
+    override the fixed advisory paragraph / add a trailing note. Returns
+    {individual: [...], broadcast: {...}} with every subject/body/to/cc
+    already built, ready for the frontend to show and let the user edit
+    before send."""
     groups = group_by_fse(parsed["rows"])
     subject = build_subject(parsed["as_on_raw"])
 
@@ -433,7 +452,9 @@ def build_send_plan(parsed: dict, mapping: dict[str, str], signature: str) -> di
             "cc": cc,
             "missing_email": missing_email,
             "subject": subject,
-            "body_html": build_individual_body(fse_name, group, table_html, parsed["as_on_long"], signature),
+            "body_html": build_individual_body(
+                fse_name, group, table_html, parsed["as_on_long"], signature, advisory_html, extra_note_html,
+            ),
         })
 
     grand_total = {
@@ -450,12 +471,97 @@ def build_send_plan(parsed: dict, mapping: dict[str, str], signature: str) -> di
         "to": broadcast_to,
         "cc": broadcast_cc,
         "subject": subject,
-        "body_html": build_broadcast_body(grand_total, broadcast_table_html, parsed["as_on_long"], signature),
+        "body_html": build_broadcast_body(
+            grand_total, broadcast_table_html, parsed["as_on_long"], signature, advisory_html, extra_note_html,
+        ),
         "total_target": grand_total["total_target"],
         "total_received": grand_total["total_received"],
         "total_shortfall": grand_total["total_shortfall"],
         "fse_count": len(groups),
         "missing_email_count": sum(1 for row in individual if row["missing_email"]),
+        # Raw per-party rows + table wording, carried through so /send-broadcast
+        # can rebuild an Excel version of this exact table as an attachment
+        # without needing the original upload again (see build_broadcast_workbook).
+        "table_title": parsed["title"],
+        "target_header": parsed["target_header"],
+        "received_header": parsed["received_header"],
+        "table_rows": parsed["rows"],
     }
 
     return {"individual": individual, "broadcast": broadcast}
+
+
+def build_broadcast_workbook(title: str, target_header: str, received_header: str, table_rows: list[dict]) -> bytes:
+    """Excel version of exactly what the broadcast email's own HTML table
+    shows (same title/header/FSE blocks/Total rows/Grand Total, same color
+    scheme) - a take-away reference copy attached for the recipient. Purely
+    a display export; unlike the upload template it is never read back into
+    this app, so its Total/Grand Total rows are real (computed here, not
+    ignored)."""
+    import io
+
+    import openpyxl
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+
+    groups = group_by_fse(table_rows)
+    grand_total = {
+        "total_target": sum(g["total_target"] for g in groups.values()),
+        "total_received": sum(g["total_received"] for g in groups.values()),
+        "total_shortfall": sum(g["total_shortfall"] for g in groups.values()),
+    }
+
+    title_fill = PatternFill("solid", fgColor="A9D08E")
+    header_fill = PatternFill("solid", fgColor="F4B183")
+    target_fill = PatternFill("solid", fgColor="FFFF00")
+    body_fill = PatternFill("solid", fgColor="DCE6F1")
+    border = Border(*(Side(style="thin", color="4472C4"),) * 4)
+    bold = Font(bold=True)
+    center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    ncols = 5
+
+    def style_row(row: int, fill: PatternFill, *, bold_row: bool = False, align: Optional[Alignment] = None) -> None:
+        for col in range(1, ncols + 1):
+            cell = ws.cell(row, col)
+            cell.fill = fill
+            cell.border = border
+            if bold_row:
+                cell.font = bold
+            if align:
+                cell.alignment = align
+
+    wb = openpyxl.Workbook()
+    ws = wb.active
+    ws.title = "Coll vs Target"
+
+    ws.cell(1, 1).value = title
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=ncols)
+    style_row(1, title_fill, bold_row=True, align=center)
+
+    ws.append(["FSE", "Party's Name", target_header, received_header, "Short Fall"])
+    style_row(2, header_fill, bold_row=True, align=center)
+    ws.cell(2, 3).fill = target_fill
+
+    row_num = 2
+    for fse_name, group in groups.items():
+        for row in group["rows"]:
+            row_num += 1
+            ws.append([fse_name, row["party"], row["target"], row["received"], row["shortfall"]])
+            style_row(row_num, body_fill)
+        row_num += 1
+        ws.append([fse_name, f"{fse_name} Total", group["total_target"], group["total_received"], group["total_shortfall"]])
+        style_row(row_num, body_fill, bold_row=True)
+
+    row_num += 1
+    ws.append([None, "Grand Total", grand_total["total_target"], grand_total["total_received"], grand_total["total_shortfall"]])
+    style_row(row_num, body_fill, bold_row=True)
+
+    ws.column_dimensions["A"].width = 20
+    ws.column_dimensions["B"].width = 40
+    ws.column_dimensions["C"].width = 22
+    ws.column_dimensions["D"].width = 20
+    ws.column_dimensions["E"].width = 14
+    ws.freeze_panes = "A3"
+
+    buffer = io.BytesIO()
+    wb.save(buffer)
+    return buffer.getvalue()

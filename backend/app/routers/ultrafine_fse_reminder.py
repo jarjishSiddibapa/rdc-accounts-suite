@@ -147,20 +147,26 @@ def download_template():
     )
 
 
-def _cpu_phase_preview(path: str, mapping: dict, signature: str, as_on_date: Optional[str]) -> dict:
+def _cpu_phase_preview(
+    path: str, mapping: dict, signature: str, as_on_date: Optional[str],
+    advisory_html: Optional[str], extra_note_html: str,
+) -> dict:
     """100% CPU (openpyxl read + plan building), no I/O - runs on the CPU
     process pool, matching the sibling ultrafine mail tools."""
     parsed = processor.read_coll_vs_target(path)
     if as_on_date:
         processor.apply_as_on_override(parsed, as_on_date)
-    return processor.build_send_plan(parsed, mapping, signature)
+    return processor.build_send_plan(parsed, mapping, signature, advisory_html, extra_note_html)
 
 
-def _job_preview(path: str, mapping: dict, signature: str, as_on_date: Optional[str], progress_cb=None) -> dict:
+def _job_preview(
+    path: str, mapping: dict, signature: str, as_on_date: Optional[str],
+    advisory_html: Optional[str], extra_note_html: str, progress_cb=None,
+) -> dict:
     try:
         if progress_cb:
             progress_cb(0.05, "Reading tracker file...")
-        plan = run_cpu_phase(_cpu_phase_preview, path, mapping, signature, as_on_date)
+        plan = run_cpu_phase(_cpu_phase_preview, path, mapping, signature, as_on_date, advisory_html, extra_note_html)
         if progress_cb:
             progress_cb(0.95, "Preview ready")
     finally:
@@ -172,6 +178,8 @@ def _job_preview(path: str, mapping: dict, signature: str, as_on_date: Optional[
 async def preview(
     file: UploadFile = File(...),
     as_on_date: Optional[str] = Form(None),
+    advisory_html: Optional[str] = Form(None),
+    extra_note_html: Optional[str] = Form(None),
     user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -181,9 +189,12 @@ async def preview(
     but user-editable) overrides the date baked into the subject/body/table
     header - it's independent of the file's own "received as on" column,
     which is only ever used to locate the right column, never its value.
-    Never sends anything - the frontend shows this to the user, who can
-    edit subject/body/to/cc directly before calling /send or
-    /send-broadcast."""
+    `advisory_html`/`extra_note_html` (from the frontend's two shared,
+    optional rich-text fields) override the fixed advisory paragraph / add a
+    trailing note to EVERY individual reminder and the broadcast alike - see
+    processor.build_send_plan's docstring. Never sends anything - the
+    frontend shows this to the user, who can edit subject/body/to/cc
+    directly before calling /send or /send-broadcast."""
     settings = mailer_shared.get_email_settings(user.id)
     if not settings.get("configured"):
         raise HTTPException(
@@ -202,6 +213,8 @@ async def preview(
         mapping,
         settings.get("signature", ""),
         as_on_date,
+        advisory_html,
+        extra_note_html or "",
         owner_id=user.id,
     )
     return {"job_id": job_id}
@@ -291,14 +304,31 @@ def send(body: SendBody, user=Depends(get_current_user)):
     return {"job_id": job_id}
 
 
+class TableRowIn(BaseModel):
+    fse: str
+    party: str
+    target: float
+    received: float
+    shortfall: float
+
+
 class SendBroadcastBody(BaseModel):
     to: list[str] = []
     cc: list[str] = []
     subject: str
     body_html: str
+    attach_excel: bool = True
+    table_title: str = ""
+    target_header: str = ""
+    received_header: str = ""
+    table_rows: list[TableRowIn] = []
 
 
-def _job_send_broadcast(user_id: int, to: list[str], cc: list[str], subject: str, body_html: str, progress_cb=None) -> dict:
+def _job_send_broadcast(
+    user_id: int, to: list[str], cc: list[str], subject: str, body_html: str,
+    attach_excel: bool, table_title: str, target_header: str, received_header: str,
+    table_rows: list[dict], progress_cb=None,
+) -> dict:
     settings = mailer_shared.get_email_settings(user_id)
     if not settings.get("configured"):
         raise JobUserError("Your email sender is no longer configured. Update Settings and try again.")
@@ -311,9 +341,23 @@ def _job_send_broadcast(user_id: int, to: list[str], cc: list[str], subject: str
     if invalid:
         raise JobUserError(f"Invalid email address: {invalid[0]}")
 
+    attachments: list[str] = []
+    tmp_path: Optional[Path] = None
+    if attach_excel and table_rows:
+        if progress_cb:
+            progress_cb(0.1, "Building Excel attachment...")
+        workbook_bytes = processor.build_broadcast_workbook(table_title, target_header, received_header, table_rows)
+        tmp_path = SCRATCH_DIR / f"fse-broadcast-{uuid.uuid4()}.xlsx"
+        tmp_path.write_bytes(workbook_bytes)
+        attachments = [str(tmp_path)]
+
     if progress_cb:
-        progress_cb(0.2, "Sending broadcast mail...")
-    mailer_shared.send_mail(settings["email"], settings["app_password"], to, cc, subject, body_html, attachments=[])
+        progress_cb(0.5, "Sending broadcast mail...")
+    try:
+        mailer_shared.send_mail(settings["email"], settings["app_password"], to, cc, subject, body_html, attachments=attachments)
+    finally:
+        if tmp_path is not None:
+            tmp_path.unlink(missing_ok=True)
     if progress_cb:
         progress_cb(0.99, "Sent")
     return {"status": "sent", "to": to, "cc": cc}
@@ -328,6 +372,11 @@ def send_broadcast(body: SendBroadcastBody, user=Depends(get_current_user)):
         body.cc,
         body.subject,
         body.body_html,
+        body.attach_excel,
+        body.table_title,
+        body.target_header,
+        body.received_header,
+        [row.model_dump() for row in body.table_rows],
         owner_id=user.id,
     )
     return {"job_id": job_id}
