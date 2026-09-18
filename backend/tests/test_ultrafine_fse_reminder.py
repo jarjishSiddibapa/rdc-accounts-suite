@@ -8,6 +8,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.database import Base
 from app.jobs import JobUserError
+from app.routers.ultrafine_fse_reminder import download_template
 from app.services.ultrafine_fse_reminder import mapping_store, processor
 from app.services.ultrafine_fse_reminder.models import FseEmailMap
 
@@ -60,6 +61,29 @@ def _write_tracker(path: Path, include_decoy: bool = True, include_junk: bool = 
         ws.append([None, "Bandu Naik", "Some Other Customer - Drs"])
 
     wb.save(path)
+
+
+class TemplateGenerationTests(unittest.TestCase):
+    def test_generated_template_has_single_fse_column_and_parses_cleanly(self):
+        import openpyxl
+
+        response = download_template()
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "template.xlsx"
+            path.write_bytes(response.body)
+
+            wb = openpyxl.load_workbook(path)
+            ws = wb[processor.SHEET_NAME]
+            header_row = processor.find_header_row(ws)
+            headers = [ws.cell(header_row, c).value for c in range(1, ws.max_column + 1)]
+            self.assertEqual(headers.count("FSE"), 1, f"expected exactly one 'FSE' column, got headers={headers}")
+
+            parsed = processor.read_coll_vs_target(str(path))
+            groups = processor.group_by_fse(parsed["rows"])
+            self.assertIn("Abhishek Nayak", groups)
+            self.assertIn("Balram Chakrawarti", groups)
+            self.assertAlmostEqual(groups["Abhishek Nayak"]["total_target"], 13.7682355, places=4)
+            self.assertAlmostEqual(groups["Balram Chakrawarti"]["total_target"], 19.4248, places=4)
 
 
 class ColumnDetectionTests(unittest.TestCase):

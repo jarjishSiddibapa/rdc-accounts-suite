@@ -18,10 +18,12 @@ re-reading a stored job result.
 import io
 import uuid
 from pathlib import Path
+from typing import Optional
 
 import openpyxl
 import pandas as pd
 from fastapi import APIRouter, Depends, File, HTTPException, Response, UploadFile
+from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -43,13 +45,38 @@ router = APIRouter(
 _XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
 
+_TITLE_FILL = PatternFill("solid", fgColor="A9D08E")
+_HEADER_FILL = PatternFill("solid", fgColor="F4B183")
+_TARGET_FILL = PatternFill("solid", fgColor="FFFF00")
+_BODY_FILL = PatternFill("solid", fgColor="DCE6F1")
+_BORDER = Border(*(Side(style="thin", color="4472C4"),) * 4)
+_BOLD = Font(bold=True)
+_CENTER = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+
+def _style_row(ws, row: int, ncols: int, fill: PatternFill, bold: bool = False, align: Optional[Alignment] = None) -> None:
+    for col in range(1, ncols + 1):
+        cell = ws.cell(row, col)
+        cell.fill = fill
+        cell.border = _BORDER
+        if bold:
+            cell.font = _BOLD
+        if align:
+            cell.alignment = align
+
+
 @router.get("/template")
 def download_template():
-    """A minimal example workbook shaped exactly like the real tracker's
-    'Coll vs Target' sheet (title row, FSE/Party's Name/Target/Received/
-    Short Fall header, one example FSE with its Total row, Grand Total row) -
-    generated on the fly so users see the exact expected layout without
-    shipping a static file that would go stale as example dates pass."""
+    """An example workbook shaped like the real tracker's 'Coll vs Target'
+    sheet, generated on the fly: title row, single FSE/Party's Name/Target/
+    Received/Short Fall header (no duplicate FSE column and no unrelated
+    decoy Target columns - the app never needed either; they were just
+    clutter carried over from the original tracker), two real example FSEs
+    (with their real customer names and figures, so the shape is
+    immediately recognisable) each ending in a bold Total row, then one
+    Grand Total row. The "as on"/month-end dates stay dynamic so the
+    downloaded file never looks stale, while the illustrative rows use real
+    historical figures for clarity."""
     today = pd.Timestamp.now()
     month_end = (today + pd.offsets.MonthEnd(0)).strftime("%d-%b-%y")
     as_on = today.strftime("%d-%b-%y")
@@ -58,18 +85,60 @@ def download_template():
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = processor.SHEET_NAME
-    ws.append([None, None, f"Collection VS Target Summary for {month_label}"])
-    ws.append([
-        "FSE", "FSE", "Party's Name",
-        "Collection Target AS PER Coll Review Meeting",
+    ncols = 5
+
+    ws.cell(1, 1).value = f"Collection VS Target Summary for {month_label}"
+    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=ncols)
+    _style_row(ws, 1, ncols, _TITLE_FILL, bold=True, align=_CENTER)
+
+    headers = [
+        "FSE", "Party's Name",
         f"Collection Target considering dues upto  {month_end}",
         f"Coll Received as on {as_on}",
         "Short Fall",
-    ])
-    ws.append(["Example FSE", "Example FSE", "Example Customer 1 - Drs", 3.0, 3.04, 2.44, 0.60])
-    ws.append(["Example FSE", "Example FSE", "Example Customer 2 - Drs", 6.0, 10.73, 0, 10.73])
-    ws.append(["Example FSE", None, "Example FSE Total", 9.0, 13.77, 2.44, 11.33])
-    ws.append([None, None, "Grand Total", 9.0, 13.77, 2.44, 11.33])
+    ]
+    ws.append(headers)
+    _style_row(ws, 2, ncols, _HEADER_FILL, bold=True, align=_CENTER)
+    ws.cell(2, 3).fill = _TARGET_FILL
+
+    # Real illustrative figures (kept from an actual month's tracker) so the
+    # layout is self-explanatory: one FSE with two customers, one FSE with a
+    # single customer - both patterns a filler will actually hit.
+    rows = [
+        ("Abhishek Nayak", "Dineshchandra R. Agarwal Infracon Pvt Ltd - Drs", 3.0403255, 2.4426, 0.5977255),
+        ("Abhishek Nayak", "New India Ceramic Engineers - Drs", 10.72791, 0, 10.72791),
+        ("Abhishek Nayak", "Abhishek Nayak Total", 13.7682355, 2.4426, 11.3256355),
+        ("Balram Chakrawarti", "Ahluwalia Construction Group - Drs", 19.4248, 0, 19.4248),
+        ("Balram Chakrawarti", "Balram Chakrawarti Total", 19.4248, 0, 19.4248),
+    ]
+    row_num = 2
+    for fse, party, target, received, shortfall in rows:
+        row_num += 1
+        ws.append([fse, party, target, received, shortfall])
+        _style_row(ws, row_num, ncols, _BODY_FILL, bold=party.endswith("Total"))
+
+    row_num += 1
+    ws.append([None, "Grand Total", 33.1930355, 2.4426, 30.7504355])
+    _style_row(ws, row_num, ncols, _BODY_FILL, bold=True)
+
+    row_num += 2
+    ws.cell(row_num, 1).value = (
+        "Add one row per party under each FSE, end every FSE's block with a bold "
+        "\"<FSE name> Total\" row, and end the sheet with a single \"Grand Total\" "
+        "row summing everyone - exactly like the example above. Everything below "
+        "\"Grand Total\" is ignored, so this note is safe to leave in."
+    )
+    ws.cell(row_num, 1).font = Font(italic=True, color="808080")
+    ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=ncols)
+    ws.cell(row_num, 1).alignment = Alignment(wrap_text=True, vertical="top")
+    ws.row_dimensions[row_num].height = 45
+
+    ws.column_dimensions["A"].width = 20
+    ws.column_dimensions["B"].width = 40
+    ws.column_dimensions["C"].width = 22
+    ws.column_dimensions["D"].width = 20
+    ws.column_dimensions["E"].width = 14
+    ws.freeze_panes = "A3"
 
     buffer = io.BytesIO()
     wb.save(buffer)
