@@ -416,10 +416,10 @@ def build_send_plan(parsed: dict, mapping: dict[str, str], signature: str) -> di
     for fse_name, group in groups.items():
         email = (mapping.get(fse_name) or "").strip()
         missing_email = not email
-        to = [] if missing_email else [f"{fse_name} <{email}>"]
-        cc = [] if missing_email else dedupe_cc_against_to(to, INDIVIDUAL_CC)
+        to = [] if missing_email else [email]
+        cc = [] if missing_email else [extract_address(addr) for addr in dedupe_cc_against_to(to, INDIVIDUAL_CC)]
         if not missing_email:
-            broadcast_to.append(f"{fse_name} <{email}>")
+            broadcast_to.append(email)
 
         table_html = build_table_html(parsed["title"], parsed["target_header"], parsed["received_header"], [(fse_name, group)])
         individual.append({
@@ -441,7 +441,7 @@ def build_send_plan(parsed: dict, mapping: dict[str, str], signature: str) -> di
         "total_received": sum(g["total_received"] for g in groups.values()),
         "total_shortfall": sum(g["total_shortfall"] for g in groups.values()),
     }
-    broadcast_cc = dedupe_cc_against_to(broadcast_to, BROADCAST_CC)
+    broadcast_cc = [extract_address(addr) for addr in dedupe_cc_against_to(broadcast_to, BROADCAST_CC)]
     broadcast_table_html = build_table_html(
         parsed["title"], parsed["target_header"], parsed["received_header"],
         list(groups.items()), grand_total=grand_total,

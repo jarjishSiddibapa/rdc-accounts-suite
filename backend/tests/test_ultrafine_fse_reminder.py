@@ -196,12 +196,26 @@ class BuildSendPlanTests(unittest.TestCase):
 
             by_name = {row["fse_name"]: row for row in plan["individual"]}
             self.assertFalse(by_name["Abhishek Nayak"]["missing_email"])
-            self.assertEqual(by_name["Abhishek Nayak"]["to"], ["Abhishek Nayak <abhishek.nayak@ultrafine.in>"])
+            self.assertEqual(by_name["Abhishek Nayak"]["to"], ["abhishek.nayak@ultrafine.in"])
             self.assertTrue(by_name["Balram Chakrawarti"]["missing_email"])
             self.assertEqual(by_name["Balram Chakrawarti"]["to"], [])
 
-            self.assertEqual(plan["broadcast"]["to"], ["Abhishek Nayak <abhishek.nayak@ultrafine.in>"])
+            self.assertEqual(plan["broadcast"]["to"], ["abhishek.nayak@ultrafine.in"])
             self.assertAlmostEqual(plan["broadcast"]["total_target"], 13.77 + 19.42)
+
+    def test_to_and_cc_are_bare_addresses_with_no_display_names(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "tracker.xlsx"
+            _write_tracker(path)
+            parsed = processor.read_coll_vs_target(str(path))
+            mapping = {"Abhishek Nayak": "abhishek.nayak@ultrafine.in"}
+            plan = processor.build_send_plan(parsed, mapping, signature="")
+
+            by_name = {row["fse_name"]: row for row in plan["individual"]}
+            for addr in by_name["Abhishek Nayak"]["to"] + by_name["Abhishek Nayak"]["cc"]:
+                self.assertNotIn("<", addr, f"expected a bare email, got {addr!r}")
+            for addr in plan["broadcast"]["to"] + plan["broadcast"]["cc"]:
+                self.assertNotIn("<", addr, f"expected a bare email, got {addr!r}")
 
     def test_subject_uses_as_on_date_from_sheet_header(self):
         with tempfile.TemporaryDirectory() as tmp:
