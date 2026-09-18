@@ -456,6 +456,13 @@ export default function RdcPayables() {
                 }}
                 aria-label="GL cutoff month and year"
               />
+              {/* Matches the Output filename field's helper-text line so both
+                  controls sit level - without it, sm:items-end bottom-aligns
+                  this shorter field's whole block, pushing its label/picker
+                  down relative to the filename field's label/input. */}
+              <span aria-hidden="true" className="invisible text-xs leading-5">
+                Based on the selected month and today's date. You can edit it; .xlsx is added automatically.
+              </span>
             </label>
             <label className="flex min-w-0 flex-1 flex-col gap-1.5 text-sm sm:min-w-80">
               <span className="font-medium text-ink-dim">Output filename</span>
@@ -474,18 +481,25 @@ export default function RdcPayables() {
                 Based on the selected month and today's date. You can edit it; .xlsx is added automatically.
               </span>
             </label>
-            <Button
-              className="sm:ml-auto"
-              onClick={() => void handleGenerate()}
-              loading={submitting}
-              disabled={
-                !file ||
-                !/^\d{4}-(0[1-9]|1[0-2])$/.test(cutoffPeriod) ||
-                !outputFilename.trim()
-              }
-            >
-              Generate report
-            </Button>
+            <div className="flex flex-col gap-1.5 sm:ml-auto">
+              <span aria-hidden="true" className="invisible text-sm font-medium">
+                Output filename
+              </span>
+              <Button
+                onClick={() => void handleGenerate()}
+                loading={submitting}
+                disabled={
+                  !file ||
+                  !/^\d{4}-(0[1-9]|1[0-2])$/.test(cutoffPeriod) ||
+                  !outputFilename.trim()
+                }
+              >
+                Generate report
+              </Button>
+              <span aria-hidden="true" className="invisible text-xs leading-5">
+                Based on the selected month and today's date. You can edit it; .xlsx is added automatically.
+              </span>
+            </div>
           </div>
 
           {processError && (

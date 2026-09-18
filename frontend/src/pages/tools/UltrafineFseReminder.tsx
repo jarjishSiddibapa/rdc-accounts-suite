@@ -27,6 +27,12 @@ import { formatIndianDate, formatIndianNumber, getIndianDateInputValue } from '@
 
 const BASE = '/tools/ultrafine-fse-reminder'
 
+// Mirrors processor.py's DEFAULT_ADVISORY_HTML so the shared message box
+// starts pre-filled with exactly what would otherwise be sent, instead of
+// blank - what you see here is what goes out unless you change it.
+const DEFAULT_ADVISORY_HTML =
+  '<p>It is critical that we prioritize the immediate collection of these outstanding amounts to ensure timely vendor payments and maintain our operational flow without disruption</p>'
+
 // ── shared types ─────────────────────────────────────────────────────────
 
 interface IndividualPlanRow {
@@ -357,10 +363,13 @@ function IndividualCard({
         <input className="field-control" value={edited.subject} onChange={(e) => onChange({ subject: e.target.value })} />
       </label>
 
-      <label className="flex flex-col gap-1 text-sm">
-        <span className="font-medium text-ink-dim">Body (this FSE only — use the fields above to change every reminder)</span>
-        <RichTextEditor value={edited.body_html} onChange={(html) => onChange({ body_html: html })} minHeight={200} />
-      </label>
+      <div className="flex flex-col gap-1 text-sm">
+        <span className="font-medium text-ink-dim">Preview — exactly what will be sent to {row.fse_name}</span>
+        <div
+          className="max-h-96 overflow-y-auto rounded-xl border border-border bg-surface px-3 py-2.5 text-sm text-ink"
+          dangerouslySetInnerHTML={{ __html: edited.body_html }}
+        />
+      </div>
 
       <div className="flex justify-end">
         <Button
@@ -453,8 +462,7 @@ function MappingSection() {
 export default function UltrafineFseReminder() {
   const [file, setFile] = useState<File | null>(null)
   const [asOnDate, setAsOnDate] = useState(getIndianDateInputValue)
-  const [advisoryHtml, setAdvisoryHtml] = useState('')
-  const [extraNoteHtml, setExtraNoteHtml] = useState('')
+  const [advisoryHtml, setAdvisoryHtml] = useState(DEFAULT_ADVISORY_HTML)
   const [submitting, setSubmitting] = useState(false)
   const [previewJobId, setPreviewJobId] = useState<string | null>(null)
   const [previewResult, setPreviewResult] = useState<PreviewResult | null>(null)
@@ -498,8 +506,7 @@ export default function UltrafineFseReminder() {
       const fd = new FormData()
       fd.append('file', file)
       fd.append('as_on_date', formatIndianDate(asOnDate))
-      if (advisoryHtml.trim()) fd.append('advisory_html', advisoryHtml)
-      if (extraNoteHtml.trim()) fd.append('extra_note_html', extraNoteHtml)
+      fd.append('advisory_html', advisoryHtml)
       const res = await postForm<{ job_id: string }>(`${BASE}/preview`, fd)
       setPreviewJobId(res.job_id)
     } catch (err) {
@@ -538,8 +545,7 @@ export default function UltrafineFseReminder() {
   function handleClearAll() {
     setFile(null)
     setAsOnDate(getIndianDateInputValue())
-    setAdvisoryHtml('')
-    setExtraNoteHtml('')
+    setAdvisoryHtml(DEFAULT_ADVISORY_HTML)
     setAttachExcel(true)
     setPreviewJobId(null)
     setPreviewResult(null)
@@ -668,29 +674,6 @@ export default function UltrafineFseReminder() {
             <span className="font-medium text-ink-dim">As-on date (shown in the subject &amp; body)</span>
             <DatePicker value={asOnDate} onValueChange={setAsOnDate} aria-label="As-on date" />
           </label>
-
-          <div className="flex flex-col gap-1.5 text-sm">
-            <span className="font-medium text-ink-dim">
-              Message before the table (optional — applies to every individual reminder and the broadcast)
-            </span>
-            <RichTextEditor
-              value={advisoryHtml}
-              onChange={setAdvisoryHtml}
-              placeholder="It is critical that we prioritize the immediate collection of these outstanding amounts to ensure timely vendor payments and maintain our operational flow without disruption"
-              minHeight={80}
-            />
-          </div>
-
-          <div className="flex flex-col gap-1.5 text-sm">
-            <span className="font-medium text-ink-dim">
-              Additional note (optional — appended to the bottom of every individual reminder and the broadcast)
-            </span>
-            <RichTextEditor value={extraNoteHtml} onChange={setExtraNoteHtml} placeholder="e.g. a one-off urgency line for this send" minHeight={80} />
-          </div>
-          <p className="text-xs text-ink-faint">
-            These two apply to every mail as soon as you (re)build the preview. Editing a single reminder's body
-            directly below only changes that one FSE's mail.
-          </p>
 
           <div className="flex flex-wrap justify-end gap-3">
             <Button type="button" variant="ghost" onClick={handleClearAll}>
@@ -909,31 +892,41 @@ export default function UltrafineFseReminder() {
                   </div>
                 )}
 
-                <div ref={sampleRef} className="flex flex-col gap-2">
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <p className="max-w-xl text-sm text-ink-dim">
-                      Every FSE's reminder follows this exact format — only the name, table rows, and
-                      totals differ. Check it here once, then use "Send all ready" above to send every
-                      FSE's own reminder without reviewing each one individually.
-                    </p>
-                    {previewResult.individual.length > 1 && (
-                      <label className="flex items-center gap-2 text-sm">
-                        <span className="font-medium text-ink-dim">Preview FSE</span>
-                        <select
-                          className="field-control w-auto"
-                          value={sampleKey ?? ''}
-                          onChange={(e) => setSampleKey(e.target.value || null)}
-                        >
-                          {previewResult.individual.map((row) => (
-                            <option key={row.fse_key} value={row.fse_key}>
-                              {row.fse_name}
-                              {row.missing_email ? ' (missing email)' : ''}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    )}
+                <div ref={sampleRef} className="flex flex-col gap-3">
+                  <p className="max-w-xl text-sm text-ink-dim">
+                    Every FSE's reminder follows this exact format — only the name, table rows, and
+                    totals differ. Edit the message below once to change it for every FSE and the
+                    broadcast, then use "Send all ready" above to send everyone without reviewing each
+                    one individually.
+                  </p>
+
+                  <div className="flex flex-col gap-1.5 text-sm">
+                    <span className="font-medium text-ink-dim">Message (shown before the table in every reminder)</span>
+                    <RichTextEditor value={advisoryHtml} onChange={setAdvisoryHtml} minHeight={90} />
+                    <div className="flex justify-end">
+                      <Button variant="secondary" onClick={() => void handlePreview()} loading={submitting}>
+                        Apply to all reminders
+                      </Button>
+                    </div>
                   </div>
+
+                  {previewResult.individual.length > 1 && (
+                    <label className="flex items-center gap-2 text-sm">
+                      <span className="font-medium text-ink-dim">Preview FSE</span>
+                      <select
+                        className="field-control w-auto"
+                        value={sampleKey ?? ''}
+                        onChange={(e) => setSampleKey(e.target.value || null)}
+                      >
+                        {previewResult.individual.map((row) => (
+                          <option key={row.fse_key} value={row.fse_key}>
+                            {row.fse_name}
+                            {row.missing_email ? ' (missing email)' : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  )}
                   {sampleKey &&
                     editableRows[sampleKey] &&
                     (() => {

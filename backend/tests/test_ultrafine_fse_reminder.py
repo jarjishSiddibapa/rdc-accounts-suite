@@ -230,7 +230,7 @@ class BuildSendPlanTests(unittest.TestCase):
             )
             self.assertEqual(plan["broadcast"]["subject"], plan["individual"][0]["subject"])
 
-    def test_advisory_and_note_overrides_apply_to_every_individual_and_broadcast(self):
+    def test_advisory_override_applies_to_every_individual_and_broadcast(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "tracker.xlsx"
             _write_tracker(path)
@@ -239,13 +239,10 @@ class BuildSendPlanTests(unittest.TestCase):
             plan = processor.build_send_plan(
                 parsed, mapping, signature="",
                 advisory_html="<p>Custom advisory wording</p>",
-                extra_note_html="<p>Please treat this as urgent.</p>",
             )
             for row in plan["individual"]:
                 self.assertIn("Custom advisory wording", row["body_html"])
-                self.assertIn("Please treat this as urgent.", row["body_html"])
             self.assertIn("Custom advisory wording", plan["broadcast"]["body_html"])
-            self.assertIn("Please treat this as urgent.", plan["broadcast"]["body_html"])
 
     def test_default_advisory_used_when_no_override_given(self):
         with tempfile.TemporaryDirectory() as tmp:

@@ -385,7 +385,7 @@ DEFAULT_ADVISORY_HTML = (
 
 def build_individual_body(
     fse_name: str, group: dict, table_html: str, as_on_long: str, signature: str,
-    advisory_html: Optional[str] = None, extra_note_html: str = "",
+    advisory_html: Optional[str] = None,
 ) -> str:
     advisory = advisory_html if advisory_html is not None else DEFAULT_ADVISORY_HTML
     return f"""<html><body style="font-family:Calibri,Arial,sans-serif;font-size:12pt;color:#1a1a1a;">
@@ -393,14 +393,13 @@ def build_individual_body(
 <p>Please find the collection v/s target Summary from 1 to {html.escape(as_on_long)}. We have only collected {_fmt(group['total_received'])} Lakh against a target of {_fmt(group['total_target'])} Lakhs</p>
 {advisory}
 {table_html}
-{extra_note_html}
 {_signature_html(signature)}
 </body></html>"""
 
 
 def build_broadcast_body(
     grand_total: dict, table_html: str, as_on_long: str, signature: str,
-    advisory_html: Optional[str] = None, extra_note_html: str = "",
+    advisory_html: Optional[str] = None,
 ) -> str:
     advisory = advisory_html if advisory_html is not None else DEFAULT_ADVISORY_HTML
     return f"""<html><body style="font-family:Calibri,Arial,sans-serif;font-size:12pt;color:#1a1a1a;">
@@ -408,7 +407,6 @@ def build_broadcast_body(
 <p>Please find the collection v/s target Summary from 1 to {html.escape(as_on_long)}. We have only collected {_fmt(grand_total['total_received'])} Lakh against a target of {_fmt(grand_total['total_target'])} Lakhs</p>
 {advisory}
 {table_html}
-{extra_note_html}
 {_signature_html(signature)}
 </body></html>"""
 
@@ -417,16 +415,16 @@ def build_broadcast_body(
 
 def build_send_plan(
     parsed: dict, mapping: dict[str, str], signature: str,
-    advisory_html: Optional[str] = None, extra_note_html: str = "",
+    advisory_html: Optional[str] = None,
 ) -> dict:
     """parsed: read_coll_vs_target's return value. mapping: fse_name -> email
-    (from mapping_store.load_all). advisory_html/extra_note_html (shared
-    across every individual reminder AND the broadcast - see the module
-    docstring on why per-row body edits don't propagate but these do)
-    override the fixed advisory paragraph / add a trailing note. Returns
-    {individual: [...], broadcast: {...}} with every subject/body/to/cc
-    already built, ready for the frontend to show and let the user edit
-    before send."""
+    (from mapping_store.load_all). advisory_html (shared across every
+    individual reminder AND the broadcast) overrides the fixed advisory
+    paragraph - editing a single row's own body_html afterward only affects
+    that one FSE, since only advisory_html is regenerated for everyone.
+    Returns {individual: [...], broadcast: {...}} with every subject/body/
+    to/cc already built, ready for the frontend to show and let the user
+    edit before send."""
     groups = group_by_fse(parsed["rows"])
     subject = build_subject(parsed["as_on_raw"])
 
@@ -453,7 +451,7 @@ def build_send_plan(
             "missing_email": missing_email,
             "subject": subject,
             "body_html": build_individual_body(
-                fse_name, group, table_html, parsed["as_on_long"], signature, advisory_html, extra_note_html,
+                fse_name, group, table_html, parsed["as_on_long"], signature, advisory_html,
             ),
         })
 
@@ -472,7 +470,7 @@ def build_send_plan(
         "cc": broadcast_cc,
         "subject": subject,
         "body_html": build_broadcast_body(
-            grand_total, broadcast_table_html, parsed["as_on_long"], signature, advisory_html, extra_note_html,
+            grand_total, broadcast_table_html, parsed["as_on_long"], signature, advisory_html,
         ),
         "total_target": grand_total["total_target"],
         "total_received": grand_total["total_received"],

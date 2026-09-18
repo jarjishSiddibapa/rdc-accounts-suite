@@ -149,24 +149,24 @@ def download_template():
 
 def _cpu_phase_preview(
     path: str, mapping: dict, signature: str, as_on_date: Optional[str],
-    advisory_html: Optional[str], extra_note_html: str,
+    advisory_html: Optional[str],
 ) -> dict:
     """100% CPU (openpyxl read + plan building), no I/O - runs on the CPU
     process pool, matching the sibling ultrafine mail tools."""
     parsed = processor.read_coll_vs_target(path)
     if as_on_date:
         processor.apply_as_on_override(parsed, as_on_date)
-    return processor.build_send_plan(parsed, mapping, signature, advisory_html, extra_note_html)
+    return processor.build_send_plan(parsed, mapping, signature, advisory_html)
 
 
 def _job_preview(
     path: str, mapping: dict, signature: str, as_on_date: Optional[str],
-    advisory_html: Optional[str], extra_note_html: str, progress_cb=None,
+    advisory_html: Optional[str], progress_cb=None,
 ) -> dict:
     try:
         if progress_cb:
             progress_cb(0.05, "Reading tracker file...")
-        plan = run_cpu_phase(_cpu_phase_preview, path, mapping, signature, as_on_date, advisory_html, extra_note_html)
+        plan = run_cpu_phase(_cpu_phase_preview, path, mapping, signature, as_on_date, advisory_html)
         if progress_cb:
             progress_cb(0.95, "Preview ready")
     finally:
@@ -179,7 +179,6 @@ async def preview(
     file: UploadFile = File(...),
     as_on_date: Optional[str] = Form(None),
     advisory_html: Optional[str] = Form(None),
-    extra_note_html: Optional[str] = Form(None),
     user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -189,12 +188,11 @@ async def preview(
     but user-editable) overrides the date baked into the subject/body/table
     header - it's independent of the file's own "received as on" column,
     which is only ever used to locate the right column, never its value.
-    `advisory_html`/`extra_note_html` (from the frontend's two shared,
-    optional rich-text fields) override the fixed advisory paragraph / add a
-    trailing note to EVERY individual reminder and the broadcast alike - see
-    processor.build_send_plan's docstring. Never sends anything - the
-    frontend shows this to the user, who can edit subject/body/to/cc
-    directly before calling /send or /send-broadcast."""
+    `advisory_html` (from the frontend's shared, optional rich-text field)
+    overrides the fixed advisory paragraph for EVERY individual reminder and
+    the broadcast alike - see processor.build_send_plan's docstring. Never
+    sends anything - the frontend shows this to the user, who can edit
+    subject/body/to/cc directly before calling /send or /send-broadcast."""
     settings = mailer_shared.get_email_settings(user.id)
     if not settings.get("configured"):
         raise HTTPException(
@@ -214,7 +212,6 @@ async def preview(
         settings.get("signature", ""),
         as_on_date,
         advisory_html,
-        extra_note_html or "",
         owner_id=user.id,
     )
     return {"job_id": job_id}
