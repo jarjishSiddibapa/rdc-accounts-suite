@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   AlertTriangle,
@@ -461,7 +461,10 @@ export default function UltrafineFseReminder() {
   const [broadcastError, setBroadcastError] = useState<string | null>(null)
   const [broadcastSending, setBroadcastSending] = useState(false)
 
-  const pagination = usePagination(previewResult?.individual ?? [], 5)
+  const [sampleKey, setSampleKey] = useState<string | null>(null)
+  const sampleRef = useRef<HTMLDivElement | null>(null)
+
+  const pagination = usePagination(previewResult?.individual ?? [], 20)
 
   async function handlePreview() {
     if (!file) return
@@ -511,6 +514,8 @@ export default function UltrafineFseReminder() {
       subject: result.broadcast.subject,
       body_html: result.broadcast.body_html,
     })
+    const firstReady = result.individual.find((r) => !r.missing_email) ?? result.individual[0]
+    setSampleKey(firstReady ? firstReady.fse_key : null)
   }
 
   function handleClearAll() {
@@ -522,6 +527,7 @@ export default function UltrafineFseReminder() {
     setNotConfigured(false)
     setEditableRows({})
     setEditableBroadcast(null)
+    setSampleKey(null)
     setSendJobId(null)
     setSendResult(null)
     setSendError(null)
@@ -846,22 +852,110 @@ export default function UltrafineFseReminder() {
                   </div>
                 )}
 
-                <div className="flex flex-col gap-4">
-                  {pagination.pagedItems.map((row) =>
-                    editableRows[row.fse_key] ? (
-                      <IndividualCard
-                        key={row.fse_key}
-                        row={row}
-                        edited={editableRows[row.fse_key]}
-                        onChange={(patch) =>
-                          setEditableRows((prev) => ({ ...prev, [row.fse_key]: { ...prev[row.fse_key], ...patch } }))
-                        }
-                        onSend={() => void handleSendOne(row.fse_key)}
-                        sending={sendingKey === row.fse_key}
-                        reportStatus={reportByKey[row.fse_key]}
-                      />
-                    ) : null,
-                  )}
+                <div ref={sampleRef} className="flex flex-col gap-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="max-w-xl text-sm text-ink-dim">
+                      Every FSE's reminder follows this exact format — only the name, table rows, and
+                      totals differ. Check it here once, then use "Send all ready" above to send every
+                      FSE's own reminder without reviewing each one individually.
+                    </p>
+                    {previewResult.individual.length > 1 && (
+                      <label className="flex items-center gap-2 text-sm">
+                        <span className="font-medium text-ink-dim">Preview FSE</span>
+                        <select
+                          className="field-control w-auto"
+                          value={sampleKey ?? ''}
+                          onChange={(e) => setSampleKey(e.target.value || null)}
+                        >
+                          {previewResult.individual.map((row) => (
+                            <option key={row.fse_key} value={row.fse_key}>
+                              {row.fse_name}
+                              {row.missing_email ? ' (missing email)' : ''}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    )}
+                  </div>
+                  {sampleKey &&
+                    editableRows[sampleKey] &&
+                    (() => {
+                      const row = previewResult.individual.find((r) => r.fse_key === sampleKey)
+                      if (!row) return null
+                      return (
+                        <IndividualCard
+                          row={row}
+                          edited={editableRows[sampleKey]}
+                          onChange={(patch) =>
+                            setEditableRows((prev) => ({ ...prev, [sampleKey]: { ...prev[sampleKey], ...patch } }))
+                          }
+                          onSend={() => void handleSendOne(sampleKey)}
+                          sending={sendingKey === sampleKey}
+                          reportStatus={reportByKey[sampleKey]}
+                        />
+                      )
+                    })()}
+                </div>
+
+                <div className="overflow-x-auto rounded-xl border border-border">
+                  <table className="w-full text-sm">
+                    <thead className="bg-bg-soft text-xs font-medium text-ink-dim">
+                      <tr>
+                        <th className="px-3 py-2 text-left">FSE</th>
+                        <th className="px-3 py-2 text-right">Target</th>
+                        <th className="px-3 py-2 text-right">Received</th>
+                        <th className="px-3 py-2 text-right">Short fall</th>
+                        <th className="px-3 py-2 text-left">Status</th>
+                        <th className="px-3 py-2" />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pagination.pagedItems.map((row) => {
+                        const status = reportByKey[row.fse_key]
+                        return (
+                          <tr key={row.fse_key} className="border-t border-border">
+                            <td className="px-3 py-2 text-ink">{row.fse_name}</td>
+                            <td className="px-3 py-2 text-right text-ink-dim">{lakh(row.total_target)}</td>
+                            <td className="px-3 py-2 text-right text-ink-dim">{lakh(row.total_received)}</td>
+                            <td className="px-3 py-2 text-right text-ink-dim">{lakh(row.total_shortfall)}</td>
+                            <td className="px-3 py-2">
+                              {row.missing_email ? (
+                                <span className="inline-flex items-center gap-1 text-amber-500">
+                                  <AlertTriangle className="h-3.5 w-3.5" /> No email
+                                </span>
+                              ) : status?.status === 'sent' ? (
+                                <span className="inline-flex items-center gap-1 text-emerald-500">
+                                  <CheckCircle2 className="h-3.5 w-3.5" /> Sent
+                                </span>
+                              ) : status?.status === 'failed' ? (
+                                <span className="inline-flex items-center gap-1 text-red-500" title={status.detail}>
+                                  <XCircle className="h-3.5 w-3.5" /> Failed
+                                </span>
+                              ) : status?.status === 'skipped' ? (
+                                <span className="inline-flex items-center gap-1 text-amber-500" title={status.detail}>
+                                  <AlertTriangle className="h-3.5 w-3.5" /> Skipped
+                                </span>
+                              ) : (
+                                <span className="text-ink-dim">Ready</span>
+                              )}
+                            </td>
+                            <td className="px-3 py-2 text-right">
+                              <button
+                                type="button"
+                                className="text-xs font-medium text-accent hover:underline"
+                                onClick={() => {
+                                  setSampleKey(row.fse_key)
+                                  sampleRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                                }}
+                              >
+                                View &amp; edit
+                              </button>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
                 </div>
                 <Pagination
                   page={pagination.page}
