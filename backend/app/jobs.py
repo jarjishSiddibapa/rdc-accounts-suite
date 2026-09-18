@@ -38,6 +38,7 @@ from app import config
 from app.client_context import current_tab_id, normalize_tab_id
 from app.database import SessionLocal
 from app.models import BackgroundJob, BackgroundJobAction, BackgroundResourceSlot
+from app.public_messages import PUBLIC_ISSUE_MESSAGE
 
 logger = logging.getLogger(__name__)
 
@@ -1034,7 +1035,7 @@ def execute_job(job_id: str, worker_id: str) -> None:
             job_id,
             worker_id,
             status="error",
-            error="An internal error occurred. Check the server logs or contact support.",
+            error=PUBLIC_ISSUE_MESSAGE,
         )
     finally:
         _execution_context.cancel_event = None
