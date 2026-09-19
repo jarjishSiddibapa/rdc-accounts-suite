@@ -302,7 +302,7 @@ function IndividualCard({
 }: {
   row: IndividualPlanRow
   edited: EditableRow
-  onChange: (patch: Partial<EditableRow>) => void
+  onChange: (patch: Partial<Pick<EditableRow, 'to' | 'cc'>>) => void
   onSend: () => void
   sending: boolean
   reportStatus?: SendReportRow
@@ -359,10 +359,9 @@ function IndividualCard({
         </label>
       </div>
 
-      <label className="flex flex-col gap-1 text-sm">
-        <span className="font-medium text-ink-dim">Subject (same for every reminder)</span>
-        <input className="field-control" value={edited.subject} onChange={(e) => onChange({ subject: e.target.value })} />
-      </label>
+      <p className="text-sm text-ink-dim">
+        <span className="font-medium text-ink">Subject:</span> {edited.subject}
+      </p>
 
       <div className="flex flex-col gap-1 text-sm">
         <span className="font-medium text-ink-dim">Preview — exactly what will be sent to {row.fse_name}</span>
@@ -470,6 +469,12 @@ export default function UltrafineFseReminder() {
 
   const [editableRows, setEditableRows] = useState<Record<string, EditableRow>>({})
   const [editableBroadcast, setEditableBroadcast] = useState<EditableRow | null>(null)
+  // The backend always derives a fresh subject from the file's as-on date on
+  // every /preview call (e.g. re-running preview via "Apply to all
+  // reminders" or the missing-email fix-up flow), which would otherwise
+  // silently discard a manual subject edit each time. Tracking the override
+  // here lets seedEditableState re-apply it after every re-seed.
+  const [subjectOverride, setSubjectOverride] = useState<string | null>(null)
 
   const [sendJobId, setSendJobId] = useState<string | null>(null)
   const [sendResult, setSendResult] = useState<SendResult | null>(null)
@@ -525,7 +530,7 @@ export default function UltrafineFseReminder() {
         fse_key: row.fse_key,
         to: joinAddrs(row.to),
         cc: joinAddrs(row.cc),
-        subject: row.subject,
+        subject: subjectOverride ?? row.subject,
         body_html: row.body_html,
       }
     }
@@ -552,6 +557,7 @@ export default function UltrafineFseReminder() {
     setNotConfigured(false)
     setEditableRows({})
     setEditableBroadcast(null)
+    setSubjectOverride(null)
     setSampleKey(null)
     setSendJobId(null)
     setSendResult(null)
@@ -580,6 +586,15 @@ export default function UltrafineFseReminder() {
       setSendingAll(false)
       setSendingKey(null)
     }
+  }
+
+  function updateSharedSubject(subject: string) {
+    setSubjectOverride(subject)
+    setEditableRows((prev) => {
+      const next: typeof prev = {}
+      for (const key of Object.keys(prev)) next[key] = { ...prev[key], subject }
+      return next
+    })
   }
 
   async function handleSendOne(fseKey: string) {
@@ -625,6 +640,8 @@ export default function UltrafineFseReminder() {
 
   const reportByKey = Object.fromEntries((sendResult?.report ?? []).map((r) => [r.fse_key, r]))
   const readyCount = (previewResult?.individual ?? []).filter((r) => !r.missing_email).length
+  const sharedSubject =
+    subjectOverride ?? (previewResult ? (editableRows[previewResult.individual[0]?.fse_key]?.subject ?? '') : '')
 
   return (
     <AppShell title="Ultrafine FSE Bulk Reminder">
@@ -914,16 +931,32 @@ export default function UltrafineFseReminder() {
                 )}
 
                 <div ref={sampleRef} className="flex flex-col gap-3">
-                  <p className="max-w-xl text-sm text-ink-dim">
-                    Every FSE's reminder follows this exact format — only the name, table rows, and
-                    totals differ. Edit the message below once to change it for every FSE and the
-                    broadcast, then use "Send all ready" above to send everyone without reviewing each
-                    one individually.
-                  </p>
+                  <div className="flex flex-col gap-4 rounded-xl border border-border p-4">
+                    <div>
+                      <h4 className="font-display text-sm font-semibold text-ink">
+                        Reminder wording — one edit, sent to every FSE
+                      </h4>
+                      <p className="mt-1 max-w-xl text-sm text-ink-dim">
+                        Every FSE's reminder follows this exact format — only the name, table rows, and
+                        totals differ. Edit the subject and message here once, then use "Send all ready"
+                        below to send everyone without reviewing each one individually.
+                      </p>
+                    </div>
 
-                  <div className="flex flex-col gap-1.5 text-sm">
-                    <span className="font-medium text-ink-dim">Message (shown before the table in every reminder)</span>
-                    <RichTextEditor value={advisoryHtml} onChange={setAdvisoryHtml} minHeight={90} />
+                    <label className="flex flex-col gap-1.5 text-sm">
+                      <span className="font-medium text-ink-dim">Subject (same for every FSE reminder)</span>
+                      <input
+                        className="field-control"
+                        value={sharedSubject}
+                        onChange={(e) => updateSharedSubject(e.target.value)}
+                      />
+                    </label>
+
+                    <label className="flex flex-col gap-1.5 text-sm">
+                      <span className="font-medium text-ink-dim">Message (shown before the table in every reminder)</span>
+                      <RichTextEditor value={advisoryHtml} onChange={setAdvisoryHtml} minHeight={90} />
+                    </label>
+
                     <div className="flex justify-end">
                       <Button variant="secondary" onClick={() => void handlePreview()} loading={submitting}>
                         Apply to all reminders
@@ -957,20 +990,9 @@ export default function UltrafineFseReminder() {
                         <IndividualCard
                           row={row}
                           edited={editableRows[sampleKey]}
-                          onChange={(patch) => {
-                            if (patch.subject !== undefined) {
-                              // Subject is identical for every FSE by construction, so editing it
-                              // once applies everywhere - unlike To/Cc/Body, which stay per-FSE.
-                              const subject = patch.subject
-                              setEditableRows((prev) => {
-                                const next: typeof prev = {}
-                                for (const key of Object.keys(prev)) next[key] = { ...prev[key], subject }
-                                return next
-                              })
-                            } else {
-                              setEditableRows((prev) => ({ ...prev, [sampleKey]: { ...prev[sampleKey], ...patch } }))
-                            }
-                          }}
+                          onChange={(patch) =>
+                            setEditableRows((prev) => ({ ...prev, [sampleKey]: { ...prev[sampleKey], ...patch } }))
+                          }
                           onSend={() => void handleSendOne(sampleKey)}
                           sending={sendingKey === sampleKey}
                           reportStatus={reportByKey[sampleKey]}

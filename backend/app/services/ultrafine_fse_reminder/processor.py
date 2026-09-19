@@ -293,7 +293,15 @@ def _fmt(value: float) -> str:
     return f"{value:.2f}"
 
 
-def _td(value, align: str = "right", bold: bool = False, bg: Optional[str] = None) -> str:
+# FSE and Party's Name get most of the table's width so a name almost never
+# wraps; the three figure columns are deliberately narrow so their longer
+# headers (e.g. "Collection Target considering dues upto 30-Sep-26") wrap
+# onto a few short lines instead of forcing the whole table wide.
+_COL_WIDTHS = {"fse": "14%", "party": "34%", "target": "18%", "received": "18%", "shortfall": "16%"}
+
+
+def _td(value, align: str = "right", bold: bool = False, bg: Optional[str] = None,
+        width: Optional[str] = None) -> str:
     style = (
         f"border:1px solid #4472C4;padding:5px 10px;text-align:{align};"
         "font-family:Calibri,Arial,sans-serif;font-size:11pt;"
@@ -302,16 +310,22 @@ def _td(value, align: str = "right", bold: bool = False, bg: Optional[str] = Non
         style += "font-weight:bold;"
     if bg:
         style += f"background-color:{bg};"
-    return f'<td style="{style}">{value}</td>'
+    if width:
+        style += f"width:{width};"
+    width_attr = f' width="{width}"' if width else ""
+    return f'<td style="{style}"{width_attr}>{value}</td>'
 
 
-def _header_cell(text: str, bg: str = "#F4B183") -> str:
+def _header_cell(text: str, bg: str = "#F4B183", width: Optional[str] = None) -> str:
     style = (
         f"border:1px solid #4472C4;padding:6px 10px;background-color:{bg};"
         "color:#1a1a1a;font-weight:bold;text-align:center;"
         "font-family:Calibri,Arial,sans-serif;font-size:11pt;"
     )
-    return f'<th style="{style}">{html.escape(text)}</th>'
+    if width:
+        style += f"width:{width};"
+    width_attr = f' width="{width}"' if width else ""
+    return f'<th style="{style}"{width_attr}>{html.escape(text)}</th>'
 
 
 def build_table_html(
@@ -325,36 +339,37 @@ def build_table_html(
     appear. `grand_total` (only passed for the broadcast mail) appends one
     final bold Grand Total row summing every block."""
     body_bg = "#DCE6F1"
+    w = _COL_WIDTHS
     rows_html = []
     for fse_name, group in fse_blocks:
         for row in group["rows"]:
             rows_html.append(
                 "<tr>"
-                + _td(html.escape(fse_name), "left", bg=body_bg)
-                + _td(html.escape(row["party"]), "left", bg=body_bg)
-                + _td(_fmt(row["target"]), "right", bg=body_bg)
-                + _td(_fmt(row["received"]), "right", bg=body_bg)
-                + _td(_fmt(row["shortfall"]), "right", bg=body_bg)
+                + _td(html.escape(fse_name), "left", bg=body_bg, width=w["fse"])
+                + _td(html.escape(row["party"]), "left", bg=body_bg, width=w["party"])
+                + _td(_fmt(row["target"]), "right", bg=body_bg, width=w["target"])
+                + _td(_fmt(row["received"]), "right", bg=body_bg, width=w["received"])
+                + _td(_fmt(row["shortfall"]), "right", bg=body_bg, width=w["shortfall"])
                 + "</tr>"
             )
         rows_html.append(
             "<tr>"
-            + _td(html.escape(fse_name), "left", bold=True, bg=body_bg)
-            + _td(f"{html.escape(fse_name)} Total", "left", bold=True, bg=body_bg)
-            + _td(_fmt(group["total_target"]), "right", bold=True, bg=body_bg)
-            + _td(_fmt(group["total_received"]), "right", bold=True, bg=body_bg)
-            + _td(_fmt(group["total_shortfall"]), "right", bold=True, bg=body_bg)
+            + _td(html.escape(fse_name), "left", bold=True, bg=body_bg, width=w["fse"])
+            + _td(f"{html.escape(fse_name)} Total", "left", bold=True, bg=body_bg, width=w["party"])
+            + _td(_fmt(group["total_target"]), "right", bold=True, bg=body_bg, width=w["target"])
+            + _td(_fmt(group["total_received"]), "right", bold=True, bg=body_bg, width=w["received"])
+            + _td(_fmt(group["total_shortfall"]), "right", bold=True, bg=body_bg, width=w["shortfall"])
             + "</tr>"
         )
 
     if grand_total is not None:
         rows_html.append(
             "<tr>"
-            + _td("", "left", bold=True, bg=body_bg)
-            + _td("Grand Total", "left", bold=True, bg=body_bg)
-            + _td(_fmt(grand_total["total_target"]), "right", bold=True, bg=body_bg)
-            + _td(_fmt(grand_total["total_received"]), "right", bold=True, bg=body_bg)
-            + _td(_fmt(grand_total["total_shortfall"]), "right", bold=True, bg=body_bg)
+            + _td("", "left", bold=True, bg=body_bg, width=w["fse"])
+            + _td("Grand Total", "left", bold=True, bg=body_bg, width=w["party"])
+            + _td(_fmt(grand_total["total_target"]), "right", bold=True, bg=body_bg, width=w["target"])
+            + _td(_fmt(grand_total["total_received"]), "right", bold=True, bg=body_bg, width=w["received"])
+            + _td(_fmt(grand_total["total_shortfall"]), "right", bold=True, bg=body_bg, width=w["shortfall"])
             + "</tr>"
         )
 
@@ -363,14 +378,14 @@ def build_table_html(
         "color:#1a1a1a;font-weight:bold;text-align:center;"
         "font-family:Calibri,Arial,sans-serif;font-size:12pt;"
     )
-    return f"""<table style="border-collapse:collapse;">
+    return f"""<table style="border-collapse:collapse;table-layout:fixed;width:100%;" width="100%">
 <tr><td colspan="5" style="{title_style}">{html.escape(title)}</td></tr>
 <tr>
-{_header_cell("FSE")}
-{_header_cell("Party's Name")}
-{_header_cell(target_header, bg="#FFFF00")}
-{_header_cell(received_header)}
-{_header_cell("Short Fall")}
+{_header_cell("FSE", width=w["fse"])}
+{_header_cell("Party's Name", width=w["party"])}
+{_header_cell(target_header, bg="#FFFF00", width=w["target"])}
+{_header_cell(received_header, width=w["received"])}
+{_header_cell("Short Fall", width=w["shortfall"])}
 </tr>
 {''.join(rows_html)}
 </table>"""

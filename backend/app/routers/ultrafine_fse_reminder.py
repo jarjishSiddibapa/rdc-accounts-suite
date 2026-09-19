@@ -73,10 +73,12 @@ def download_template():
     decoy Target columns - the app never needed either; they were just
     clutter carried over from the original tracker), two real example FSEs
     with their real customer names and figures, so the shape is immediately
-    recognisable. Deliberately has NO per-FSE "Total" rows and no "Grand
-    Total" row: read_coll_vs_target() only ever sums the detail rows itself
-    (see build_send_plan) and never reads a Total row's own numbers, so
-    asking a filler to hand-total anything would be pure busywork. The "as
+    recognisable. Deliberately has NO per-FSE "Total" rows, no "Grand
+    Total" row, and no instructional note explaining that either (it was a
+    merged cell that just got in the way): read_coll_vs_target() only ever
+    sums the detail rows itself (see build_send_plan) and never reads a
+    Total row's own numbers, so there's nothing for a filler to hand-total
+    or keep in sync - just one row per party under each FSE. The "as
     on"/month-end dates stay dynamic so the downloaded file never looks
     stale, while the illustrative rows use real historical figures for
     clarity."""
@@ -118,18 +120,6 @@ def download_template():
         row_num += 1
         ws.append([fse, party, target, received, shortfall])
         _style_row(ws, row_num, ncols, _BODY_FILL)
-
-    row_num += 2
-    ws.cell(row_num, 1).value = (
-        "Add one row per party under each FSE - that's it. Don't add \"<FSE> Total\" "
-        "or \"Grand Total\" rows: the app always computes every FSE's total and the "
-        "overall grand total itself from the rows above, so there's nothing to "
-        "hand-total or keep in sync."
-    )
-    ws.cell(row_num, 1).font = Font(italic=True, color="808080")
-    ws.merge_cells(start_row=row_num, start_column=1, end_row=row_num, end_column=ncols)
-    ws.cell(row_num, 1).alignment = Alignment(wrap_text=True, vertical="top")
-    ws.row_dimensions[row_num].height = 45
 
     ws.column_dimensions["A"].width = 20
     ws.column_dimensions["B"].width = 40
