@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
-import { CheckCircle2, UserRound, XCircle } from 'lucide-react'
+import { CheckCircle2, UserRound } from 'lucide-react'
 import { AppShell } from '@/components/AppShell'
 import { GlassCard } from '@/components/GlassCard'
 import { Button } from '@/components/Button'
+import { ErrorBanner } from '@/components/ErrorBanner'
 import { PasswordInput } from '@/components/PasswordInput'
 import { ApiError, get, put, post } from '@/lib/api'
 import { useAuth } from '@/lib/auth-context'
@@ -66,7 +67,7 @@ export default function Settings() {
     } catch (err) {
       setSaveMessage({
         ok: false,
-        text: err instanceof ApiError ? err.message : 'Failed to save settings.',
+        text: err instanceof ApiError ? err.message : 'Could not save settings.',
       })
     } finally {
       setSaving(false)
@@ -86,7 +87,7 @@ export default function Settings() {
     } catch (err) {
       setProfileMessage({
         ok: false,
-        text: err instanceof ApiError ? err.message : 'Failed to save profile.',
+        text: err instanceof ApiError ? err.message : 'Could not save profile.',
       })
     } finally {
       setProfileSaving(false)
@@ -105,7 +106,7 @@ export default function Settings() {
     } catch (err) {
       setTestMessage({
         ok: false,
-        text: err instanceof ApiError ? err.message : 'Connection test failed.',
+        text: err instanceof ApiError ? err.message : 'Could not test connection.',
       })
     } finally {
       setTesting(false)
@@ -179,20 +180,14 @@ export default function Settings() {
             </label>
 
             {profileMessage && (
-              <p
-                className={
-                  profileMessage.ok
-                    ? 'flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-600'
-                    : 'flex items-center gap-2 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-500'
-                }
-              >
-                {profileMessage.ok ? (
+              profileMessage.ok ? (
+                <p className="flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-600">
                   <CheckCircle2 className="h-4 w-4 shrink-0" />
-                ) : (
-                  <XCircle className="h-4 w-4 shrink-0" />
-                )}
-                {profileMessage.text}
-              </p>
+                  {profileMessage.text}
+                </p>
+              ) : (
+                <ErrorBanner>{profileMessage.text}</ErrorBanner>
+              )
             )}
 
             <div className="flex justify-end">
@@ -261,37 +256,25 @@ export default function Settings() {
           </label>
 
           {saveMessage && (
-            <p
-              className={
-                saveMessage.ok
-                  ? 'flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-600'
-                  : 'flex items-center gap-2 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-500'
-              }
-            >
-              {saveMessage.ok ? (
+            saveMessage.ok ? (
+              <p className="flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-600">
                 <CheckCircle2 className="h-4 w-4 shrink-0" />
-              ) : (
-                <XCircle className="h-4 w-4 shrink-0" />
-              )}
-              {saveMessage.text}
-            </p>
+                {saveMessage.text}
+              </p>
+            ) : (
+              <ErrorBanner>{saveMessage.text}</ErrorBanner>
+            )
           )}
 
           {testMessage && (
-            <p
-              className={
-                testMessage.ok
-                  ? 'flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-600'
-                  : 'flex items-center gap-2 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-500'
-              }
-            >
-              {testMessage.ok ? (
+            testMessage.ok ? (
+              <p className="flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-600">
                 <CheckCircle2 className="h-4 w-4 shrink-0" />
-              ) : (
-                <XCircle className="h-4 w-4 shrink-0" />
-              )}
-              {testMessage.text}
-            </p>
+                {testMessage.text}
+              </p>
+            ) : (
+              <ErrorBanner>{testMessage.text}</ErrorBanner>
+            )
           )}
 
           <div className="mt-2 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
@@ -305,7 +288,7 @@ export default function Settings() {
               Test connection
             </Button>
             <Button type="submit" variant="primary" loading={saving}>
-              Save
+              Save sender
             </Button>
           </div>
         </form>

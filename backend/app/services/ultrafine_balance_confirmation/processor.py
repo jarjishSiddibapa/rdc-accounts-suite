@@ -26,10 +26,12 @@ mandatory human preview step can show exactly what *would* be sent if the
 row were sendable.
 """
 
+import logging
 import mimetypes
 import os
 import re
 import smtplib
+import zipfile
 from email.message import EmailMessage
 from pathlib import Path
 from typing import Optional
@@ -40,6 +42,8 @@ from email_validator import EmailNotValidError, validate_email
 from . import mail_builder
 from app.jobs import JobUserError
 from app.services.mailer_shared import read_attachment_bytes
+
+logger = logging.getLogger(__name__)
 
 # ── Column aliasing / reading (verbatim from app/excel/excel_reader.py,
 #    minus the requirement that To/CC columns be present) ────────────────────
@@ -80,8 +84,22 @@ def _ensure_unique_names(df: pd.DataFrame, label: str) -> None:
 def _read_excel(file_path: str) -> pd.DataFrame:
     try:
         return pd.read_excel(file_path, engine="openpyxl")
+    except zipfile.BadZipFile as exc:
+        logger.warning("Balance confirmation upload is not a valid Excel file: %s", exc)
+        raise JobUserError(
+            "This doesn't look like a valid Excel file - please check you uploaded the right file."
+        ) from exc
+    except (ValueError, KeyError) as exc:
+        logger.warning("Balance confirmation upload has an unreadable sheet/column layout: %s", exc)
+        raise JobUserError(
+            "Could not read the balance workbook - please check its sheet and column layout match the template."
+        ) from exc
     except Exception as exc:
-        raise JobUserError(f"Could not read the Excel file: {exc}") from exc
+        logger.warning("Balance confirmation upload failed to open: %s", exc)
+        raise JobUserError(
+            "Could not open the uploaded file as an Excel workbook. Please check it isn't corrupted "
+            "and try again."
+        ) from exc
 
 
 def read_input_excel(file_path: str) -> pd.DataFrame:

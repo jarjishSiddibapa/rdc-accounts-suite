@@ -13,14 +13,18 @@ columns reusing similar wording.
 """
 
 import html
+import logging
 import math
 import re
+import zipfile
 from typing import Optional
 
 import pandas as pd
 from email_validator import EmailNotValidError, validate_email
 
 from app.jobs import JobUserError
+
+logger = logging.getLogger(__name__)
 
 SHEET_NAME = "Coll vs Target"
 
@@ -165,8 +169,17 @@ def read_coll_vs_target(path: str) -> dict:
 
     try:
         wb = openpyxl.load_workbook(path, data_only=True)
+    except zipfile.BadZipFile as exc:
+        logger.warning("FSE reminder upload is not a valid Excel file: %s", exc)
+        raise JobUserError(
+            "This doesn't look like a valid Excel file - please check you uploaded the right file."
+        ) from exc
     except Exception as exc:
-        raise JobUserError(f"Could not open the uploaded file as an Excel workbook: {exc}") from exc
+        logger.warning("FSE reminder upload failed to open: %s", exc)
+        raise JobUserError(
+            "Could not open the uploaded file as an Excel workbook. Please check it isn't corrupted "
+            "and try again."
+        ) from exc
 
     try:
         if SHEET_NAME not in wb.sheetnames:

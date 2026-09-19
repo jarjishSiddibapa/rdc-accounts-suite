@@ -1,8 +1,9 @@
 import { useState } from 'react'
-import { CheckCircle2, Download, FileCheck2, RotateCcw, Terminal, XCircle } from 'lucide-react'
+import { CheckCircle2, Download, FileCheck2, RotateCcw, Terminal } from 'lucide-react'
 import { AppShell } from '@/components/AppShell'
 import { GlassCard } from '@/components/GlassCard'
 import { Button } from '@/components/Button'
+import { ErrorBanner } from '@/components/ErrorBanner'
 import { FileDropzone } from '@/components/FileDropzone'
 import { ProgressPanel, type JobState, type JobStatus } from '@/components/ProgressPanel'
 import { ApiError, apiUrl, get, post, postForm } from '@/lib/api'
@@ -62,7 +63,7 @@ export default function GstInvoiceAdder() {
       // (cleared in ProgressPanel's onDone/onError below) - the request
       // returning just means the job was queued, not that it's finished.
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to start processing.')
+      setError(err instanceof ApiError ? err.message : 'Could not start processing.')
       setSubmitting(false)
     }
   }
@@ -114,18 +115,18 @@ export default function GstInvoiceAdder() {
             onRemove={() => setFile(null)}
           />
 
-          {error && (
-            <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-500">
-              {error}
-            </p>
-          )}
+          {error && <ErrorBanner className="whitespace-pre-wrap">{error}</ErrorBanner>}
+
+          <p className="text-xs text-ink-faint sm:text-right">
+            Looks up each row's GST invoice number in Oracle before saving the enriched file.
+          </p>
 
           <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
             <Button variant="secondary" icon={<RotateCcw className="h-4 w-4" />} disabled={active || (!file && !result)} onClick={resetAll}>
               Reset
             </Button>
             <Button onClick={() => void handleGenerate()} loading={submitting} disabled={!file || active}>
-              Fetch GST numbers &amp; save
+              Save GST numbers
             </Button>
           </div>
         </GlassCard>
@@ -190,12 +191,7 @@ export default function GstInvoiceAdder() {
               </div>
             )}
 
-            {error && (
-              <div className="flex items-center gap-2 text-sm text-red-500">
-                <XCircle className="h-4 w-4" />
-                {error}
-              </div>
-            )}
+            {error && <ErrorBanner className="whitespace-pre-wrap">{error}</ErrorBanner>}
           </GlassCard>
         )}
       </div>

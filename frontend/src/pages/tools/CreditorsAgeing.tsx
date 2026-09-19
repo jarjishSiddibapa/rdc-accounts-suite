@@ -11,6 +11,7 @@ import {
 import { AppShell } from '@/components/AppShell'
 import { Button } from '@/components/Button'
 import { CreatableCombobox } from '@/components/CreatableCombobox'
+import { ErrorBanner } from '@/components/ErrorBanner'
 import { FileDropzone } from '@/components/FileDropzone'
 import { GlassCard } from '@/components/GlassCard'
 import { MappingTable, type MappingColumn, type MappingRow } from '@/components/MappingTable'
@@ -151,7 +152,7 @@ function MappingManager({
 
   return (
     <div className="flex flex-col gap-4">
-      {error && <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-500">{error}</p>}
+      {error && <ErrorBanner>{error}</ErrorBanner>}
       <MappingTable
         title="Vendor classification mapping"
         addLabel="Add vendor"
@@ -259,7 +260,7 @@ function NewVendorClassification({
         )}
       </div>
 
-      {error && <p className="mt-4 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-500">{error}</p>}
+      {error && <ErrorBanner className="mt-4">{error}</ErrorBanner>}
 
       <div className="mt-5 flex flex-col gap-3">
         {pagination.pagedItems.map((vendor) => {
@@ -272,10 +273,15 @@ function NewVendorClassification({
           const isSaved = saved.has(vendor)
           return (
             <div key={vendor} className="subpanel grid gap-3 p-4 xl:grid-cols-[minmax(15rem,1.35fr)_repeat(3,minmax(10rem,1fr))_auto] xl:items-end">
-              <div className="min-w-0">
-                <p className="text-xs font-medium text-ink-faint">Vendor</p>
-                <p className="mt-1 break-words text-sm font-semibold text-ink">{vendor}</p>
-              </div>
+              <label className="flex min-w-0 flex-col gap-1.5 text-sm">
+                <span className="font-medium text-ink-dim">Vendor</span>
+                {/* field-control keeps this the same single-line height as the CreatableCombobox
+                    controls beside it - without it, a long vendor name wraps to two lines and
+                    xl:items-end bottom-aligns the whole row off the other columns' labels. */}
+                <div className="field-control flex items-center truncate bg-bg-soft/60 font-semibold text-ink" title={vendor}>
+                  {vendor}
+                </div>
+              </label>
               <label className="flex flex-col gap-1.5 text-sm">
                 <span className="font-medium text-ink-dim">Location</span>
                 <CreatableCombobox
@@ -489,9 +495,9 @@ export default function CreditorsAgeing() {
                 </label>
               </div>
 
-              {error && <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-500">{error}</p>}
+              {error && <ErrorBanner>{error}</ErrorBanner>}
 
-              <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+              <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
                 <Button variant="secondary" icon={<RotateCcw className="h-4 w-4" />} disabled={active || (!file && !result)} onClick={reset}>Reset</Button>
                 <Button loading={submitting} disabled={!file || active} onClick={() => void generate()}>Generate creditors ageing report</Button>
               </div>

@@ -56,7 +56,9 @@ Deliberate deviations from the original ``unapplied_processor.py``:
 from __future__ import annotations
 
 import datetime as _dt
+import logging
 import os
+import zipfile
 from dataclasses import dataclass
 from html.parser import HTMLParser as _HTMLParser
 from threading import Event, Thread
@@ -73,6 +75,8 @@ from app.services.xlsx_formula_cache import cache_formula_values, inject_cached_
 
 from app.jobs import JobCancelled, JobUserError
 from app.oracle_runtime import initialize_oracle_client
+
+logger = logging.getLogger(__name__)
 
 
 # ── Oracle connection config ────────────────────────────────────────────────
@@ -239,16 +243,35 @@ def _is_html(raw_sig: bytes) -> bool:
 def _read_file(path: str) -> pd.DataFrame:
     """Read unapplied receipts file — auto-detects xls/xlsx/xlsb/HTML."""
     ext = os.path.splitext(path)[1].lower()
-    if ext == ".xlsx":
-        return pd.read_excel(path, header=None, engine="openpyxl")
-    if ext == ".xlsb":
-        return pd.read_excel(path, header=None, engine="pyxlsb")
-    # .xls — check signature to distinguish HTML vs BIFF
-    with open(path, "rb") as f:
-        sig = f.read(8)
-    if _is_html(sig):
-        return _read_html_streaming(path)
-    return pd.read_excel(path, header=None, engine="xlrd")
+    try:
+        if ext == ".xlsx":
+            return pd.read_excel(path, header=None, engine="openpyxl")
+        if ext == ".xlsb":
+            return pd.read_excel(path, header=None, engine="pyxlsb")
+        # .xls — check signature to distinguish HTML vs BIFF
+        with open(path, "rb") as f:
+            sig = f.read(8)
+        if _is_html(sig):
+            return _read_html_streaming(path)
+        return pd.read_excel(path, header=None, engine="xlrd")
+    except JobUserError:
+        raise
+    except zipfile.BadZipFile as exc:
+        logger.warning("Unapplied receipts register upload is not a valid Excel file: %s", exc)
+        raise JobUserError(
+            "This doesn't look like a valid Excel file - please check you uploaded the right file."
+        ) from exc
+    except (ValueError, KeyError) as exc:
+        logger.warning("Unapplied receipts register upload has an unreadable layout: %s", exc)
+        raise JobUserError(
+            "Could not read the register file - please check it matches the expected export format."
+        ) from exc
+    except Exception as exc:
+        logger.warning("Unapplied receipts register upload failed to open: %s", exc)
+        raise JobUserError(
+            "Could not open the uploaded file as an Excel workbook. Please check it isn't corrupted "
+            "and try again."
+        ) from exc
 
 
 def _find_header_row(df: pd.DataFrame, marker: str,
@@ -270,31 +293,50 @@ def _read_ageing(path: str) -> pd.DataFrame:
     """
     ext = os.path.splitext(path)[1].lower()
 
-    if ext == ".xlsb":
-        return pd.read_excel(path, engine="pyxlsb", header=13)
-    if ext == ".xlsx":
-        return pd.read_excel(path, engine="openpyxl", header=13)
+    try:
+        if ext == ".xlsb":
+            return pd.read_excel(path, engine="pyxlsb", header=13)
+        if ext == ".xlsx":
+            return pd.read_excel(path, engine="openpyxl", header=13)
 
-    # .xls (and any other extension) — read first 8 bytes to detect format
-    with open(path, "rb") as f:
-        sig = f.read(8)
+        # .xls (and any other extension) — read first 8 bytes to detect format
+        with open(path, "rb") as f:
+            sig = f.read(8)
 
-    if _is_html(sig):
-        # Stream-parse — never loads the full DOM (handles 500 MB+ files)
-        df_raw = _read_html_streaming(path)
-        # Locate the actual header row (normally row 13 in Oracle ERP exports)
-        hdr = _find_header_row(df_raw, "Customer Account", default=13)
-        if len(df_raw) <= hdr:
-            raise JobUserError(
-                f"Ageing file has only {len(df_raw)} rows; "
-                f"could not find header row (tried row {hdr}).")
-        # Promote that row to column names and strip whitespace
-        df_raw.columns = [str(c).strip() for c in df_raw.iloc[hdr].tolist()]
-        df_raw = df_raw.iloc[hdr + 1:].reset_index(drop=True)
-        return df_raw
+        if _is_html(sig):
+            # Stream-parse — never loads the full DOM (handles 500 MB+ files)
+            df_raw = _read_html_streaming(path)
+            # Locate the actual header row (normally row 13 in Oracle ERP exports)
+            hdr = _find_header_row(df_raw, "Customer Account", default=13)
+            if len(df_raw) <= hdr:
+                raise JobUserError(
+                    f"Ageing file has only {len(df_raw)} rows; "
+                    f"could not find header row (tried row {hdr}).")
+            # Promote that row to column names and strip whitespace
+            df_raw.columns = [str(c).strip() for c in df_raw.iloc[hdr].tolist()]
+            df_raw = df_raw.iloc[hdr + 1:].reset_index(drop=True)
+            return df_raw
 
-    # True BIFF .xls
-    return pd.read_excel(path, engine="xlrd", header=13)
+        # True BIFF .xls
+        return pd.read_excel(path, engine="xlrd", header=13)
+    except JobUserError:
+        raise
+    except zipfile.BadZipFile as exc:
+        logger.warning("Ageing export upload is not a valid Excel file: %s", exc)
+        raise JobUserError(
+            "This doesn't look like a valid Excel file - please check you uploaded the right file."
+        ) from exc
+    except (ValueError, KeyError) as exc:
+        logger.warning("Ageing export upload has an unreadable layout: %s", exc)
+        raise JobUserError(
+            "Could not read the ageing file - please check it matches the expected export format."
+        ) from exc
+    except Exception as exc:
+        logger.warning("Ageing export upload failed to open: %s", exc)
+        raise JobUserError(
+            "Could not open the uploaded file as an Excel workbook. Please check it isn't corrupted "
+            "and try again."
+        ) from exc
 
 
 def _start_cancel_watcher(conn, cancel_event):
@@ -454,8 +496,8 @@ def process_report(input_path: str, log_q, as_on_date: _dt.date = None, *,
     cust_col = "Customer Name"
     if cust_col not in df.columns:
         raise JobUserError(
-            f"Column '{cust_col}' not found after reading.\n"
-            f"Columns found: {list(df.columns)[:10]}")
+            f"Could not find expected column '{cust_col}' after reading. "
+            f"Columns found: {', '.join(str(c) for c in list(df.columns)[:10])}.")
     before         = len(df)
     cleaned        = df[cust_col].astype(str).str.strip()
     is_unidentified = cleaned.isin({"***** Unidentified", "*****  Unidentified"})
@@ -490,8 +532,8 @@ def process_report(input_path: str, log_q, as_on_date: _dt.date = None, *,
     # ── Fetch Location from Oracle ERP ────────────────────────────────────────
     if pay_num_col not in df.columns:
         raise JobUserError(
-            f"Column '{pay_num_col}' not found.\n"
-            f"Columns found: {list(df.columns)[:10]}")
+            f"Could not find expected column '{pay_num_col}'. "
+            f"Columns found: {', '.join(str(c) for c in list(df.columns)[:10])}.")
     receipts = [str(r).strip() for r in df[pay_num_col].dropna().unique()
                 if str(r).strip() and str(r).strip().lower() not in ("nan", "none", "")]
     log_q.put(("info", f"Fetching Location for {len(receipts)} unique receipts from ERP …"))

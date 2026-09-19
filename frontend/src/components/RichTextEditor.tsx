@@ -9,6 +9,7 @@ interface RichTextEditorProps {
   className?: string
   minHeight?: number
   disabled?: boolean
+  ariaLabel?: string
 }
 
 /**
@@ -25,7 +26,7 @@ interface RichTextEditorProps {
  * typing. Callers that need to force fresh content in (e.g. after
  * regenerating a preview) should remount by changing the component's `key`.
  */
-export function RichTextEditor({ value, onChange, placeholder, className, minHeight = 160, disabled }: RichTextEditorProps) {
+export function RichTextEditor({ value, onChange, placeholder, className, minHeight = 160, disabled, ariaLabel = 'Email body' }: RichTextEditorProps) {
   const ref = useRef<HTMLDivElement | null>(null)
   const initialized = useRef(false)
 
@@ -47,7 +48,13 @@ export function RichTextEditor({ value, onChange, placeholder, className, minHei
   const isEmpty = !value || value.replace(/<[^>]*>/g, '').trim() === ''
 
   return (
-    <div className={cn('overflow-hidden rounded-xl border border-border bg-surface', className)}>
+    <div
+      className={cn(
+        'overflow-hidden rounded-xl border border-border bg-surface transition duration-200',
+        'focus-within:border-[color-mix(in_oklab,var(--color-accent)_72%,var(--color-border))] focus-within:shadow-[0_0_0_4px_color-mix(in_oklab,var(--color-accent)_12%,transparent),0_8px_24px_-18px_color-mix(in_oklab,var(--color-accent)_48%,transparent)]',
+        className,
+      )}
+    >
       <div className="flex items-center gap-1 border-b border-border bg-bg-soft px-2 py-1.5">
         <ToolbarButton icon={Bold} label="Bold" onClick={() => exec('bold')} disabled={disabled} />
         <ToolbarButton icon={Italic} label="Italic" onClick={() => exec('italic')} disabled={disabled} />
@@ -62,6 +69,9 @@ export function RichTextEditor({ value, onChange, placeholder, className, minHei
         <div
           ref={seedOnce}
           contentEditable={!disabled}
+          role="textbox"
+          aria-multiline="true"
+          aria-label={ariaLabel}
           suppressContentEditableWarning
           onInput={(e) => onChange(e.currentTarget.innerHTML)}
           onBlur={(e) => onChange(e.currentTarget.innerHTML)}

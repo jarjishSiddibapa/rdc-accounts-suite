@@ -290,10 +290,12 @@ def read_data_df(input_path: str):
     inv_no_col = col_map.get(COL_INV_NO.strip().lower())
     inv_date_col = col_map.get(COL_INV_DATE.strip().lower())
 
-    if inv_no_col is None:
-        raise JobUserError(f"Column '{COL_INV_NO}' not found.\nFound: {list(df.columns)}")
-    if inv_date_col is None:
-        raise JobUserError(f"Column '{COL_INV_DATE}' not found.\nFound: {list(df.columns)}")
+    missing_cols = [
+        name for name, col in ((COL_INV_NO, inv_no_col), (COL_INV_DATE, inv_date_col))
+        if col is None
+    ]
+    if missing_cols:
+        raise JobUserError(f"Could not find these expected columns: {', '.join(missing_cols)}.")
 
     return df, inv_no_col, inv_date_col
 
@@ -493,9 +495,9 @@ def insert_gst_column(wb_path: str, output_path: str, gst_map: dict,
 
     def _require(name):
         if name not in header_map:
+            found = ", ".join(str(k) for k in header_map.keys())
             raise JobUserError(
-                f"Header '{name}' not found in row {header_row}.\n"
-                f"Found: {list(header_map.keys())}")
+                f"Could not find the expected header '{name}' in row {header_row}. Found: {found}.")
         return header_map[name]
 
     insert_col = _require(COL_INV_NO)

@@ -1,8 +1,9 @@
 import { useState } from 'react'
-import { CheckCircle2, Download, PackageCheck, RotateCcw, Terminal, XCircle } from 'lucide-react'
+import { CheckCircle2, Download, PackageCheck, RotateCcw, Terminal } from 'lucide-react'
 import { AppShell } from '@/components/AppShell'
 import { GlassCard } from '@/components/GlassCard'
 import { Button } from '@/components/Button'
+import { ErrorBanner } from '@/components/ErrorBanner'
 import { FileDropzone } from '@/components/FileDropzone'
 import { ProgressPanel, type JobState, type JobStatus } from '@/components/ProgressPanel'
 import { ApiError, apiUrl, get, post, postForm } from '@/lib/api'
@@ -77,7 +78,7 @@ export default function ClosingPeriodReport() {
       const res = await postForm<{ job_id: string }>(`${BASE}/combine`, formData)
       setJobId(res.job_id)
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to start the combine job.')
+      setError(err instanceof ApiError ? err.message : 'Could not start the combine job.')
     } finally {
       setSubmitting(false)
     }
@@ -124,7 +125,7 @@ export default function ClosingPeriodReport() {
             onRemove={(index) => setFiles((previous) => previous.filter((_, current) => current !== index))}
           />
 
-          {error && <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-500">{error}</p>}
+          {error && <ErrorBanner>{error}</ErrorBanner>}
 
           <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
             <Button variant="secondary" icon={<RotateCcw className="h-4 w-4" />} disabled={active || (files.length === 0 && !result)} onClick={resetAll}>Reset</Button>
@@ -140,7 +141,7 @@ export default function ClosingPeriodReport() {
               <h3 className="font-display text-lg font-semibold text-ink">Combine progress</h3>
               {result && (
                 <Button icon={<Download className="h-4 w-4" />} onClick={handleDownload}>
-                  Download combined workbook
+                  Save / download report
                 </Button>
               )}
             </div>
@@ -194,12 +195,7 @@ export default function ClosingPeriodReport() {
               </div>
             )}
 
-            {error && (
-              <div className="flex items-center gap-2 text-sm text-red-500">
-                <XCircle className="h-4 w-4" />
-                {error}
-              </div>
-            )}
+            {error && <ErrorBanner>{error}</ErrorBanner>}
           </GlassCard>
         )}
       </div>

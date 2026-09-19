@@ -14,6 +14,7 @@ import {
 import { AppShell } from '@/components/AppShell'
 import { GlassCard } from '@/components/GlassCard'
 import { Button } from '@/components/Button'
+import { ErrorBanner } from '@/components/ErrorBanner'
 import { FileDropzone } from '@/components/FileDropzone'
 import { ProgressPanel, type JobState, type JobStatus } from '@/components/ProgressPanel'
 import { LoadingNotice } from '@/components/LoadingNotice'
@@ -201,7 +202,7 @@ function MissingEmailPanel({
       await post(`${BASE}/mappings`, { fse_name: fseName, email })
       setFixed((prev) => ({ ...prev, [fseName]: true }))
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to save mapping fix.')
+      setError(err instanceof ApiError ? err.message : 'Could not save mapping fix.')
     } finally {
       setFixing(null)
     }
@@ -221,7 +222,7 @@ function MissingEmailPanel({
         These FSEs have no saved email, so they'll be skipped from both their own reminder and the
         broadcast. Add an address below to save it, then regenerate the preview.
       </p>
-      {error && <p className="text-sm text-red-500">{error}</p>}
+      {error && <ErrorBanner>{error}</ErrorBanner>}
       <div className="flex flex-col gap-2">
         {pagination.pagedItems.map((row) => (
           <div
@@ -405,7 +406,7 @@ function MappingSection() {
       const data = await get<MappingRow[]>(`${BASE}/mappings`)
       setRows(data)
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to load mapping table.')
+      setError(err instanceof ApiError ? err.message : 'Could not load mapping table.')
     } finally {
       setLoading(false)
     }
@@ -437,9 +438,7 @@ function MappingSection() {
 
   return (
     <div className="flex flex-col gap-3">
-      {error && (
-        <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-500">{error}</p>
-      )}
+      {error && <ErrorBanner>{error}</ErrorBanner>}
       {loading ? (
         <LoadingNotice />
       ) : (
@@ -513,7 +512,7 @@ export default function UltrafineFseReminder() {
       if (err instanceof ApiError && err.status === 400 && /Settings/i.test(err.message)) {
         setNotConfigured(true)
       } else {
-        setPreviewError(err instanceof ApiError ? err.message : 'Failed to build the preview.')
+        setPreviewError(err instanceof ApiError ? err.message : 'Could not build the preview.')
       }
       setSubmitting(false)
     }
@@ -577,7 +576,7 @@ export default function UltrafineFseReminder() {
       setSendJobId(res.job_id)
       setSendResult(null)
     } catch (err) {
-      setSendError(err instanceof ApiError ? err.message : 'Failed to start sending.')
+      setSendError(err instanceof ApiError ? err.message : 'Could not start sending reminders.')
       setSendingAll(false)
       setSendingKey(null)
     }
@@ -619,7 +618,7 @@ export default function UltrafineFseReminder() {
       setBroadcastJobId(res.job_id)
       setBroadcastResult(null)
     } catch (err) {
-      setBroadcastError(err instanceof ApiError ? err.message : 'Failed to start sending.')
+      setBroadcastError(err instanceof ApiError ? err.message : 'Could not start sending broadcast.')
       setBroadcastSending(false)
     }
   }
@@ -699,11 +698,7 @@ export default function UltrafineFseReminder() {
             </div>
           )}
 
-          {previewError && (
-            <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-500">
-              {previewError}
-            </p>
-          )}
+          {previewError && <ErrorBanner>{previewError}</ErrorBanner>}
 
           {previewJobId && !previewResult && (
             <ProgressPanel
@@ -798,7 +793,7 @@ export default function UltrafineFseReminder() {
                       minHeight={220}
                     />
                   </label>
-                  {broadcastError && <p className="text-sm text-red-500">{broadcastError}</p>}
+                  {broadcastError && <ErrorBanner>{broadcastError}</ErrorBanner>}
                   {broadcastJobId && !broadcastResult && (
                     <ProgressPanel
                       jobId={broadcastJobId}
@@ -814,6 +809,12 @@ export default function UltrafineFseReminder() {
                       }}
                     />
                   )}
+                  <p className="text-sm text-ink-dim">
+                    This sends 1 combined email to{' '}
+                    {formatIndianNumber(splitAddrs(editableBroadcast.to).length)} recipient
+                    {splitAddrs(editableBroadcast.to).length === 1 ? '' : 's'}; nothing goes out until you
+                    click "Send broadcast".
+                  </p>
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <label className="flex items-center gap-2 text-sm text-ink-dim">
                       <input
@@ -851,11 +852,12 @@ export default function UltrafineFseReminder() {
                   </Button>
                 </div>
 
-                {sendError && (
-                  <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-500">
-                    {sendError}
-                  </p>
-                )}
+                <p className="text-sm text-ink-dim">
+                  {formatIndianNumber(readyCount)} email{readyCount === 1 ? '' : 's'} will actually go
+                  out; FSEs with missing emails are skipped.
+                </p>
+
+                {sendError && <ErrorBanner>{sendError}</ErrorBanner>}
 
                 {sendJobId && !sendResult && (
                   <ProgressPanel
@@ -876,19 +878,38 @@ export default function UltrafineFseReminder() {
                 )}
 
                 {sendResult && (
-                  <div className="grid gap-3 sm:grid-cols-3">
-                    {[
-                      ['Sent', sendResult.sent, 'text-emerald-500'],
-                      ['Failed', sendResult.failed, 'text-red-500'],
-                      ['Skipped', sendResult.skipped, 'text-amber-500'],
-                    ].map(([label, value, color]) => (
-                      <div key={String(label)} className="rounded-xl border border-stroke/70 bg-surface/55 px-4 py-3">
-                        <span className="text-xs font-medium text-ink-faint">{label}</span>
-                        <p className={`mt-1 font-display text-2xl font-semibold ${color}`}>
-                          {formatIndianNumber(Number(value))}
-                        </p>
-                      </div>
-                    ))}
+                  <div className="flex flex-col gap-3">
+                    <p className="text-sm font-medium text-ink">
+                      Sent {formatIndianNumber(sendResult.sent)} of{' '}
+                      {formatIndianNumber(sendResult.sent + sendResult.failed + sendResult.skipped)}{' '}
+                      reminders.
+                      {sendResult.failed > 0 && (
+                        <span className="ml-1 font-semibold text-red-500">
+                          {formatIndianNumber(sendResult.failed)} failed — see below.
+                        </span>
+                      )}
+                    </p>
+                    <div className="grid gap-3 sm:grid-cols-3">
+                      {[
+                        ['Sent', sendResult.sent, 'text-emerald-500'],
+                        ['Failed', sendResult.failed, 'text-red-500'],
+                        ['Skipped', sendResult.skipped, 'text-amber-500'],
+                      ].map(([label, value, color]) => (
+                        <div
+                          key={String(label)}
+                          className={
+                            label === 'Failed' && sendResult.failed > 0
+                              ? 'rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-3'
+                              : 'rounded-xl border border-stroke/70 bg-surface/55 px-4 py-3'
+                          }
+                        >
+                          <span className="text-xs font-medium text-ink-faint">{label}</span>
+                          <p className={`mt-1 font-display text-2xl font-semibold ${color}`}>
+                            {formatIndianNumber(Number(value))}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 )}
 
@@ -958,19 +979,26 @@ export default function UltrafineFseReminder() {
                     })()}
                 </div>
 
-                <div className="overflow-x-auto rounded-xl border border-border">
+                <div className="table-shell">
                   <table className="w-full text-sm">
                     <thead className="bg-bg-soft text-xs font-medium text-ink-dim">
                       <tr>
                         <th className="px-3 py-2 text-left">FSE</th>
                         <th className="px-3 py-2 text-right">Target</th>
                         <th className="px-3 py-2 text-right">Received</th>
-                        <th className="px-3 py-2 text-right">Short fall</th>
+                        <th className="px-3 py-2 text-right">Shortfall</th>
                         <th className="px-3 py-2 text-left">Status</th>
                         <th className="px-3 py-2" />
                       </tr>
                     </thead>
                     <tbody>
+                      {pagination.pagedItems.length === 0 && (
+                        <tr>
+                          <td colSpan={6} className="px-4 py-8 text-center text-ink-faint">
+                            No FSE reminders to show yet.
+                          </td>
+                        </tr>
+                      )}
                       {pagination.pagedItems.map((row) => {
                         const status = reportByKey[row.fse_key]
                         return (

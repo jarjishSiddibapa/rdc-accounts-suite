@@ -63,6 +63,11 @@ class ApplicationAccessControlTests(unittest.TestCase):
                     company="RDC",
                 ))
                 db.add(Application(
+                    key="it-po-lookup",
+                    label="IT POs Lookup",
+                    company="RDC",
+                ))
+                db.add(Application(
                     key="rdc-payables",
                     label="RDC Payables Report",
                     company="RDC",
@@ -73,6 +78,8 @@ class ApplicationAccessControlTests(unittest.TestCase):
 
                 retired = db.query(Application).filter_by(key="dms").one()
                 self.assertTrue(retired.is_deleted)
+                retired_po_lookup = db.query(Application).filter_by(key="it-po-lookup").one()
+                self.assertTrue(retired_po_lookup.is_deleted)
                 payables = db.query(Application).filter_by(key="rdc-payables").one()
                 self.assertEqual(
                     payables.label,

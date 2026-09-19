@@ -4,6 +4,7 @@ import { cn } from '@/utils/cn'
 import { formatIndianNumber } from '@/lib/regional'
 import { Pagination } from '@/components/Pagination'
 import { usePagination } from '@/hooks/usePagination'
+import { ErrorBanner } from '@/components/ErrorBanner'
 
 interface FileDropzoneProps {
   onFilesSelected: (files: File[]) => void
@@ -29,6 +30,7 @@ export function FileDropzone({
   const inputId = useId()
   const inputRef = useRef<HTMLInputElement>(null)
   const [isDragging, setIsDragging] = useState(false)
+  const [fileTypeError, setFileTypeError] = useState<string | null>(null)
   const filePagination = usePagination(
     (files ?? []).map((file, index) => ({ file, originalIndex: index })),
     5,
@@ -38,9 +40,32 @@ export function FileDropzone({
     (fileList: FileList | null) => {
       if (!fileList || fileList.length === 0) return
       const arr = Array.from(fileList)
+      // The native "accept" attribute is only enforced by the browser's file
+      // picker, not on drag-and-drop, so re-check the dropped file's
+      // extension ourselves and surface a message instead of silently
+      // accepting a file the backend will later reject.
+      const acceptedExtensions = accept
+        ? accept
+            .split(',')
+            .map((entry) => entry.trim().toLowerCase())
+            .filter((entry) => entry.startsWith('.'))
+        : []
+      const isAcceptedFile = (file: File) =>
+        acceptedExtensions.length === 0 ||
+        acceptedExtensions.some((ext) => file.name.toLowerCase().endsWith(ext))
+      const rejectedFile = arr.find((file) => !isAcceptedFile(file))
+      if (rejectedFile) {
+        const extensionList =
+          acceptedExtensions.length <= 1
+            ? acceptedExtensions[0]
+            : `${acceptedExtensions.slice(0, -1).join(', ')} or ${acceptedExtensions[acceptedExtensions.length - 1]}`
+        setFileTypeError(`Please upload a ${extensionList} file.`)
+        return
+      }
+      setFileTypeError(null)
       onFilesSelected(multiple ? arr : [arr[0]])
     },
-    [multiple, onFilesSelected],
+    [accept, multiple, onFilesSelected],
   )
 
   const onDrop = (e: DragEvent<HTMLDivElement>) => {
@@ -160,6 +185,8 @@ export function FileDropzone({
           />
         </div>
       )}
+
+      {fileTypeError && <ErrorBanner>{fileTypeError}</ErrorBanner>}
 
       {files && files.length > 0 && (
         <div className="flex flex-col gap-3">

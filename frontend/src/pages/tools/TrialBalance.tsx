@@ -11,6 +11,7 @@ import {
 import { AppShell } from '@/components/AppShell'
 import { GlassCard } from '@/components/GlassCard'
 import { Button } from '@/components/Button'
+import { ErrorBanner } from '@/components/ErrorBanner'
 import { FileDropzone } from '@/components/FileDropzone'
 import { ProgressPanel, type JobState, type JobStatus } from '@/components/ProgressPanel'
 import { MappingTable, type MappingColumn, type MappingRow } from '@/components/MappingTable'
@@ -100,7 +101,7 @@ function MissingCodesFix({
       await post(`${BASE}/mappings/fix`, { location_code: code, location_name: locationName, region })
       setFixed((prev) => ({ ...prev, [code]: true }))
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to save mapping fix.')
+      setError(err instanceof ApiError ? err.message : 'Could not save the location code mapping.')
     } finally {
       setFixing(null)
     }
@@ -121,7 +122,7 @@ function MissingCodesFix({
         regenerate the report. Accounts Incharge is filled in automatically from the Region
         Incharge table.
       </p>
-      {error && <p className="text-sm text-red-500">{error}</p>}
+      {error && <ErrorBanner>{error}</ErrorBanner>}
       <div className="flex flex-col gap-2">
         {pagination.pagedItems.map((code) => {
           const form = forms[code] ?? { location_name: '', region: '' }
@@ -234,7 +235,7 @@ function MissingAccountHoFix({
       await post(`${BASE}/mappings/account-ho`, { account_code: code, ho_person: person })
       setFixed((prev) => ({ ...prev, [code]: true }))
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to save mapping fix.')
+      setError(err instanceof ApiError ? err.message : 'Could not save the account HO mapping.')
     } finally {
       setFixing(null)
     }
@@ -254,7 +255,7 @@ function MissingAccountHoFix({
         These Account Codes had no Head Office Assigned Person mapped. The column was left
         blank in the output. Enter a name for each, then regenerate the report.
       </p>
-      {error && <p className="text-sm text-red-500">{error}</p>}
+      {error && <ErrorBanner>{error}</ErrorBanner>}
       <div className="flex flex-col gap-2">
         {pagination.pagedItems.map((code) => (
           <div
@@ -397,11 +398,11 @@ function MappingSection({ config }: { config: MappingConfig }) {
       const data = await get<MappingRow[]>(`${BASE}/mappings/${config.key}`)
       setRows(data)
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to load mapping table.')
+      setError(err instanceof ApiError ? err.message : `Could not load ${config.title.toLowerCase()}.`)
     } finally {
       setLoading(false)
     }
-  }, [config.key])
+  }, [config.key, config.title])
 
   useEffect(() => {
     void load()
@@ -426,11 +427,7 @@ function MappingSection({ config }: { config: MappingConfig }) {
 
   return (
     <div className="flex flex-col gap-3">
-      {error && (
-        <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-500">
-          {error}
-        </p>
-      )}
+      {error && <ErrorBanner>{error}</ErrorBanner>}
       {loading ? (
         <LoadingNotice />
       ) : (
@@ -529,7 +526,7 @@ export default function TrialBalance() {
       setRawRowCount(res.raw_row_count)
       setAccounts(res.accounts)
     } catch (err) {
-      setUploadError(err instanceof ApiError ? err.message : 'Failed to parse the uploaded file.')
+      setUploadError(err instanceof ApiError ? err.message : 'Could not parse the uploaded file.')
     } finally {
       setUploading(false)
     }
@@ -563,7 +560,7 @@ export default function TrialBalance() {
       // (see ProgressPanel's onDone/onError below) - the request returning
       // just means the job was queued, not that it's finished.
     } catch (err) {
-      const message = err instanceof ApiError ? err.message : 'Failed to start report generation.'
+      const message = err instanceof ApiError ? err.message : 'Could not start report generation.'
       setProcessError(message)
       setActivityLog((previous) => [...previous, `[ERR] ${message}`])
       setSubmitting(false)
@@ -615,11 +612,7 @@ export default function TrialBalance() {
           />
 
           {uploading && <p className="text-sm text-ink-dim">Parsing accounts...</p>}
-          {uploadError && (
-            <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-500">
-              {uploadError}
-            </p>
-          )}
+          {uploadError && <ErrorBanner>{uploadError}</ErrorBanner>}
 
           {token && (
             <div className="flex flex-col gap-3 rounded-xl border border-border p-4">
@@ -700,11 +693,7 @@ export default function TrialBalance() {
             </div>
           )}
 
-          {processError && (
-            <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-500">
-              {processError}
-            </p>
-          )}
+          {processError && <ErrorBanner>{processError}</ErrorBanner>}
 
           {jobId && (
             <ProgressPanel

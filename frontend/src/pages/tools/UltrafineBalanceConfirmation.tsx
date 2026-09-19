@@ -19,6 +19,7 @@ import {
 import { AppShell } from '@/components/AppShell'
 import { GlassCard } from '@/components/GlassCard'
 import { Button } from '@/components/Button'
+import { ErrorBanner } from '@/components/ErrorBanner'
 import { FileDropzone } from '@/components/FileDropzone'
 import { Modal } from '@/components/Modal'
 import { ProgressPanel, type JobState, type JobStatus } from '@/components/ProgressPanel'
@@ -243,7 +244,7 @@ function MissingRecipientsPanel({
       })
       setFixed((prev) => ({ ...prev, [customerName]: true }))
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to save mapping fix.')
+      setError(err instanceof ApiError ? err.message : 'Could not save mapping fix.')
     } finally {
       setFixing(null)
     }
@@ -263,7 +264,7 @@ function MissingRecipientsPanel({
         These customers had no To/Cc in the upload and no saved mapping, so they'll be skipped. Add
         an email below to save it as their mapping, then regenerate the preview.
       </p>
-      {error && <p className="text-sm text-red-500">{error}</p>}
+      {error && <ErrorBanner>{error}</ErrorBanner>}
       <div className="flex flex-col gap-2">
         {pagination.pagedItems.map((customer) => (
           <div
@@ -346,9 +347,24 @@ function MissingRecipientsPanel({
 
 // ── results table ─────────────────────────────────────────────────────────
 
-function StatTile({ label, value, color }: { label: string; value: number; color: string }) {
+function StatTile({
+  label,
+  value,
+  color,
+  emphasize,
+}: {
+  label: string
+  value: number
+  color: string
+  emphasize?: boolean
+}) {
   return (
-    <div className="rounded-xl border border-stroke/70 bg-surface/55 px-4 py-3">
+    <div
+      className={cn(
+        'rounded-xl border border-stroke/70 bg-surface/55 px-4 py-3',
+        emphasize && 'border-red-500/40 bg-red-500/5',
+      )}
+    >
       <span className="text-xs font-medium text-ink-faint">{label}</span>
       <p className={cn('mt-1 font-display text-2xl font-semibold', color)}>{formatIndianNumber(value)}</p>
     </div>
@@ -375,6 +391,13 @@ function ResultsTable({ customers }: { customers: PreviewCustomer[] }) {
             </tr>
           </thead>
           <tbody>
+            {customers.length === 0 && (
+              <tr>
+                <td colSpan={7} className="px-4 py-8 text-center text-ink-faint">
+                  No customers matched this upload.
+                </td>
+              </tr>
+            )}
             {pagination.pagedItems.map((customer) => (
               <tr
                 key={customer.customer_name}
@@ -519,7 +542,7 @@ function MappingSection() {
       const data = await get<MappingRow[]>(`${BASE}/mappings`)
       setRows(data)
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to load the mapping table.')
+      setError(err instanceof ApiError ? err.message : 'Could not load mapping table.')
     } finally {
       setLoading(false)
     }
@@ -556,11 +579,7 @@ function MappingSection() {
 
   return (
     <div className="flex flex-col gap-3">
-      {error && (
-        <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-500">
-          {error}
-        </p>
-      )}
+      {error && <ErrorBanner>{error}</ErrorBanner>}
       {loading ? (
         <LoadingNotice />
       ) : (
@@ -636,7 +655,7 @@ export default function UltrafineBalanceConfirmation() {
       if (err instanceof ApiError && err.status === 400 && /Settings/i.test(err.message)) {
         setNotConfigured(true)
       } else {
-        setPreviewError(err instanceof ApiError ? err.message : 'Failed to start preview.')
+        setPreviewError(err instanceof ApiError ? err.message : 'Could not start preview.')
       }
       setPreviewSubmitting(false)
     }
@@ -658,7 +677,7 @@ export default function UltrafineBalanceConfirmation() {
       if (err instanceof ApiError && err.status === 400 && /Settings/i.test(err.message)) {
         setNotConfigured(true)
       } else {
-        setSendError(err instanceof ApiError ? err.message : 'Failed to start sending.')
+        setSendError(err instanceof ApiError ? err.message : 'Could not start sending.')
       }
       setSendSubmitting(false)
     }
@@ -740,11 +759,7 @@ export default function UltrafineBalanceConfirmation() {
             </Button>
           </div>
 
-          {previewError && (
-            <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-500">
-              {previewError}
-            </p>
-          )}
+          {previewError && <ErrorBanner>{previewError}</ErrorBanner>}
 
           {notConfigured && (
             <div className="flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3">
@@ -811,11 +826,7 @@ export default function UltrafineBalanceConfirmation() {
                 </Button>
               </div>
 
-              {sendError && (
-                <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-500">
-                  {sendError}
-                </p>
-              )}
+              {sendError && <ErrorBanner>{sendError}</ErrorBanner>}
 
               {sendJobId && !sendResult && (
                 <ProgressPanel
@@ -835,9 +846,21 @@ export default function UltrafineBalanceConfirmation() {
 
               {sendResult && (
                 <div className="subpanel flex flex-col gap-4 p-4">
+                  <p className="text-sm font-medium text-ink">
+                    Sent {formatIndianNumber(sendResult.sent)} of{' '}
+                    {formatIndianNumber(sendResult.sent + sendResult.failed + sendResult.skipped)} emails.
+                    {sendResult.failed > 0 && (
+                      <span className="text-red-500"> {formatIndianNumber(sendResult.failed)} failed — see below.</span>
+                    )}
+                  </p>
                   <div className="grid gap-3 sm:grid-cols-3">
                     <StatTile label="Sent" value={sendResult.sent} color="text-emerald-500" />
-                    <StatTile label="Failed" value={sendResult.failed} color="text-red-500" />
+                    <StatTile
+                      label="Failed"
+                      value={sendResult.failed}
+                      color="text-red-500"
+                      emphasize={sendResult.failed > 0}
+                    />
                     <StatTile label="Skipped" value={sendResult.skipped} color="text-amber-500" />
                   </div>
                   <SendReportTable report={sendResult.report} />

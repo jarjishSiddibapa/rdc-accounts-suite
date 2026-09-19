@@ -15,6 +15,7 @@ import {
 import { AppShell } from '@/components/AppShell'
 import { GlassCard } from '@/components/GlassCard'
 import { Button } from '@/components/Button'
+import { ErrorBanner } from '@/components/ErrorBanner'
 import { FileDropzone } from '@/components/FileDropzone'
 import { ProgressPanel, type JobState, type JobStatus } from '@/components/ProgressPanel'
 import { LoadingNotice } from '@/components/LoadingNotice'
@@ -155,7 +156,7 @@ function MissingRecipientsPanel({
       })
       setFixed((prev) => ({ ...prev, [groupName]: true }))
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to save mapping fix.')
+      setError(err instanceof ApiError ? err.message : 'Could not save mapping fix.')
     } finally {
       setFixing(null)
     }
@@ -175,7 +176,7 @@ function MissingRecipientsPanel({
         These customers had no To/Cc in the upload and no saved mapping, so they'll be skipped. Add
         an email below to save it as their mapping, then regenerate the preview.
       </p>
-      {error && <p className="text-sm text-red-500">{error}</p>}
+      {error && <ErrorBanner>{error}</ErrorBanner>}
       <div className="flex flex-col gap-2">
         {pagination.pagedItems.map((row) => (
           <div
@@ -276,6 +277,13 @@ function PreviewTable({ rows }: { rows: PlanRow[] }) {
             </tr>
           </thead>
           <tbody>
+            {rows.length === 0 && (
+              <tr>
+                <td colSpan={7} className="px-4 py-8 text-center text-ink-faint">
+                  No customers to show yet.
+                </td>
+              </tr>
+            )}
             {pagination.pagedItems.map((row) => (
               <tr
                 key={row.group_name}
@@ -345,6 +353,13 @@ function SendReportTable({ rows }: { rows: SendReportRow[] }) {
             </tr>
           </thead>
           <tbody>
+            {rows.length === 0 && (
+              <tr>
+                <td colSpan={4} className="px-4 py-8 text-center text-ink-faint">
+                  No send results to show yet.
+                </td>
+              </tr>
+            )}
             {pagination.pagedItems.map((row) => (
               <tr
                 key={row.group_name}
@@ -408,7 +423,7 @@ function MappingSection() {
       const data = await get<MappingRow[]>(`${BASE}/mappings`)
       setRows(data)
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to load mapping table.')
+      setError(err instanceof ApiError ? err.message : 'Could not load mapping table.')
     } finally {
       setLoading(false)
     }
@@ -445,11 +460,7 @@ function MappingSection() {
 
   return (
     <div className="flex flex-col gap-3">
-      {error && (
-        <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-500">
-          {error}
-        </p>
-      )}
+      {error && <ErrorBanner>{error}</ErrorBanner>}
       {loading ? (
         <LoadingNotice />
       ) : (
@@ -525,7 +536,7 @@ export default function UltrafinePaymentReminder() {
       if (err instanceof ApiError && err.status === 400 && /Settings/i.test(err.message)) {
         setNotConfigured(true)
       } else {
-        setPreviewError(err instanceof ApiError ? err.message : 'Failed to build the preview.')
+        setPreviewError(err instanceof ApiError ? err.message : 'Could not build the preview.')
       }
       setSubmitting(false)
     }
@@ -544,7 +555,7 @@ export default function UltrafinePaymentReminder() {
       if (err instanceof ApiError && err.status === 400 && /Settings/i.test(err.message)) {
         setNotConfigured(true)
       } else {
-        setSendError(err instanceof ApiError ? err.message : 'Failed to start sending.')
+        setSendError(err instanceof ApiError ? err.message : 'Could not start sending.')
       }
       setConfirmSending(false)
     }
@@ -666,11 +677,7 @@ export default function UltrafinePaymentReminder() {
             </div>
           )}
 
-          {previewError && (
-            <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-500">
-              {previewError}
-            </p>
-          )}
+          {previewError && <ErrorBanner>{previewError}</ErrorBanner>}
 
           {previewJobId && !previewResult && (
             <ProgressPanel
@@ -732,11 +739,7 @@ export default function UltrafinePaymentReminder() {
                 </Button>
               </div>
 
-              {sendError && (
-                <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-500">
-                  {sendError}
-                </p>
-              )}
+              {sendError && <ErrorBanner>{sendError}</ErrorBanner>}
 
               {sendJobId && !sendResult && (
                 <ProgressPanel
@@ -756,13 +759,28 @@ export default function UltrafinePaymentReminder() {
 
               {sendResult && (
                 <div className="flex flex-col gap-4">
+                  <p className="text-sm text-ink">
+                    Sent {formatIndianNumber(sendResult.sent)} of{' '}
+                    {formatIndianNumber(sendResult.sent + sendResult.failed + sendResult.skipped)} reminders.{' '}
+                    {sendResult.failed > 0 && (
+                      <span className="font-medium text-red-500">
+                        {formatIndianNumber(sendResult.failed)} failed — see below.
+                      </span>
+                    )}
+                  </p>
                   <div className="grid gap-3 sm:grid-cols-3">
                     {[
-                      ['Sent', sendResult.sent, 'text-emerald-500'],
-                      ['Failed', sendResult.failed, 'text-red-500'],
-                      ['Skipped', sendResult.skipped, 'text-amber-500'],
-                    ].map(([label, value, color]) => (
-                      <div key={String(label)} className="rounded-xl border border-stroke/70 bg-surface/55 px-4 py-3">
+                      ['Sent', sendResult.sent, 'text-emerald-500', false],
+                      ['Failed', sendResult.failed, 'text-red-500', sendResult.failed > 0],
+                      ['Skipped', sendResult.skipped, 'text-amber-500', false],
+                    ].map(([label, value, color, emphasize]) => (
+                      <div
+                        key={String(label)}
+                        className={cn(
+                          'rounded-xl border border-stroke/70 bg-surface/55 px-4 py-3',
+                          emphasize && 'border-red-500/40 bg-red-500/10',
+                        )}
+                      >
                         <span className="text-xs font-medium text-ink-faint">{label}</span>
                         <p className={`mt-1 font-display text-2xl font-semibold ${color}`}>
                           {formatIndianNumber(Number(value))}

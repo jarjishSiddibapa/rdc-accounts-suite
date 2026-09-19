@@ -312,7 +312,7 @@ export function MappingTable({
                         </button>
                         <button
                           onClick={() => setDeleteIndex(index)}
-                          aria-label="Archive row"
+                          aria-label={archive ? 'Archive row' : 'Remove row'}
                           className="grid h-11 w-11 place-items-center rounded-full text-ink-dim transition hover:bg-bg-soft hover:text-red-500 sm:h-8 sm:w-8"
                         >
                           <Archive className="h-4 w-4" />
@@ -394,9 +394,13 @@ export function MappingTable({
         </form>
       </Modal>
 
-      <Modal open={deleteIndex !== null} onClose={() => setDeleteIndex(null)} title="Archive mapping row">
+      <Modal
+        open={deleteIndex !== null}
+        onClose={() => setDeleteIndex(null)}
+        title={archive ? 'Archive mapping row' : 'Remove mapping row'}
+      >
         <p className="mb-6 text-sm text-ink-dim">
-          Archive this mapping row? It will be hidden from active mapping data
+          {archive ? 'Archive this mapping row?' : 'Remove this mapping row?'} It will be hidden from active mapping data
           {archive ? '. You can find it later under "View archived" and restore it.' : ', while its history remains preserved.'}
         </p>
         <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
@@ -404,7 +408,7 @@ export function MappingTable({
             Cancel
           </Button>
           <Button variant="danger" loading={busy} onClick={() => void confirmDelete()}>
-            Archive
+            {archive ? 'Archive' : 'Remove'}
           </Button>
         </div>
       </Modal>

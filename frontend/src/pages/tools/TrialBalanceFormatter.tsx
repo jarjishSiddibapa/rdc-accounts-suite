@@ -10,6 +10,7 @@ import {
 } from 'lucide-react'
 import { AppShell } from '@/components/AppShell'
 import { Button } from '@/components/Button'
+import { ErrorBanner } from '@/components/ErrorBanner'
 import { FileDropzone } from '@/components/FileDropzone'
 import { GlassCard } from '@/components/GlassCard'
 import { MappingTable, type MappingColumn, type MappingRow } from '@/components/MappingTable'
@@ -148,7 +149,7 @@ function MappingManager({
 
   return (
     <div className="flex flex-col gap-4">
-      {error && <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-500">{error}</p>}
+      {error && <ErrorBanner>{error}</ErrorBanner>}
       <MappingTable
         title="Ledger nature and row treatment"
         addLabel="Add ledger"
@@ -218,14 +219,18 @@ function MissingLedgerReview({
           <p className="mt-1 text-sm leading-6 text-ink-dim">The workbook is available now using clearly reported provisional classifications. Save the correct nature and row treatment so every later run uses the centralized decision.</p>
         </div>
       </div>
-      {error && <p className="mt-4 rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-500">{error}</p>}
+      {error && <ErrorBanner className="mt-4">{error}</ErrorBanner>}
       <div className="mt-5 flex flex-col gap-3">
         {pagination.pagedItems.map((row) => {
           const draft = drafts[row.name] ?? row
           const isSaved = saved.has(row.name)
           return (
             <div key={row.name} className="subpanel grid gap-3 p-4 lg:grid-cols-[minmax(15rem,1fr)_10rem_12rem_auto] lg:items-end">
-              <div className="min-w-0">
+              {/* lg:self-start keeps this shorter column's label anchored to
+                  the top of the row instead of being bottom-aligned by
+                  lg:items-end, which would sink it below the TB nature /
+                  Group total row siblings. */}
+              <div className="min-w-0 lg:self-start">
                 <p className="text-xs font-medium text-ink-faint">Ledger</p>
                 <p className="mt-1 break-words text-sm font-semibold text-ink">{row.name}</p>
               </div>
@@ -389,8 +394,8 @@ export default function TrialBalanceFormatter() {
                   onRemove={() => setFile(null)}
                 />
               </div>
-              {error && <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-500">{error}</p>}
-              <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+              {error && <ErrorBanner>{error}</ErrorBanner>}
+              <div className="flex flex-col gap-3 sm:flex-row sm:justify-end">
                 <Button variant="secondary" icon={<RotateCcw className="h-4 w-4" />} disabled={active || (!file && !result)} onClick={reset}>Reset</Button>
                 <Button loading={submitting} disabled={!file || active} onClick={() => void generate()}>Format trial balance</Button>
               </div>

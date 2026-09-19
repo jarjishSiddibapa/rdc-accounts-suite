@@ -85,6 +85,14 @@ class RemovedApiSurfaceTests(unittest.TestCase):
         }
         self.assertFalse(any(path.startswith("/api/tools/dms") for path in route_paths))
 
+    def test_retired_it_po_lookup_routes_are_absent(self):
+        route_paths = {
+            route.path
+            for route in app.routes
+            if getattr(route, "path", None) is not None
+        }
+        self.assertFalse(any(path.startswith("/api/tools/it-po-lookup") for path in route_paths))
+
     def test_iocl_balance_monitor_routes_are_available(self):
         route_paths = {
             route.path

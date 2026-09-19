@@ -10,6 +10,7 @@ import {
 import { AppShell } from '@/components/AppShell'
 import { GlassCard } from '@/components/GlassCard'
 import { Button } from '@/components/Button'
+import { ErrorBanner } from '@/components/ErrorBanner'
 import { FileDropzone } from '@/components/FileDropzone'
 import { ProgressPanel, type JobState, type JobStatus } from '@/components/ProgressPanel'
 import { MappingTable, type MappingColumn, type MappingRow } from '@/components/MappingTable'
@@ -175,7 +176,7 @@ function WarningCategoryFix({
       await post(`${BASE}/mappings/${config.mappingKey}`, config.buildBody(item, value))
       onFixed(key)
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to save mapping fix.')
+      setError(err instanceof ApiError ? err.message : 'Could not save mapping fix.')
     } finally {
       setFixing(null)
     }
@@ -207,7 +208,7 @@ function WarningCategoryFix({
       <span className="text-xs font-bold tracking-[0.08em] text-amber-600 uppercase">
         {category} ({formatIndianNumber(items.length)})
       </span>
-      {error && <p className="text-sm text-red-500">{error}</p>}
+      {error && <ErrorBanner className="whitespace-pre-wrap">{error}</ErrorBanner>}
       <div className="flex flex-col gap-2">
         {pagination.pagedItems.map((item) => {
           const key = `${category}::${item}`
@@ -367,7 +368,7 @@ function MappingSection({ config }: { config: MappingConfig }) {
       const data = await get<MappingRow[]>(`${BASE}/mappings/${config.key}`)
       setRows(data)
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to load mapping table.')
+      setError(err instanceof ApiError ? err.message : 'Could not load mapping table.')
     } finally {
       setLoading(false)
     }
@@ -396,11 +397,7 @@ function MappingSection({ config }: { config: MappingConfig }) {
 
   return (
     <div className="flex flex-col gap-3">
-      {error && (
-        <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-500">
-          {error}
-        </p>
-      )}
+      {error && <ErrorBanner className="whitespace-pre-wrap">{error}</ErrorBanner>}
       {loading ? (
         <LoadingNotice />
       ) : (
@@ -482,7 +479,7 @@ export default function UnappliedReceipts() {
       // (see ProgressPanel's onDone/onError below) - the request returning
       // just means the job was queued, not that it's finished.
     } catch (err) {
-      const message = err instanceof ApiError ? err.message : 'Failed to start report generation.'
+      const message = err instanceof ApiError ? err.message : 'Could not start report generation.'
       setProcessError(message)
       setActivityLog((previous) => [...previous, ['error', message]])
       setSubmitting(false)
@@ -549,11 +546,11 @@ export default function UnappliedReceipts() {
             </div>
           </div>
 
-          <div className="flex flex-col gap-2 sm:max-w-xs">
-            <span className="text-sm font-medium text-ink-dim">As on date (optional)</span>
-            <DatePicker value={asOnDate} onValueChange={setAsOnDate} />
+          <label className="flex flex-col gap-2 sm:max-w-xs">
+            <span className="text-sm font-medium text-ink-dim">As-on date (optional)</span>
+            <DatePicker value={asOnDate} onValueChange={setAsOnDate} aria-label="As-on date" />
             <span className="text-xs text-ink-faint">Defaults to today if left blank.</span>
-          </div>
+          </label>
 
           <div className="flex justify-stretch sm:justify-end">
             <Button onClick={() => void handleProcess()} loading={submitting} disabled={!canProcess}>
@@ -561,11 +558,7 @@ export default function UnappliedReceipts() {
             </Button>
           </div>
 
-          {processError && (
-            <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-500">
-              {processError}
-            </p>
-          )}
+          {processError && <ErrorBanner className="whitespace-pre-wrap">{processError}</ErrorBanner>}
 
           {jobId && (
             <ProgressPanel

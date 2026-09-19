@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Archive, Building2, Filter, KeyRound, Plus, Power, RotateCcw, ShieldCheck, UserRoundPen } from 'lucide-react'
 import { AppShell } from '@/components/AppShell'
 import { Button } from '@/components/Button'
+import { ErrorBanner } from '@/components/ErrorBanner'
 import { Modal } from '@/components/Modal'
 import { Pagination } from '@/components/Pagination'
 import { PasswordInput } from '@/components/PasswordInput'
@@ -25,7 +26,6 @@ interface AdminUser {
   is_active: boolean
   is_deleted: boolean
   allowed_apps: string[] | null
-  po_lookup_role: 'it' | 'accounts' | 'both' | null
 }
 
 interface AppInfo {
@@ -70,7 +70,6 @@ export default function Users() {
 
   const [permsTarget, setPermsTarget] = useState<AdminUser | null>(null)
   const [permsSelected, setPermsSelected] = useState<Set<string>>(new Set())
-  const [permsPoLookupRole, setPermsPoLookupRole] = useState<'it' | 'accounts' | 'both' | null>(null)
   const [permsSearch, setPermsSearch] = useState('')
   const [permsCompany, setPermsCompany] = useState<CompanyFilter>('all')
 
@@ -103,7 +102,7 @@ export default function Users() {
       setUsers(userData.items)
       setUserTotal(userData.total)
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to load users.')
+      setError(err instanceof ApiError ? err.message : 'Could not load users.')
     } finally {
       setLoading(false)
     }
@@ -116,7 +115,7 @@ export default function Users() {
   useEffect(() => {
     void get<AppInfo[]>('/admin/apps')
       .then(setApps)
-      .catch((err) => setError(err instanceof ApiError ? err.message : 'Failed to load applications.'))
+      .catch((err) => setError(err instanceof ApiError ? err.message : 'Could not load applications.'))
   }, [])
 
   async function handleAdd() {
@@ -141,7 +140,7 @@ export default function Users() {
       setNewRole('user')
       await loadUsers()
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to create user.')
+      setError(err instanceof ApiError ? err.message : 'Could not create user.')
     } finally {
       setSaving(false)
     }
@@ -159,7 +158,7 @@ export default function Users() {
       setEditTarget(null)
       await loadUsers()
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to update user details.')
+      setError(err instanceof ApiError ? err.message : 'Could not update user details.')
     } finally {
       setBusy(false)
     }
@@ -177,7 +176,7 @@ export default function Users() {
       setResetTarget(null)
       setResetPassword('')
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to reset password.')
+      setError(err instanceof ApiError ? err.message : 'Could not reset password.')
     } finally {
       setBusy(false)
     }
@@ -186,7 +185,6 @@ export default function Users() {
   function openPerms(u: AdminUser) {
     setPermsTarget(u)
     setPermsSelected(new Set(u.allowed_apps ?? []))
-    setPermsPoLookupRole(u.po_lookup_role)
     setPermsSearch('')
     setPermsCompany('all')
   }
@@ -197,12 +195,11 @@ export default function Users() {
     try {
       await put(`/admin/users/${permsTarget.id}/permissions`, {
         allowed_apps: Array.from(permsSelected),
-        po_lookup_role: permsPoLookupRole,
       })
       setPermsTarget(null)
       await loadUsers()
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to update permissions.')
+      setError(err instanceof ApiError ? err.message : 'Could not update permissions.')
     } finally {
       setBusy(false)
     }
@@ -215,7 +212,7 @@ export default function Users() {
       const updated = await put<AppInfo>(`/admin/apps/${appKey}/company`, { company })
       setApps((current) => current.map((app) => (app.key === updated.key ? updated : app)))
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to update application company.')
+      setError(err instanceof ApiError ? err.message : 'Could not update application company.')
     } finally {
       setCompanySavingKey(null)
     }
@@ -233,7 +230,7 @@ export default function Users() {
       })
       setApps((currentApps) => currentApps.map((app) => (app.key === updated.key ? updated : app)))
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to update application collaborator.')
+      setError(err instanceof ApiError ? err.message : 'Could not update application collaborator.')
     } finally {
       setCollaboratorSavingKey(null)
     }
@@ -247,7 +244,7 @@ export default function Users() {
       setDeleteTarget(null)
       await loadUsers()
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to archive user.')
+      setError(err instanceof ApiError ? err.message : 'Could not archive user.')
     } finally {
       setBusy(false)
     }
@@ -262,7 +259,7 @@ export default function Users() {
       await put(`/admin/users/${u.id}/active`, { is_active: !u.is_active })
       await loadUsers()
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to update user status.')
+      setError(err instanceof ApiError ? err.message : 'Could not update user status.')
     } finally {
       setTogglingId(null)
     }
@@ -275,7 +272,7 @@ export default function Users() {
       await post(`/admin/users/${u.id}/restore`)
       await loadUsers()
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to restore user.')
+      setError(err instanceof ApiError ? err.message : 'Could not restore user.')
     } finally {
       setTogglingId(null)
     }
@@ -327,11 +324,7 @@ export default function Users() {
             </div>
           </div>
 
-          {error && (
-            <p className="status-banner border-red-500/25 bg-red-500/8 text-red-500">
-              {error}
-            </p>
-          )}
+          {error && <ErrorBanner>{error}</ErrorBanner>}
 
           <div className="subpanel flex flex-col gap-3 p-3 lg:flex-row lg:items-center">
             <div className="flex items-center gap-2 text-sm font-semibold text-ink-dim lg:pr-2">
@@ -505,7 +498,7 @@ export default function Users() {
                           </button>
                           <button
                             onClick={() => setDeleteTarget(u)}
-                            aria-label="Archive user"
+                            aria-label="Archive account"
                             title="Archive account"
                             className="grid h-11 w-11 place-items-center rounded-full text-ink-dim transition hover:bg-bg-soft hover:text-red-500 sm:h-8 sm:w-8"
                           >
@@ -824,20 +817,6 @@ export default function Users() {
                         <span className="block truncate text-sm font-medium text-ink">{app.label}</span>
                         <span className="mt-0.5 block truncate text-xs text-ink-faint">{app.key}</span>
                       </span>
-                      {app.key === 'it-po-lookup' && selected && (
-                        <select
-                          value={permsPoLookupRole ?? ''}
-                          onClick={(event) => event.stopPropagation()}
-                          onChange={(event) => setPermsPoLookupRole((event.target.value || null) as typeof permsPoLookupRole)}
-                          className="field-control h-9 w-32 shrink-0 py-1 text-xs"
-                          aria-label="IT POs Lookup role"
-                        >
-                          <option value="">Role not set</option>
-                          <option value="it">IT</option>
-                          <option value="accounts">Accounts</option>
-                          <option value="both">Both</option>
-                        </select>
-                      )}
                       <span
                         className={cn(
                           'shrink-0 rounded-full px-2.5 py-1 text-[10px] font-bold tracking-wide uppercase',
@@ -965,7 +944,7 @@ export default function Users() {
 
       <Modal open={deleteTarget !== null} onClose={() => setDeleteTarget(null)} title="Archive account">
         <p className="mb-6 text-sm text-ink-dim">
-          Remove <strong>{deleteTarget ? getUserDisplayName(deleteTarget) : ''}</strong>? They'll no longer be able to sign in and
+          Archive <strong>{deleteTarget ? getUserDisplayName(deleteTarget) : ''}</strong>? They'll no longer be able to sign in and
           will disappear from this list. Nothing is ever hard-deleted, so their account and
           history are preserved. If you just want to temporarily block sign-in, use the
           Deactivate toggle instead.

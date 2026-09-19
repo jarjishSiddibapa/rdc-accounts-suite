@@ -10,6 +10,7 @@ import {
 import { AppShell } from '@/components/AppShell'
 import { GlassCard } from '@/components/GlassCard'
 import { Button } from '@/components/Button'
+import { ErrorBanner } from '@/components/ErrorBanner'
 import { FileDropzone } from '@/components/FileDropzone'
 import { ProgressPanel, type JobState, type JobStatus } from '@/components/ProgressPanel'
 import { MappingTable, type MappingColumn, type MappingRow } from '@/components/MappingTable'
@@ -208,7 +209,7 @@ function MappingSection({ config }: { config: MappingConfig }) {
       const data = await get<MappingRow[]>(`${BASE}/${config.key}`)
       setRows(data)
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to load mapping table.')
+      setError(err instanceof ApiError ? err.message : 'Could not load mapping table.')
     } finally {
       setLoading(false)
     }
@@ -250,11 +251,7 @@ function MappingSection({ config }: { config: MappingConfig }) {
 
   return (
     <div className="flex flex-col gap-3">
-      {error && (
-        <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-500">
-          {error}
-        </p>
-      )}
+      {error && <ErrorBanner>{error}</ErrorBanner>}
       {loading ? (
         <LoadingNotice />
       ) : (
@@ -368,7 +365,7 @@ export default function RdcPayables() {
       // (see ProgressPanel's onDone/onError below) - the request returning
       // just means the job was queued, not that it's finished.
     } catch (err) {
-      const message = err instanceof ApiError ? err.message : 'Failed to start report generation.'
+      const message = err instanceof ApiError ? err.message : 'Could not start report generation.'
       setProcessError(message)
       setActivityLog((previous) => [...previous, `[ERR] ${message}`])
       setSubmitting(false)
@@ -409,7 +406,7 @@ export default function RdcPayables() {
       })
       setFixedSites((prev) => ({ ...prev, [site]: true }))
     } catch (err) {
-      setProcessError(err instanceof ApiError ? err.message : 'Failed to save mapping fix.')
+      setProcessError(err instanceof ApiError ? err.message : 'Could not save mapping fix.')
     } finally {
       setFixingSite(null)
     }
@@ -481,32 +478,23 @@ export default function RdcPayables() {
                 Based on the selected month and today's date. You can edit it; .xlsx is added automatically.
               </span>
             </label>
-            <div className="flex flex-col gap-1.5 sm:ml-auto">
-              <span aria-hidden="true" className="invisible text-sm font-medium">
-                Output filename
-              </span>
-              <Button
-                onClick={() => void handleGenerate()}
-                loading={submitting}
-                disabled={
-                  !file ||
-                  !/^\d{4}-(0[1-9]|1[0-2])$/.test(cutoffPeriod) ||
-                  !outputFilename.trim()
-                }
-              >
-                Generate report
-              </Button>
-              <span aria-hidden="true" className="invisible text-xs leading-5">
-                Based on the selected month and today's date. You can edit it; .xlsx is added automatically.
-              </span>
-            </div>
           </div>
 
-          {processError && (
-            <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-500">
-              {processError}
-            </p>
-          )}
+          <div className="flex justify-stretch sm:justify-end">
+            <Button
+              onClick={() => void handleGenerate()}
+              loading={submitting}
+              disabled={
+                !file ||
+                !/^\d{4}-(0[1-9]|1[0-2])$/.test(cutoffPeriod) ||
+                !outputFilename.trim()
+              }
+            >
+              Generate report
+            </Button>
+          </div>
+
+          {processError && <ErrorBanner>{processError}</ErrorBanner>}
 
           {jobId && (
             <ProgressPanel

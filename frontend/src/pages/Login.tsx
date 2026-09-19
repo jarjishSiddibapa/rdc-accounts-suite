@@ -1,23 +1,65 @@
-import { useState, type FormEvent } from 'react'
+import { useMemo, useState, type FormEvent } from 'react'
 import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { motion, useReducedMotion } from 'motion/react'
-import { FileSpreadsheet, Layers, ListChecks, Mail, Receipt, ShieldCheck } from 'lucide-react'
+import { Layers, LayoutGrid, Mail, ShieldCheck } from 'lucide-react'
 import { Button } from '@/components/Button'
+import { ErrorBanner } from '@/components/ErrorBanner'
 import { Footer } from '@/components/Footer'
 import { ThemeToggle } from '@/components/ThemeToggle'
 import { PasswordInput } from '@/components/PasswordInput'
 import { useAuth } from '@/lib/auth-context'
 import { ApiError, post } from '@/lib/api'
+import { TOOLS_CATALOG } from '@/lib/toolsCatalog'
 
-const workflows = [
-  { label: 'ERP exports, trial balance & GSTR-2B reporting', icon: FileSpreadsheet },
-  { label: 'Payables, receivables & unaccounted-transaction reconciliation', icon: Receipt },
-  { label: 'Exception handling & mapping resolution', icon: ListChecks },
-  { label: 'Ultrafine customer balance & payment communications', icon: Mail },
-]
+// Both the workflow bullets and the summary sentence below are derived from
+// TOOLS_CATALOG (the same list the Dashboard's tool grid reads) rather than
+// hand-written here, so adding, renaming, or removing a tool never requires
+// a separate edit on this page to keep it accurate.
+const MAX_WORKFLOW_BULLETS = 5
+
+function useWorkflowSummary() {
+  return useMemo(() => {
+    const categoriesInOrder: string[] = []
+    const iconByCategory = new Map<string, (typeof TOOLS_CATALOG)[number]['icon']>()
+    for (const tool of TOOLS_CATALOG) {
+      if (!iconByCategory.has(tool.category)) {
+        categoriesInOrder.push(tool.category)
+        iconByCategory.set(tool.category, tool.icon)
+      }
+    }
+
+    const shown = categoriesInOrder.slice(0, MAX_WORKFLOW_BULLETS)
+    const remaining = categoriesInOrder.length - shown.length
+    const workflows = shown.map((category) => ({
+      label: category,
+      icon: iconByCategory.get(category)!,
+    }))
+    if (remaining > 0) {
+      workflows.push({
+        label: `${remaining} more workflow${remaining === 1 ? '' : 's'} across the suite`,
+        icon: LayoutGrid,
+      })
+    }
+
+    const companies = [...new Set(TOOLS_CATALOG.map((tool) => tool.company))].sort()
+    const description =
+      categoriesInOrder.length === 0
+        ? 'All accounts workflows for RDC and Ultrafine, brought together in one place.'
+        : `${joinWithAnd(categoriesInOrder)}. All in one place, for ${joinWithAnd(companies)} alike.`
+
+    return { workflows, description }
+  }, [])
+}
+
+function joinWithAnd(items: string[]): string {
+  if (items.length <= 1) return items.join('')
+  if (items.length === 2) return `${items[0]} and ${items[1]}`
+  return `${items.slice(0, -1).join(', ')}, and ${items[items.length - 1]}`
+}
 
 export default function Login() {
   const reduceMotion = useReducedMotion()
+  const { workflows, description } = useWorkflowSummary()
   const { user, login } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
@@ -29,7 +71,7 @@ export default function Login() {
 
   const [forgotOpen, setForgotOpen] = useState(false)
   const [forgotEmail, setForgotEmail] = useState('')
-  const [forgotMessage, setForgotMessage] = useState<string | null>(null)
+  const [forgotMessage, setForgotMessage] = useState<{ ok: boolean; text: string } | null>(null)
   const [forgotLoading, setForgotLoading] = useState(false)
 
   if (user) {
@@ -49,7 +91,7 @@ export default function Login() {
       if (err instanceof ApiError && err.status === 401) {
         setError('Invalid email or password.')
       } else {
-        setError(err instanceof Error ? err.message : 'Login failed. Please try again.')
+        setError(err instanceof Error ? err.message : 'Could not sign in. Please try again.')
       }
     } finally {
       setLoading(false)
@@ -64,9 +106,12 @@ export default function Login() {
       const res = await post<{ message: string }>('/auth/forgot-password', {
         email: forgotEmail,
       })
-      setForgotMessage(res.message)
+      setForgotMessage({ ok: true, text: res.message })
     } catch (err) {
-      setForgotMessage(err instanceof Error ? err.message : 'Something went wrong. Try again.')
+      setForgotMessage({
+        ok: false,
+        text: err instanceof Error ? err.message : 'Could not send reset link. Please try again.',
+      })
     } finally {
       setForgotLoading(false)
     }
@@ -101,10 +146,7 @@ export default function Login() {
           <h1 className="auth-brand-title max-w-xl font-display text-5xl leading-[1.04] font-semibold tracking-[-0.04em] text-balance xl:text-6xl">
             Every accounts workflow. One reliable workspace.
           </h1>
-          <p className="mt-6 max-w-xl text-base leading-7 text-white/68 xl:text-lg">
-            ERP conversion, payables and receivables reporting, trial balance, GSTR-2B, exception
-            handling, and Ultrafine customer communications. All in one place, for RDC and Ultrafine alike.
-          </p>
+          <p className="mt-6 max-w-xl text-base leading-7 text-white/68 xl:text-lg">{description}</p>
         </div>
 
         <div className="relative">
@@ -195,11 +237,7 @@ export default function Login() {
                 />
               </label>
 
-              {error && (
-                <p role="alert" className="status-banner border-red-500/25 bg-red-500/8 text-red-500">
-                  {error}
-                </p>
-              )}
+              {error && <ErrorBanner>{error}</ErrorBanner>}
 
               <Button type="submit" variant="primary" loading={loading} className="mt-2 min-h-12 w-full">
                 Sign in
@@ -243,9 +281,11 @@ export default function Login() {
               </div>
             </label>
 
-            {forgotMessage && (
+            {forgotMessage && !forgotMessage.ok && <ErrorBanner>{forgotMessage.text}</ErrorBanner>}
+
+            {forgotMessage && forgotMessage.ok && (
               <p className="status-banner border-border bg-surface/60 text-ink-dim">
-                {forgotMessage}
+                {forgotMessage.text}
               </p>
             )}
 

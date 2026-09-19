@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
-  Archive,
   AlertTriangle,
   ArrowRight,
   CalendarDays,
@@ -22,6 +21,8 @@ import {
 import { AppShell } from '@/components/AppShell'
 import { GlassCard } from '@/components/GlassCard'
 import { Button } from '@/components/Button'
+import { ErrorBanner } from '@/components/ErrorBanner'
+import { Modal } from '@/components/Modal'
 import { LoadingNotice } from '@/components/LoadingNotice'
 import { FileDropzone } from '@/components/FileDropzone'
 import { ProgressPanel, type JobState, type JobStatus } from '@/components/ProgressPanel'
@@ -54,7 +55,7 @@ type PeriodDetectionStatus = 'idle' | 'detecting' | 'complete' | 'failed'
 function periodDetectionError(error: unknown, reportLabel: string): string {
   if (error instanceof ApiError) return error.message
   if (error instanceof Error && error.message) return error.message
-  return `Failed to detect periods in the ${reportLabel} file.`
+  return `Could not detect periods in the ${reportLabel} file.`
 }
 
 function PeriodDetectionNotice({
@@ -200,7 +201,7 @@ function ResultSummary({ result, onDownload }: { result: ReportJobResult; onDown
         <p className="text-ink">{formatIndianNumber(result.unmatched)}</p>
       </div>
       <Button className="sm:ml-auto" icon={<Download className="h-4 w-4" />} onClick={onDownload}>
-        Download
+        Save / download report
       </Button>
     </div>
   )
@@ -234,7 +235,7 @@ function UnmappedSitesFix({
       await post(`${BASE}/mappings/fix`, { supplier_site: site, location })
       setFixed((prev) => ({ ...prev, [site]: true }))
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to save mapping fix.')
+      setError(err instanceof ApiError ? err.message : 'Could not save mapping fix.')
     } finally {
       setFixing(null)
     }
@@ -254,7 +255,7 @@ function UnmappedSitesFix({
         Pick a Location for each unmapped Supplier Site. Accounts Incharge is filled in
         automatically from the Location table.
       </p>
-      {error && <p className="text-sm text-red-500">{error}</p>}
+      {error && <ErrorBanner>{error}</ErrorBanner>}
       <div className="flex flex-col gap-2">
         {pagination.pagedItems.map((site) => (
           <div
@@ -336,7 +337,7 @@ function UnaccountedTab({ knownLocations }: { knownLocations: string[] }) {
       // (cleared in ProgressPanel's onDone/onError below) - the request
       // returning just means the job was queued, not that it's finished.
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to start report generation.')
+      setError(err instanceof ApiError ? err.message : 'Could not start report generation.')
       setSubmitting(false)
     }
   }
@@ -368,9 +369,7 @@ function UnaccountedTab({ knownLocations }: { knownLocations: string[] }) {
         </Button>
       </div>
       {error && (
-        <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-500">
-          {error}
-        </p>
+        <ErrorBanner>{error}</ErrorBanner>
       )}
       {jobId && (
         <ProgressPanel
@@ -468,7 +467,7 @@ function MrnTab({ knownLocations }: { knownLocations: string[] }) {
       const res = await postForm<{ job_id: string }>(`${BASE}/mrn/process`, fd)
       setJobId(res.job_id)
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to start report generation.')
+      setError(err instanceof ApiError ? err.message : 'Could not start report generation.')
       setSubmitting(false)
     }
   }
@@ -540,9 +539,7 @@ function MrnTab({ knownLocations }: { knownLocations: string[] }) {
         </Button>
       </div>
       {error && detectionStatus !== 'failed' && (
-        <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-500">
-          {error}
-        </p>
+        <ErrorBanner>{error}</ErrorBanner>
       )}
       {jobId && (
         <ProgressPanel
@@ -642,7 +639,7 @@ function PoTab({ knownLocations }: { knownLocations: string[] }) {
       const res = await postForm<{ job_id: string }>(`${BASE}/po/process`, fd)
       setJobId(res.job_id)
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to start report generation.')
+      setError(err instanceof ApiError ? err.message : 'Could not start report generation.')
       setSubmitting(false)
     }
   }
@@ -720,9 +717,7 @@ function PoTab({ knownLocations }: { knownLocations: string[] }) {
         </Button>
       </div>
       {error && detectionStatus !== 'failed' && (
-        <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-500">
-          {error}
-        </p>
+        <ErrorBanner>{error}</ErrorBanner>
       )}
       {jobId && (
         <ProgressPanel
@@ -910,7 +905,7 @@ function MailUnmappedGroup({
   return (
     <div className="flex flex-col gap-2">
       <span className="text-sm font-semibold text-ink">{label}</span>
-      {error && <p className="text-sm text-red-500">{error}</p>}
+      {error && <ErrorBanner>{error}</ErrorBanner>}
       {pagination.pagedItems.map((site) => {
         const fixKey = `${reportKey}:${site}`
         const fixed = Boolean(fixedKeys[fixKey])
@@ -945,7 +940,7 @@ function MailUnmappedGroup({
                   try {
                     await onFixed(reportKey, site, forms[site].trim())
                   } catch (err) {
-                    setError(err instanceof ApiError ? err.message : 'Failed to save mapping fix.')
+                    setError(err instanceof ApiError ? err.message : 'Could not save mapping fix.')
                   } finally {
                     setFixing(null)
                   }
@@ -1190,7 +1185,7 @@ function MailTab({
       if (err instanceof ApiError && err.status === 400 && /Settings/i.test(err.message)) {
         setNotConfigured(true)
       } else {
-        setError(err instanceof ApiError ? err.message : 'Failed to send.')
+        setError(err instanceof ApiError ? err.message : 'Could not generate the email preview.')
       }
       setSubmitting(false)
     }
@@ -1215,7 +1210,7 @@ function MailTab({
       setJobResult(null)
       setJobId(null)
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to send.')
+      setError(err instanceof ApiError ? err.message : 'Could not send the email.')
     } finally {
       setConfirmSending(false)
     }
@@ -1521,9 +1516,17 @@ function MailTab({
               aria-label="As-on date used in output filenames"
             />
           </label>
-          <p className="pb-3 text-xs leading-5 text-ink-faint">
-            Each generated workbook can be saved from the review step before the email is sent.
-          </p>
+          <div className="flex flex-1 flex-col gap-1.5 text-sm">
+            {/* Invisible label-height spacer so this block reserves the same
+                total height as the As-on date field's label+input, keeping
+                both aligned under sm:items-end regardless of content. */}
+            <span aria-hidden="true" className="invisible font-medium">
+              As-on date used in output filenames
+            </span>
+            <p className="text-xs leading-5 text-ink-faint">
+              Each generated workbook can be saved from the review step before the email is sent.
+            </p>
+          </div>
         </div>
       </div>
 
@@ -1634,14 +1637,12 @@ function MailTab({
           loading={submitting}
           disabled={!canSend}
         >
-          {submitting ? 'Preparing…' : 'Generate & Review Email'}
+          {submitting ? 'Preparing…' : 'Generate & review email'}
         </Button>
       </div>
 
       {error && (
-        <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-500">
-          {error}
-        </p>
+        <ErrorBanner>{error}</ErrorBanner>
       )}
 
       {notConfigured && (
@@ -1746,7 +1747,7 @@ function MailTab({
                 />
               </div>
 
-              {error && <p className="text-sm text-red-500">{error}</p>}
+              {error && <ErrorBanner>{error}</ErrorBanner>}
 
               <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
                 <Button
@@ -1912,7 +1913,7 @@ function UnaccountedMappingSection({ config }: { config: UnaccountedMappingConfi
       const data = await get<MappingRow[]>(`${BASE}/mappings/${config.key}`)
       setRows(data)
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to load mapping table.')
+      setError(err instanceof ApiError ? err.message : 'Could not load mapping table.')
     } finally {
       setLoading(false)
     }
@@ -1960,7 +1961,7 @@ function UnaccountedMappingSection({ config }: { config: UnaccountedMappingConfi
       const data = await get<MappingRow[]>(`${BASE}/mappings/${config.key}/archived`)
       setArchivedRows(data)
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to load archived rows.')
+      setError(err instanceof ApiError ? err.message : 'Could not load archived rows.')
     } finally {
       setArchivedLoading(false)
     }
@@ -1976,9 +1977,7 @@ function UnaccountedMappingSection({ config }: { config: UnaccountedMappingConfi
   return (
     <div className="flex flex-col gap-3">
       {error && (
-        <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-500">
-          {error}
-        </p>
+        <ErrorBanner>{error}</ErrorBanner>
       )}
       {loading ? (
         <LoadingNotice />
@@ -2038,8 +2037,11 @@ function PoKeywordsPanel() {
         const res = await get<{ keywords: string[]; threshold: number }>(`${BASE}/po/keywords`)
         setKeywords(res.keywords)
         setThreshold(res.threshold)
-      } catch {
-        // ignore
+      } catch (err) {
+        setMessage({
+          ok: false,
+          text: err instanceof ApiError ? err.message : 'Could not load PO keywords.',
+        })
       } finally {
         setLoading(false)
       }
@@ -2076,7 +2078,7 @@ function PoKeywordsPanel() {
       setThreshold(response.threshold)
       setMessage({ ok: true, text: 'Default keywords restored.' })
     } catch (err) {
-      setMessage({ ok: false, text: err instanceof ApiError ? err.message : 'Failed to reset.' })
+      setMessage({ ok: false, text: err instanceof ApiError ? err.message : 'Could not reset PO keywords.' })
     } finally {
       setSaving(false)
     }
@@ -2089,7 +2091,7 @@ function PoKeywordsPanel() {
       await put(`${BASE}/po/keywords`, { keywords, threshold })
       setMessage({ ok: true, text: 'Saved.' })
     } catch (err) {
-      setMessage({ ok: false, text: err instanceof ApiError ? err.message : 'Failed to save.' })
+      setMessage({ ok: false, text: err instanceof ApiError ? err.message : 'Could not save PO keywords.' })
     } finally {
       setSaving(false)
     }
@@ -2185,7 +2187,11 @@ function PoKeywordsPanel() {
         />
       </label>
       {message && (
-        <p className={cn('text-sm', message.ok ? 'text-emerald-500' : 'text-red-500')}>{message.text}</p>
+        message.ok ? (
+          <p className="text-sm text-emerald-500">{message.text}</p>
+        ) : (
+          <ErrorBanner>{message.text}</ErrorBanner>
+        )
       )}
       <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
         <Button
@@ -2210,18 +2216,20 @@ function PoExcludedPanel() {
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(true)
   const [adding, setAdding] = useState(false)
-  const [archivingPo, setArchivingPo] = useState<string | null>(null)
+  const [removingPo, setRemovingPo] = useState<string | null>(null)
+  const [confirmRemovePo, setConfirmRemovePo] = useState<string | null>(null)
   const [editingPo, setEditingPo] = useState<string | null>(null)
   const [editingPoValue, setEditingPoValue] = useState('')
   const [savingPo, setSavingPo] = useState<string | null>(null)
   const [clearing, setClearing] = useState(false)
+  const [confirmClearOpen, setConfirmClearOpen] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const filteredExcluded = useMemo(() => {
     const query = search.trim().toLocaleLowerCase()
     return query ? excluded.filter((po) => po.toLocaleLowerCase().includes(query)) : excluded
   }, [excluded, search])
   const pagination = usePagination(filteredExcluded, 10, search)
-  const busy = adding || archivingPo !== null || savingPo !== null || clearing
+  const busy = adding || removingPo !== null || savingPo !== null || clearing
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -2229,7 +2237,7 @@ function PoExcludedPanel() {
       const res = await get<string[]>(`${BASE}/po/excluded`)
       setExcluded(res)
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to load.')
+      setError(err instanceof ApiError ? err.message : 'Could not load excluded PO numbers.')
     } finally {
       setLoading(false)
     }
@@ -2249,22 +2257,23 @@ function PoExcludedPanel() {
       setExcluded(res)
       setInput('')
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to add.')
+      setError(err instanceof ApiError ? err.message : 'Could not add PO number.')
     } finally {
       setAdding(false)
     }
   }
 
-  async function handleArchive(po: string) {
+  async function handleRemove(po: string) {
     setError(null)
-    setArchivingPo(po)
+    setRemovingPo(po)
     try {
       const res = await del<string[]>(`${BASE}/po/excluded/${encodeURIComponent(po)}`)
       setExcluded(res)
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to archive PO number.')
+      setError(err instanceof ApiError ? err.message : 'Could not remove PO number.')
     } finally {
-      setArchivingPo(null)
+      setRemovingPo(null)
+      setConfirmRemovePo(null)
     }
   }
 
@@ -2281,14 +2290,13 @@ function PoExcludedPanel() {
       setEditingPo(null)
       setEditingPoValue('')
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to update PO number.')
+      setError(err instanceof ApiError ? err.message : 'Could not update PO number.')
     } finally {
       setSavingPo(null)
     }
   }
 
   async function handleClearExcluded() {
-    if (excluded.length === 0 || !window.confirm('Archive all excluded PO numbers?')) return
     setError(null)
     setClearing(true)
     try {
@@ -2296,9 +2304,10 @@ function PoExcludedPanel() {
       setExcluded(res)
       setEditingPo(null)
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to clear excluded PO numbers.')
+      setError(err instanceof ApiError ? err.message : 'Could not clear excluded PO numbers.')
     } finally {
       setClearing(false)
+      setConfirmClearOpen(false)
     }
   }
 
@@ -2306,14 +2315,54 @@ function PoExcludedPanel() {
 
   return (
     <div className="flex flex-col gap-4">
-      {error && (
-        <p
-          role="alert"
-          className="rounded-xl border border-red-500/20 bg-red-500/[0.07] px-4 py-3 text-sm text-red-500"
-        >
-          {error}
+      {error && <ErrorBanner>{error}</ErrorBanner>}
+
+      <Modal
+        open={confirmClearOpen}
+        onClose={() => setConfirmClearOpen(false)}
+        title="Clear all exclusions"
+      >
+        <p className="text-sm text-ink-dim">
+          Remove all {formatIndianNumber(excluded.length)} excluded PO{' '}
+          {excluded.length === 1 ? 'number' : 'numbers'}? These purchase orders will start
+          appearing in the PO report again.
         </p>
-      )}
+        <div className="mt-4 flex justify-end gap-2">
+          <Button variant="secondary" onClick={() => setConfirmClearOpen(false)} disabled={clearing}>
+            Cancel
+          </Button>
+          <Button variant="danger" onClick={() => void handleClearExcluded()} loading={clearing}>
+            Clear all
+          </Button>
+        </div>
+      </Modal>
+
+      <Modal
+        open={confirmRemovePo !== null}
+        onClose={() => setConfirmRemovePo(null)}
+        title="Remove exclusion"
+      >
+        <p className="text-sm text-ink-dim">
+          Remove <span className="font-semibold text-ink">{confirmRemovePo}</span> from the
+          excluded list? It will start appearing in the PO report again.
+        </p>
+        <div className="mt-4 flex justify-end gap-2">
+          <Button
+            variant="secondary"
+            onClick={() => setConfirmRemovePo(null)}
+            disabled={removingPo !== null}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="danger"
+            onClick={() => confirmRemovePo && void handleRemove(confirmRemovePo)}
+            loading={removingPo !== null}
+          >
+            Remove
+          </Button>
+        </div>
+      </Modal>
 
       <section
         aria-labelledby="excluded-po-list-title"
@@ -2340,7 +2389,7 @@ function PoExcludedPanel() {
             <button
               type="button"
               disabled={busy || excluded.length === 0}
-              onClick={() => void handleClearExcluded()}
+              onClick={() => setConfirmClearOpen(true)}
               className="inline-flex min-h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs font-semibold text-red-500 transition hover:bg-red-500/[0.08] disabled:cursor-not-allowed disabled:opacity-40"
             >
               <Trash2 className="h-3.5 w-3.5" /> Clear all
@@ -2434,18 +2483,18 @@ function PoExcludedPanel() {
                     <button
                       type="button"
                       disabled={busy}
-                      aria-label={`Archive excluded PO ${po}`}
-                      aria-busy={archivingPo === po}
-                      title="Archive this exclusion"
-                      onClick={() => void handleArchive(po)}
+                      aria-label={`Remove excluded PO ${po}`}
+                      aria-busy={removingPo === po}
+                      title="Remove this exclusion"
+                      onClick={() => setConfirmRemovePo(po)}
                       className="inline-flex min-h-9 items-center justify-center gap-1.5 rounded-lg border border-transparent px-2.5 text-xs font-semibold text-ink-dim transition hover:border-red-500/20 hover:bg-red-500/[0.07] hover:text-red-500 focus-visible:outline-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-45"
                     >
-                      {archivingPo === po ? (
+                      {removingPo === po ? (
                         <RefreshCw className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
                       ) : (
-                        <Archive className="h-3.5 w-3.5" aria-hidden="true" />
+                        <Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
                       )}
-                      Archive
+                      Remove
                     </button>
                   </td>
                 </tr>

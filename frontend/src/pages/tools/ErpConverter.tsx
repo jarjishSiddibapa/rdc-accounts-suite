@@ -14,6 +14,7 @@ import {
 import { AppShell } from '@/components/AppShell'
 import { GlassCard } from '@/components/GlassCard'
 import { Button } from '@/components/Button'
+import { ErrorBanner } from '@/components/ErrorBanner'
 import { FileDropzone } from '@/components/FileDropzone'
 import { ProgressPanel, type JobState, type JobStatus } from '@/components/ProgressPanel'
 import { Pagination } from '@/components/Pagination'
@@ -115,7 +116,7 @@ export default function ErpConverter() {
       setJobs(res.jobs)
       res.jobs.forEach((job) => appendLog(`Queued ${job.filename}`))
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to start conversion.')
+      setError(err instanceof ApiError ? err.message : 'Could not start conversion.')
     } finally {
       setConverting(false)
     }
@@ -206,7 +207,7 @@ export default function ErpConverter() {
               Add folder
             </Button>
             <Button variant="secondary" icon={<Trash2 className="h-4 w-4" />} disabled={files.length === 0 || anyActive} onClick={() => setFiles([])}>
-              Clear files
+              Remove all files
             </Button>
             <input
               ref={folderInputRef}
@@ -222,7 +223,7 @@ export default function ErpConverter() {
             />
           </div>
 
-          {error && <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-500">{error}</p>}
+          {error && <ErrorBanner>{error}</ErrorBanner>}
 
           <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
             <Button variant="secondary" icon={<RotateCcw className="h-4 w-4" />} disabled={anyActive || (files.length === 0 && jobs.length === 0)} onClick={resetAll}>Reset</Button>

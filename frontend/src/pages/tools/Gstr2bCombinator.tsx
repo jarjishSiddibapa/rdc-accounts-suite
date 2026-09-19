@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { AlertTriangle, CheckCircle2, Combine, Download, RefreshCw, RotateCcw, Terminal, XCircle } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Combine, Download, RefreshCw, RotateCcw, Terminal } from 'lucide-react'
 import { AppShell } from '@/components/AppShell'
 import { GlassCard } from '@/components/GlassCard'
 import { Button } from '@/components/Button'
@@ -7,6 +7,7 @@ import { FileDropzone } from '@/components/FileDropzone'
 import { ProgressPanel, type JobState, type JobStatus } from '@/components/ProgressPanel'
 import { MappingTable, type MappingColumn, type MappingRow } from '@/components/MappingTable'
 import { CreatableCombobox } from '@/components/CreatableCombobox'
+import { ErrorBanner } from '@/components/ErrorBanner'
 import { LoadingNotice } from '@/components/LoadingNotice'
 import { ApiError, apiUrl, del, get, post, postForm, put } from '@/lib/api'
 import { formatIndianNumber } from '@/lib/regional'
@@ -66,7 +67,7 @@ function UnresolvedStateCodesFix({
       await post(`${BASE}/mappings/state-codes`, { code, name })
       setFixed((prev) => ({ ...prev, [code]: true }))
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to save state code mapping.')
+      setError(err instanceof ApiError ? err.message : 'Could not save state code mapping.')
     } finally {
       setFixing(null)
     }
@@ -87,7 +88,7 @@ function UnresolvedStateCodesFix({
         placeholder like &quot;Unknown state (NN)&quot; instead. Enter the real state name for
         each, then combine again.
       </p>
-      {error && <p className="text-sm text-red-500">{error}</p>}
+      {error && <ErrorBanner>{error}</ErrorBanner>}
       <div className="flex flex-col gap-2">
         {codes.map((code) => (
           <div
@@ -131,7 +132,7 @@ function UnresolvedStateCodesFix({
           loading={regenerating}
           onClick={onRegenerate}
         >
-          Combine again
+          Regenerate after fixes
         </Button>
       </div>
     </div>
@@ -174,7 +175,7 @@ function StateCodeMappingSection() {
       const data = await get<{ code: number; name: string }[]>(`${BASE}/mappings/state-codes`)
       setRows(data.map((row) => ({ code: String(row.code), name: row.name })))
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to load state code mappings.')
+      setError(err instanceof ApiError ? err.message : 'Could not load state code mappings.')
     } finally {
       setLoading(false)
     }
@@ -203,11 +204,7 @@ function StateCodeMappingSection() {
 
   return (
     <div className="flex flex-col gap-3">
-      {error && (
-        <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-500">
-          {error}
-        </p>
-      )}
+      {error && <ErrorBanner>{error}</ErrorBanner>}
       {loading ? (
         <LoadingNotice />
       ) : (
@@ -255,7 +252,7 @@ export default function Gstr2bCombinator() {
       const res = await postForm<{ job_id: string }>(`${BASE}/combine`, formData)
       setJobId(res.job_id)
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Failed to start the combine job.')
+      setError(err instanceof ApiError ? err.message : 'Could not start the combine job.')
     } finally {
       setSubmitting(false)
     }
@@ -302,7 +299,7 @@ export default function Gstr2bCombinator() {
             onRemove={(index) => setFiles((previous) => previous.filter((_, current) => current !== index))}
           />
 
-          {error && <p className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-500">{error}</p>}
+          {error && <ErrorBanner>{error}</ErrorBanner>}
 
           <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
             <Button variant="secondary" icon={<RotateCcw className="h-4 w-4" />} disabled={active || (files.length === 0 && !result)} onClick={resetAll}>Reset</Button>
@@ -318,7 +315,7 @@ export default function Gstr2bCombinator() {
               <h3 className="font-display text-lg font-semibold text-ink">Combine progress</h3>
               {result && (
                 <Button icon={<Download className="h-4 w-4" />} onClick={handleDownload}>
-                  Download combined workbook
+                  Save / download report
                 </Button>
               )}
             </div>
@@ -375,12 +372,7 @@ export default function Gstr2bCombinator() {
               </div>
             )}
 
-            {error && (
-              <div className="flex items-center gap-2 text-sm text-red-500">
-                <XCircle className="h-4 w-4" />
-                {error}
-              </div>
-            )}
+            {error && <ErrorBanner>{error}</ErrorBanner>}
           </GlassCard>
         )}
 
