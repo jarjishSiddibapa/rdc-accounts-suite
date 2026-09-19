@@ -15,7 +15,13 @@ import { TOOLS_CATALOG } from '@/lib/toolsCatalog'
 // TOOLS_CATALOG (the same list the Dashboard's tool grid reads) rather than
 // hand-written here, so adding, renaming, or removing a tool never requires
 // a separate edit on this page to keep it accurate.
-const MAX_WORKFLOW_BULLETS = 5
+// Keeping this at 3 (+ 1 "N more" line = 4 items = 2 grid rows) matches the
+// original hand-picked bullet count that was verified to fit the fixed-height
+// branding panel (frontend/src/index.css's .auth-page uses overflow: clip, so
+// content that overflows gets cut off rather than scrolling) - raising it
+// clips the bottom rows on shorter viewports since the catalog now has 13
+// distinct categories.
+const MAX_WORKFLOW_BULLETS = 3
 
 function useWorkflowSummary() {
   return useMemo(() => {
