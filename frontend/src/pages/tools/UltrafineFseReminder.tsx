@@ -173,6 +173,21 @@ function splitAddrs(value: string): string[] {
     .filter(Boolean)
 }
 
+// The fixed Cc list is baked per-row server-side (with an FSE's own address
+// dropped from their own row when they happen to be on it), so no single
+// row necessarily has the complete list. Recovering it as a union of every
+// row's Cc is safe because dedup only ever removes entries, never adds one.
+function defaultCcList(rows: IndividualPlanRow[]): string[] {
+  const seen = new Map<string, string>()
+  for (const row of rows) {
+    for (const addr of row.cc) {
+      const key = addr.toLowerCase()
+      if (!seen.has(key)) seen.set(key, addr)
+    }
+  }
+  return Array.from(seen.values())
+}
+
 // ── missing-email fix-up (mirrors the sibling ultrafine tools' missing-
 //    recipient panels: fix inline, save to the mapping table, regenerate) ──
 
@@ -381,6 +396,13 @@ export default function UltrafineFseReminder() {
   // silently discard a manual subject edit each time. Tracking the override
   // here lets the Subject field survive every re-seed.
   const [subjectOverride, setSubjectOverride] = useState<string | null>(null)
+  // Same survives-re-preview pattern as subjectOverride, for the two
+  // recipient fields added to the shared individual-reminder panel: extra
+  // To addresses (on top of each FSE's own, non-removable mapped email) and
+  // an editable Cc list (seeded from the fixed default, but freely add/
+  // remove-able) - see defaultCcList above.
+  const [extraToOverride, setExtraToOverride] = useState<string | null>(null)
+  const [ccOverride, setCcOverride] = useState<string | null>(null)
 
   const [sendJobId, setSendJobId] = useState<string | null>(null)
   const [sendResult, setSendResult] = useState<SendResult | null>(null)
@@ -446,6 +468,8 @@ export default function UltrafineFseReminder() {
     setNotConfigured(false)
     setEditableBroadcast(null)
     setSubjectOverride(null)
+    setExtraToOverride(null)
+    setCcOverride(null)
     setSendJobId(null)
     setSendResult(null)
     setSendError(null)
@@ -456,15 +480,21 @@ export default function UltrafineFseReminder() {
 
   async function sendRows(rows: IndividualPlanRow[]) {
     setSendError(null)
+    const extraTo = splitAddrs(extraToOverride ?? '')
+    const cc = splitAddrs(ccOverride ?? joinAddrs(defaultCcList(previewResult?.individual ?? [])))
     try {
       const res = await post<{ job_id: string }>(`${BASE}/send`, {
-        rows: rows.map((r) => ({
-          fse_key: r.fse_key,
-          to: r.to,
-          cc: r.cc,
-          subject: subjectOverride ?? r.subject,
-          body_html: r.body_html,
-        })),
+        rows: rows.map((r) => {
+          const to = [...r.to, ...extraTo]
+          const toAddresses = new Set(to.map((a) => a.toLowerCase()))
+          return {
+            fse_key: r.fse_key,
+            to,
+            cc: cc.filter((addr) => !toAddresses.has(addr.toLowerCase())),
+            subject: subjectOverride ?? r.subject,
+            body_html: r.body_html,
+          }
+        }),
       })
       setSendJobId(res.job_id)
       setSendResult(null)
@@ -477,6 +507,14 @@ export default function UltrafineFseReminder() {
 
   function updateSharedSubject(subject: string) {
     setSubjectOverride(subject)
+  }
+
+  function updateSharedExtraTo(value: string) {
+    setExtraToOverride(value)
+  }
+
+  function updateSharedCc(value: string) {
+    setCcOverride(value)
   }
 
   async function handleSendOne(row: IndividualPlanRow) {
@@ -518,6 +556,8 @@ export default function UltrafineFseReminder() {
   const reportByKey = Object.fromEntries((sendResult?.report ?? []).map((r) => [r.fse_key, r]))
   const readyCount = (previewResult?.individual ?? []).filter((r) => !r.missing_email).length
   const sharedSubject = subjectOverride ?? previewResult?.individual[0]?.subject ?? ''
+  const sharedExtraTo = extraToOverride ?? ''
+  const sharedCc = ccOverride ?? joinAddrs(defaultCcList(previewResult?.individual ?? []))
 
   return (
     <AppShell title="Ultrafine FSE Bulk Reminder">
@@ -827,6 +867,34 @@ export default function UltrafineFseReminder() {
                       onChange={(e) => updateSharedSubject(e.target.value)}
                     />
                   </label>
+
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <label className="flex flex-col gap-1.5 text-sm">
+                      <span className="font-medium text-ink-dim">
+                        Additional To (added to every FSE's own email)
+                      </span>
+                      <input
+                        className="field-control"
+                        placeholder="e.g. manager@company.com"
+                        value={sharedExtraTo}
+                        onChange={(e) => updateSharedExtraTo(e.target.value)}
+                      />
+                      <span className="text-xs text-ink-faint">
+                        Each FSE's own email is always included and can't be removed here.
+                      </span>
+                    </label>
+                    <label className="flex flex-col gap-1.5 text-sm">
+                      <span className="font-medium text-ink-dim">Cc (same for every FSE reminder)</span>
+                      <input
+                        className="field-control"
+                        value={sharedCc}
+                        onChange={(e) => updateSharedCc(e.target.value)}
+                      />
+                      <span className="text-xs text-ink-faint">
+                        Add or remove addresses freely — this replaces the default Cc list for sending.
+                      </span>
+                    </label>
+                  </div>
 
                   <label className="flex flex-col gap-1.5 text-sm">
                     <span className="font-medium text-ink-dim">Message (shown before the table in every reminder)</span>
