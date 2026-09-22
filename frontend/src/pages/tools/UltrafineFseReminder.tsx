@@ -1,10 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   AlertTriangle,
   ArrowRight,
   CheckCircle2,
   Download,
+  LayoutTemplate,
   Megaphone,
   RefreshCw,
   Send,
@@ -282,108 +283,14 @@ function MissingEmailPanel({
   )
 }
 
-// ── per-FSE editable card ────────────────────────────────────────────────
+// ── broadcast edit state (individual reminders no longer have per-FSE
+//    editing - see the "Reminder wording" panel below) ─────────────────────
 
-interface EditableRow {
-  fse_key: string
+interface EditableBroadcast {
   to: string
   cc: string
   subject: string
   body_html: string
-}
-
-function IndividualCard({
-  row,
-  edited,
-  onChange,
-  onSend,
-  sending,
-  reportStatus,
-}: {
-  row: IndividualPlanRow
-  edited: EditableRow
-  onChange: (patch: Partial<Pick<EditableRow, 'to' | 'cc'>>) => void
-  onSend: () => void
-  sending: boolean
-  reportStatus?: SendReportRow
-}) {
-  return (
-    <div className="flex flex-col gap-3 rounded-xl border border-border p-4">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <h4 className="font-display text-base font-semibold text-ink">{row.fse_name}</h4>
-          <p className="text-xs text-ink-dim">
-            {formatIndianNumber(row.party_count)} part{row.party_count === 1 ? 'y' : 'ies'} · Target{' '}
-            {lakh(row.total_target)} · Received {lakh(row.total_received)} · Short fall{' '}
-            {lakh(row.total_shortfall)}
-          </p>
-        </div>
-        {row.missing_email && (
-          <span className="inline-flex items-center gap-1.5 text-xs font-medium text-amber-500">
-            <AlertTriangle className="h-3.5 w-3.5" /> No saved email
-          </span>
-        )}
-        {reportStatus?.status === 'sent' && (
-          <span className="inline-flex items-center gap-1.5 text-xs font-medium text-emerald-500">
-            <CheckCircle2 className="h-3.5 w-3.5" /> Sent
-          </span>
-        )}
-        {reportStatus?.status === 'failed' && (
-          <span className="inline-flex items-center gap-1.5 text-xs font-medium text-red-500" title={reportStatus.detail}>
-            <XCircle className="h-3.5 w-3.5" /> Failed
-          </span>
-        )}
-        {reportStatus?.status === 'skipped' && (
-          <span className="inline-flex items-center gap-1.5 text-xs font-medium text-amber-500" title={reportStatus.detail}>
-            <AlertTriangle className="h-3.5 w-3.5" /> Skipped
-          </span>
-        )}
-      </div>
-
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-        <label className="flex flex-col gap-1 text-sm">
-          <span className="font-medium text-ink-dim">To</span>
-          <input
-            className="field-control"
-            value={edited.to}
-            onChange={(e) => onChange({ to: e.target.value })}
-          />
-        </label>
-        <label className="flex flex-col gap-1 text-sm">
-          <span className="font-medium text-ink-dim">Cc</span>
-          <input
-            className="field-control"
-            value={edited.cc}
-            onChange={(e) => onChange({ cc: e.target.value })}
-          />
-        </label>
-      </div>
-
-      <p className="text-sm text-ink-dim">
-        <span className="font-medium text-ink">Subject:</span> {edited.subject}
-      </p>
-
-      <div className="flex flex-col gap-1 text-sm">
-        <span className="font-medium text-ink-dim">Preview — exactly what will be sent to {row.fse_name}</span>
-        <div
-          className="max-h-96 overflow-y-auto rounded-xl border border-border bg-surface px-3 py-2.5 text-sm text-ink"
-          dangerouslySetInnerHTML={{ __html: edited.body_html }}
-        />
-      </div>
-
-      <div className="flex justify-end">
-        <Button
-          variant="secondary"
-          icon={<Send className="h-4 w-4" />}
-          onClick={onSend}
-          loading={sending}
-          disabled={!edited.to.trim()}
-        >
-          Send this reminder
-        </Button>
-      </div>
-    </div>
-  )
 }
 
 // ── FSE -> Email mapping section ────────────────────────────────────────
@@ -467,13 +374,12 @@ export default function UltrafineFseReminder() {
   const [previewError, setPreviewError] = useState<string | null>(null)
   const [notConfigured, setNotConfigured] = useState(false)
 
-  const [editableRows, setEditableRows] = useState<Record<string, EditableRow>>({})
-  const [editableBroadcast, setEditableBroadcast] = useState<EditableRow | null>(null)
+  const [editableBroadcast, setEditableBroadcast] = useState<EditableBroadcast | null>(null)
   // The backend always derives a fresh subject from the file's as-on date on
   // every /preview call (e.g. re-running preview via "Apply to all
   // reminders" or the missing-email fix-up flow), which would otherwise
   // silently discard a manual subject edit each time. Tracking the override
-  // here lets seedEditableState re-apply it after every re-seed.
+  // here lets the Subject field survive every re-seed.
   const [subjectOverride, setSubjectOverride] = useState<string | null>(null)
 
   const [sendJobId, setSendJobId] = useState<string | null>(null)
@@ -487,9 +393,6 @@ export default function UltrafineFseReminder() {
   const [broadcastError, setBroadcastError] = useState<string | null>(null)
   const [broadcastSending, setBroadcastSending] = useState(false)
   const [attachExcel, setAttachExcel] = useState(true)
-
-  const [sampleKey, setSampleKey] = useState<string | null>(null)
-  const sampleRef = useRef<HTMLDivElement | null>(null)
 
   const pagination = usePagination(previewResult?.individual ?? [], 20)
 
@@ -524,26 +427,12 @@ export default function UltrafineFseReminder() {
   }
 
   function seedEditableState(result: PreviewResult) {
-    const rows: Record<string, EditableRow> = {}
-    for (const row of result.individual) {
-      rows[row.fse_key] = {
-        fse_key: row.fse_key,
-        to: joinAddrs(row.to),
-        cc: joinAddrs(row.cc),
-        subject: subjectOverride ?? row.subject,
-        body_html: row.body_html,
-      }
-    }
-    setEditableRows(rows)
     setEditableBroadcast({
-      fse_key: '__broadcast__',
       to: joinAddrs(result.broadcast.to),
       cc: joinAddrs(result.broadcast.cc),
       subject: result.broadcast.subject,
       body_html: result.broadcast.body_html,
     })
-    const firstReady = result.individual.find((r) => !r.missing_email) ?? result.individual[0]
-    setSampleKey(firstReady ? firstReady.fse_key : null)
   }
 
   function handleClearAll() {
@@ -555,10 +444,8 @@ export default function UltrafineFseReminder() {
     setPreviewResult(null)
     setPreviewError(null)
     setNotConfigured(false)
-    setEditableRows({})
     setEditableBroadcast(null)
     setSubjectOverride(null)
-    setSampleKey(null)
     setSendJobId(null)
     setSendResult(null)
     setSendError(null)
@@ -567,15 +454,15 @@ export default function UltrafineFseReminder() {
     setBroadcastError(null)
   }
 
-  async function sendRows(rows: EditableRow[]) {
+  async function sendRows(rows: IndividualPlanRow[]) {
     setSendError(null)
     try {
       const res = await post<{ job_id: string }>(`${BASE}/send`, {
         rows: rows.map((r) => ({
           fse_key: r.fse_key,
-          to: splitAddrs(r.to),
-          cc: splitAddrs(r.cc),
-          subject: r.subject,
+          to: r.to,
+          cc: r.cc,
+          subject: subjectOverride ?? r.subject,
           body_html: r.body_html,
         })),
       })
@@ -590,25 +477,15 @@ export default function UltrafineFseReminder() {
 
   function updateSharedSubject(subject: string) {
     setSubjectOverride(subject)
-    setEditableRows((prev) => {
-      const next: typeof prev = {}
-      for (const key of Object.keys(prev)) next[key] = { ...prev[key], subject }
-      return next
-    })
   }
 
-  async function handleSendOne(fseKey: string) {
-    const row = editableRows[fseKey]
-    if (!row) return
-    setSendingKey(fseKey)
+  async function handleSendOne(row: IndividualPlanRow) {
+    setSendingKey(row.fse_key)
     await sendRows([row])
   }
 
   async function handleSendAllReady() {
-    const rows = (previewResult?.individual ?? [])
-      .filter((r) => !r.missing_email)
-      .map((r) => editableRows[r.fse_key])
-      .filter((r): r is EditableRow => Boolean(r?.to.trim()))
+    const rows = (previewResult?.individual ?? []).filter((r) => !r.missing_email && r.to.length > 0)
     if (rows.length === 0) return
     setSendingAll(true)
     await sendRows(rows)
@@ -640,8 +517,7 @@ export default function UltrafineFseReminder() {
 
   const reportByKey = Object.fromEntries((sendResult?.report ?? []).map((r) => [r.fse_key, r]))
   const readyCount = (previewResult?.individual ?? []).filter((r) => !r.missing_email).length
-  const sharedSubject =
-    subjectOverride ?? (previewResult ? (editableRows[previewResult.individual[0]?.fse_key]?.subject ?? '') : '')
+  const sharedSubject = subjectOverride ?? previewResult?.individual[0]?.subject ?? ''
 
   return (
     <AppShell title="Ultrafine FSE Bulk Reminder">
@@ -659,7 +535,8 @@ export default function UltrafineFseReminder() {
               </h2>
               <p className="mt-1 text-sm leading-6 text-ink-dim">
                 Upload the "Coll vs Target" tracker workbook to build one reminder email per FSE, plus
-                one combined broadcast for management. Review, edit, and send from below.
+                one combined broadcast for management. Edit the wording once for each, then send from
+                below.
               </p>
             </div>
           </div>
@@ -930,75 +807,42 @@ export default function UltrafineFseReminder() {
                   </div>
                 )}
 
-                <div ref={sampleRef} className="flex flex-col gap-3">
-                  <div className="flex flex-col gap-4 rounded-xl border border-border p-4">
-                    <div>
-                      <h4 className="font-display text-sm font-semibold text-ink">
-                        Reminder wording — one edit, sent to every FSE
-                      </h4>
-                      <p className="mt-1 max-w-xl text-sm text-ink-dim">
-                        Every FSE's reminder follows this exact format — only the name, table rows, and
-                        totals differ. Edit the subject and message here once, then use "Send all ready"
-                        below to send everyone without reviewing each one individually.
-                      </p>
-                    </div>
-
-                    <label className="flex flex-col gap-1.5 text-sm">
-                      <span className="font-medium text-ink-dim">Subject (same for every FSE reminder)</span>
-                      <input
-                        className="field-control"
-                        value={sharedSubject}
-                        onChange={(e) => updateSharedSubject(e.target.value)}
-                      />
-                    </label>
-
-                    <label className="flex flex-col gap-1.5 text-sm">
-                      <span className="font-medium text-ink-dim">Message (shown before the table in every reminder)</span>
-                      <RichTextEditor value={advisoryHtml} onChange={setAdvisoryHtml} minHeight={90} />
-                    </label>
-
-                    <div className="flex justify-end">
-                      <Button variant="secondary" onClick={() => void handlePreview()} loading={submitting}>
-                        Apply to all reminders
-                      </Button>
-                    </div>
+                <div className="flex flex-col gap-4 rounded-xl border border-border p-4">
+                  <div>
+                    <h4 className="font-display text-sm font-semibold text-ink">
+                      Reminder wording — one mail, sent to every FSE
+                    </h4>
+                    <p className="mt-1 max-w-xl text-sm text-ink-dim">
+                      Every FSE gets this exact subject and message, followed by their own collection
+                      table below it — only the table differs per person, so there's nothing to review
+                      or edit per FSE. Edit here once, then send to everyone below.
+                    </p>
                   </div>
 
-                  {previewResult.individual.length > 1 && (
-                    <label className="flex items-center gap-2 text-sm">
-                      <span className="font-medium text-ink-dim">Preview FSE</span>
-                      <select
-                        className="field-control w-auto"
-                        value={sampleKey ?? ''}
-                        onChange={(e) => setSampleKey(e.target.value || null)}
-                      >
-                        {previewResult.individual.map((row) => (
-                          <option key={row.fse_key} value={row.fse_key}>
-                            {row.fse_name}
-                            {row.missing_email ? ' (missing email)' : ''}
-                          </option>
-                        ))}
-                      </select>
-                    </label>
-                  )}
-                  {sampleKey &&
-                    editableRows[sampleKey] &&
-                    (() => {
-                      const row = previewResult.individual.find((r) => r.fse_key === sampleKey)
-                      if (!row) return null
-                      return (
-                        <IndividualCard
-                          row={row}
-                          edited={editableRows[sampleKey]}
-                          onChange={(patch) =>
-                            setEditableRows((prev) => ({ ...prev, [sampleKey]: { ...prev[sampleKey], ...patch } }))
-                          }
-                          onSend={() => void handleSendOne(sampleKey)}
-                          sending={sendingKey === sampleKey}
-                          reportStatus={reportByKey[sampleKey]}
-                        />
-                      )
-                    })()}
+                  <label className="flex flex-col gap-1.5 text-sm">
+                    <span className="font-medium text-ink-dim">Subject (same for every FSE reminder)</span>
+                    <input
+                      className="field-control"
+                      value={sharedSubject}
+                      onChange={(e) => updateSharedSubject(e.target.value)}
+                    />
+                  </label>
+
+                  <label className="flex flex-col gap-1.5 text-sm">
+                    <span className="font-medium text-ink-dim">Message (shown before the table in every reminder)</span>
+                    <RichTextEditor value={advisoryHtml} onChange={setAdvisoryHtml} minHeight={90} />
+                  </label>
+
+                  <div className="flex flex-col items-center gap-1.5 rounded-xl border border-dashed border-border bg-bg-soft/60 px-4 py-6 text-center text-sm text-ink-faint">
+                    <LayoutTemplate className="h-5 w-5" />
+                    [ This FSE's own Target / Received / Short Fall table goes here ]
+                  </div>
+
+                  <div className="flex justify-end">
+                    <Button variant="secondary" onClick={() => void handlePreview()} loading={submitting}>
+                      Apply to all reminders
+                    </Button>
+                  </div>
                 </div>
 
                 <div className="table-shell">
@@ -1053,13 +897,11 @@ export default function UltrafineFseReminder() {
                             <td className="px-3 py-2 text-right">
                               <button
                                 type="button"
-                                className="text-xs font-medium text-accent hover:underline"
-                                onClick={() => {
-                                  setSampleKey(row.fse_key)
-                                  sampleRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-                                }}
+                                className="text-xs font-medium text-accent hover:underline disabled:cursor-not-allowed disabled:text-ink-faint disabled:no-underline"
+                                disabled={row.missing_email || sendingKey === row.fse_key}
+                                onClick={() => void handleSendOne(row)}
                               >
-                                View &amp; edit
+                                {status?.status === 'failed' || status?.status === 'skipped' ? 'Resend' : 'Send'}
                               </button>
                             </td>
                           </tr>

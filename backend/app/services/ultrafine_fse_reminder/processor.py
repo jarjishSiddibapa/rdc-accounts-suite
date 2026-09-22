@@ -293,11 +293,14 @@ def _fmt(value: float) -> str:
     return f"{value:.2f}"
 
 
-# FSE and Party's Name get most of the table's width so a name almost never
-# wraps; the three figure columns are deliberately narrow so their longer
-# headers (e.g. "Collection Target considering dues upto 30-Sep-26") wrap
-# onto a few short lines instead of forcing the whole table wide.
-_COL_WIDTHS = {"fse": "14%", "party": "34%", "target": "18%", "received": "18%", "shortfall": "16%"}
+# FSE and Party's Name get nearly all of the table's width (as percentages,
+# so they still flex with the recipient's actual reading-pane width) so a
+# name almost never wraps; the three figure columns are pinned to a small
+# fixed pixel width - just enough for a handful of digits (their own values
+# never exceed 6-8 characters, e.g. "100.00") - so their much longer headers
+# (e.g. "Collection Target considering dues upto 30-Sep-26") wrap onto
+# several short lines instead of forcing the whole table wide.
+_COL_WIDTHS = {"fse": "16%", "party": "46%", "target": "72px", "received": "72px", "shortfall": "64px"}
 
 
 def _td(value, align: str = "right", bold: bool = False, bg: Optional[str] = None,
@@ -378,7 +381,14 @@ def build_table_html(
         "color:#1a1a1a;font-weight:bold;text-align:center;"
         "font-family:Calibri,Arial,sans-serif;font-size:12pt;"
     )
+    # A <colgroup> is what actually pins column widths here: table-layout:fixed
+    # normally sizes columns from its FIRST row alone, but that row is the
+    # title bar (one cell, colspan=5, no per-column width to read) - without
+    # this, every column silently fell back to equal width, ignoring every
+    # width set on the header/body cells below.
+    colgroup = "".join(f'<col style="width:{width};">' for width in (w["fse"], w["party"], w["target"], w["received"], w["shortfall"]))
     return f"""<table style="border-collapse:collapse;table-layout:fixed;width:100%;" width="100%">
+<colgroup>{colgroup}</colgroup>
 <tr><td colspan="5" style="{title_style}">{html.escape(title)}</td></tr>
 <tr>
 {_header_cell("FSE", width=w["fse"])}
@@ -417,7 +427,7 @@ def build_individual_body(
 ) -> str:
     advisory = advisory_html if advisory_html is not None else DEFAULT_ADVISORY_HTML
     return f"""<html><body style="font-family:Calibri,Arial,sans-serif;font-size:12pt;color:#1a1a1a;">
-<p>Dear Sir/ Ma'am,</p>
+<p>Dear Sir,</p>
 <p>Please find the collection v/s target Summary from 1 to {html.escape(as_on_long)}. We have only collected {_fmt(group['total_received'])} Lakh against a target of {_fmt(group['total_target'])} Lakhs</p>
 {advisory}
 {table_html}
