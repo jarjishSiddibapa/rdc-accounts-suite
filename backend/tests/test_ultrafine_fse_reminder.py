@@ -225,10 +225,16 @@ class BuildSendPlanTests(unittest.TestCase):
             parsed = processor.read_coll_vs_target(str(path))
             plan = processor.build_send_plan(parsed, {}, signature="")
             self.assertEqual(
-                plan["individual"][0]["subject"],
+                plan["broadcast"]["subject"],
                 "Collection Target VS Actual Collection Received as on 16-Sep-26",
             )
-            self.assertEqual(plan["broadcast"]["subject"], plan["individual"][0]["subject"])
+            # Individual reminders get an "FSE: <name>" prefix ahead of the
+            # same shared subject, so each FSE's own mail is identifiable.
+            row = plan["individual"][0]
+            self.assertEqual(
+                row["subject"],
+                f"FSE: {row['fse_name']} - {plan['broadcast']['subject']}",
+            )
 
     def test_advisory_override_applies_to_every_individual_and_broadcast(self):
         with tempfile.TemporaryDirectory() as tmp:

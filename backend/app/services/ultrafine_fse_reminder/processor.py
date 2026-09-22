@@ -454,6 +454,13 @@ def build_subject(as_on_raw: str) -> str:
     return SUBJECT_TEMPLATE.format(as_on_raw=as_on_raw)
 
 
+def build_individual_subject(fse_name: str, base_subject: str) -> str:
+    """Individual reminders get an "FSE: <name(s)>" prefix ahead of the
+    shared subject, so a compound name (e.g. "John Doe, Jane Smith") shows
+    both names verbatim rather than picking one."""
+    return f"FSE: {fse_name} - {base_subject}"
+
+
 def _signature_html(signature: str) -> str:
     if not signature or not signature.strip():
         return ""
@@ -530,7 +537,7 @@ def build_send_plan(
             "to": to,
             "cc": cc,
             "missing_email": missing_email,
-            "subject": subject,
+            "subject": build_individual_subject(fse_name, subject),
             "body_html": build_individual_body(
                 fse_name, group, table_html, parsed["as_on_long"], signature, advisory_html,
             ),

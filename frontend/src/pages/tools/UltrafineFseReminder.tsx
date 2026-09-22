@@ -482,6 +482,10 @@ export default function UltrafineFseReminder() {
     setSendError(null)
     const extraTo = splitAddrs(extraToOverride ?? '')
     const cc = splitAddrs(ccOverride ?? joinAddrs(defaultCcList(previewResult?.individual ?? [])))
+    // The shared Subject field edits the common suffix (base subject); each
+    // row's own "FSE: <name>" prefix is always reapplied on top of it, so an
+    // edit there can't accidentally erase which FSE a reminder is for.
+    const baseSubject = subjectOverride ?? previewResult?.broadcast.subject ?? ''
     try {
       const res = await post<{ job_id: string }>(`${BASE}/send`, {
         rows: rows.map((r) => {
@@ -491,7 +495,7 @@ export default function UltrafineFseReminder() {
             fse_key: r.fse_key,
             to,
             cc: cc.filter((addr) => !toAddresses.has(addr.toLowerCase())),
-            subject: subjectOverride ?? r.subject,
+            subject: `FSE: ${r.fse_name} - ${baseSubject}`,
             body_html: r.body_html,
           }
         }),
@@ -555,7 +559,7 @@ export default function UltrafineFseReminder() {
 
   const reportByKey = Object.fromEntries((sendResult?.report ?? []).map((r) => [r.fse_key, r]))
   const readyCount = (previewResult?.individual ?? []).filter((r) => !r.missing_email).length
-  const sharedSubject = subjectOverride ?? previewResult?.individual[0]?.subject ?? ''
+  const sharedSubject = subjectOverride ?? previewResult?.broadcast.subject ?? ''
   const sharedExtraTo = extraToOverride ?? ''
   const sharedCc = ccOverride ?? joinAddrs(defaultCcList(previewResult?.individual ?? []))
 
@@ -866,6 +870,10 @@ export default function UltrafineFseReminder() {
                       value={sharedSubject}
                       onChange={(e) => updateSharedSubject(e.target.value)}
                     />
+                    <span className="text-xs text-ink-dim">
+                      Each FSE's reminder is sent as "FSE: [name] - {sharedSubject || '…'}" — the "FSE:
+                      [name]" prefix is added automatically per reminder and can't be edited here.
+                    </span>
                   </label>
 
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
