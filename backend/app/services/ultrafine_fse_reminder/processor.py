@@ -287,6 +287,41 @@ def is_valid_email_syntax(address: str) -> bool:
         return False
 
 
+def split_fse_names(fse_field: str) -> list[str]:
+    """The tracker's FSE column can list more than one person jointly
+    covering an account, e.g. "John Doe, Jane Smith" - split on comma into
+    the individual names it's made of."""
+    return [name.strip() for name in fse_field.split(",") if name.strip()]
+
+
+def resolve_recipients(fse_name: str, mapping: dict[str, str]) -> tuple[list[str], bool]:
+    """Returns (to_emails, missing_email). A compound FSE field ("John Doe,
+    Jane Smith") means the reminder should go to each of those people's own
+    mapped address - resolved individually and combined - unless the exact
+    compound string already has its own explicit mapping (e.g. an admin
+    fixed it directly via the missing-email panel, which always saves
+    against the FSE field's exact text, so that override is honored first).
+    missing_email is True only when nobody in the field could be resolved at
+    all; a partially-resolved compound group still sends to whoever IS
+    mapped rather than blocking the whole reminder."""
+    whole = (mapping.get(fse_name) or "").strip()
+    if whole:
+        return [whole], False
+
+    names = split_fse_names(fse_name)
+    if len(names) <= 1:
+        return [], True
+
+    seen: set[str] = set()
+    emails: list[str] = []
+    for name in names:
+        email = (mapping.get(name) or "").strip()
+        if email and email.lower() not in seen:
+            seen.add(email.lower())
+            emails.append(email)
+    return emails, len(emails) == 0
+
+
 # ── HTML table / mail body ───────────────────────────────────────────────────
 
 def _fmt(value: float) -> str:
@@ -302,11 +337,22 @@ def _fmt(value: float) -> str:
 # several short lines instead of forcing the whole table wide.
 _COL_WIDTHS = {"fse": "16%", "party": "46%", "target": "72px", "received": "72px", "shortfall": "64px"}
 
+# Soft, Excel-banded-row-style colors, cycled one per FSE block so a reader
+# can tell at a glance where one salesperson's rows end and the next one's
+# begin in a combined (broadcast) table. The first entry matches the table's
+# original single fixed color, so a single-FSE individual reminder (which
+# only ever uses palette[0]) looks exactly as it did before this existed.
+ROW_PALETTE = ["#DCE6F1", "#E2EFDA", "#FCE4D6", "#FFF2CC", "#E4DFEC", "#EDEDED"]
+_GRAND_TOTAL_BG = "#D9D9D9"
+
 
 def _td(value, align: str = "right", bold: bool = False, bg: Optional[str] = None,
         width: Optional[str] = None) -> str:
+    # A subtotal/total row gets a visibly thicker border, not just bold text,
+    # so it reads as a boundary between one FSE's rows and the next.
+    border_width = "2px" if bold else "1px"
     style = (
-        f"border:1px solid #4472C4;padding:5px 10px;text-align:{align};"
+        f"border:{border_width} solid #4472C4;padding:5px 10px;text-align:{align};"
         "font-family:Calibri,Arial,sans-serif;font-size:11pt;"
     )
     if bold:
@@ -341,10 +387,10 @@ def build_table_html(
     """fse_blocks: [(fse_name, group_dict), ...] in the order they should
     appear. `grand_total` (only passed for the broadcast mail) appends one
     final bold Grand Total row summing every block."""
-    body_bg = "#DCE6F1"
     w = _COL_WIDTHS
     rows_html = []
-    for fse_name, group in fse_blocks:
+    for index, (fse_name, group) in enumerate(fse_blocks):
+        body_bg = ROW_PALETTE[index % len(ROW_PALETTE)]
         for row in group["rows"]:
             rows_html.append(
                 "<tr>"
@@ -368,11 +414,11 @@ def build_table_html(
     if grand_total is not None:
         rows_html.append(
             "<tr>"
-            + _td("", "left", bold=True, bg=body_bg, width=w["fse"])
-            + _td("Grand Total", "left", bold=True, bg=body_bg, width=w["party"])
-            + _td(_fmt(grand_total["total_target"]), "right", bold=True, bg=body_bg, width=w["target"])
-            + _td(_fmt(grand_total["total_received"]), "right", bold=True, bg=body_bg, width=w["received"])
-            + _td(_fmt(grand_total["total_shortfall"]), "right", bold=True, bg=body_bg, width=w["shortfall"])
+            + _td("", "left", bold=True, bg=_GRAND_TOTAL_BG, width=w["fse"])
+            + _td("Grand Total", "left", bold=True, bg=_GRAND_TOTAL_BG, width=w["party"])
+            + _td(_fmt(grand_total["total_target"]), "right", bold=True, bg=_GRAND_TOTAL_BG, width=w["target"])
+            + _td(_fmt(grand_total["total_received"]), "right", bold=True, bg=_GRAND_TOTAL_BG, width=w["received"])
+            + _td(_fmt(grand_total["total_shortfall"]), "right", bold=True, bg=_GRAND_TOTAL_BG, width=w["shortfall"])
             + "</tr>"
         )
 
@@ -469,12 +515,9 @@ def build_send_plan(
     individual = []
     broadcast_to: list[str] = []
     for fse_name, group in groups.items():
-        email = (mapping.get(fse_name) or "").strip()
-        missing_email = not email
-        to = [] if missing_email else [email]
-        cc = [] if missing_email else [extract_address(addr) for addr in dedupe_cc_against_to(to, INDIVIDUAL_CC)]
-        if not missing_email:
-            broadcast_to.append(email)
+        to, missing_email = resolve_recipients(fse_name, mapping)
+        cc = [] if not to else [extract_address(addr) for addr in dedupe_cc_against_to(to, INDIVIDUAL_CC)]
+        broadcast_to.extend(to)
 
         table_html = build_table_html(parsed["title"], parsed["target_header"], parsed["received_header"], [(fse_name, group)])
         individual.append({
@@ -498,6 +541,17 @@ def build_send_plan(
         "total_received": sum(g["total_received"] for g in groups.values()),
         "total_shortfall": sum(g["total_shortfall"] for g in groups.values()),
     }
+    # A person can end up resolved from more than one FSE row (e.g. mapped
+    # solo AND named inside a compound "John Doe, Jane Smith" row elsewhere)
+    # - dedupe so the broadcast doesn't address them twice.
+    seen_broadcast: set[str] = set()
+    deduped_broadcast_to: list[str] = []
+    for addr in broadcast_to:
+        key = extract_address(addr)
+        if key not in seen_broadcast:
+            seen_broadcast.add(key)
+            deduped_broadcast_to.append(addr)
+    broadcast_to = deduped_broadcast_to
     broadcast_cc = [extract_address(addr) for addr in dedupe_cc_against_to(broadcast_to, BROADCAST_CC)]
     broadcast_table_html = build_table_html(
         parsed["title"], parsed["target_header"], parsed["received_header"],
@@ -549,17 +603,26 @@ def build_broadcast_workbook(title: str, target_header: str, received_header: st
     title_fill = PatternFill("solid", fgColor="A9D08E")
     header_fill = PatternFill("solid", fgColor="F4B183")
     target_fill = PatternFill("solid", fgColor="FFFF00")
-    body_fill = PatternFill("solid", fgColor="DCE6F1")
+    # One soft fill per FSE block (same palette/order as the HTML table), so
+    # the Excel attachment matches the mail's own coloring exactly.
+    body_fills = [PatternFill("solid", fgColor=color.lstrip("#")) for color in ROW_PALETTE]
+    grand_total_fill = PatternFill("solid", fgColor=_GRAND_TOTAL_BG.lstrip("#"))
     border = Border(*(Side(style="thin", color="4472C4"),) * 4)
+    # A subtotal/total row gets a visibly thicker border to read as a
+    # boundary, matching the HTML table's own bold-border treatment.
+    bold_border = Border(*(Side(style="medium", color="4472C4"),) * 4)
     bold = Font(bold=True)
     center = Alignment(horizontal="center", vertical="center", wrap_text=True)
     ncols = 5
 
-    def style_row(row: int, fill: PatternFill, *, bold_row: bool = False, align: Optional[Alignment] = None) -> None:
+    def style_row(
+        row: int, fill: PatternFill, *, bold_row: bool = False, thick_border: bool = False,
+        align: Optional[Alignment] = None,
+    ) -> None:
         for col in range(1, ncols + 1):
             cell = ws.cell(row, col)
             cell.fill = fill
-            cell.border = border
+            cell.border = bold_border if thick_border else border
             if bold_row:
                 cell.font = bold
             if align:
@@ -578,18 +641,19 @@ def build_broadcast_workbook(title: str, target_header: str, received_header: st
     ws.cell(2, 3).fill = target_fill
 
     row_num = 2
-    for fse_name, group in groups.items():
+    for index, (fse_name, group) in enumerate(groups.items()):
+        body_fill = body_fills[index % len(body_fills)]
         for row in group["rows"]:
             row_num += 1
             ws.append([fse_name, row["party"], row["target"], row["received"], row["shortfall"]])
             style_row(row_num, body_fill)
         row_num += 1
         ws.append([fse_name, f"{fse_name} Total", group["total_target"], group["total_received"], group["total_shortfall"]])
-        style_row(row_num, body_fill, bold_row=True)
+        style_row(row_num, body_fill, bold_row=True, thick_border=True)
 
     row_num += 1
     ws.append([None, "Grand Total", grand_total["total_target"], grand_total["total_received"], grand_total["total_shortfall"]])
-    style_row(row_num, body_fill, bold_row=True)
+    style_row(row_num, grand_total_fill, bold_row=True, thick_border=True)
 
     ws.column_dimensions["A"].width = 20
     ws.column_dimensions["B"].width = 40
