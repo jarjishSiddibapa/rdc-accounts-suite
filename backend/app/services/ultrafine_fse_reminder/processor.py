@@ -325,7 +325,21 @@ def resolve_recipients(fse_name: str, mapping: dict[str, str]) -> tuple[list[str
 # ── HTML table / mail body ───────────────────────────────────────────────────
 
 def _fmt(value: float) -> str:
-    return f"{value:.2f}"
+    """Indian digit grouping (e.g. 12,34,567.89), always to 2 decimals -
+    matches format_indian_currency's grouping logic in
+    ultrafine_payment_reminder/processing.py, but keeps a stable 2-decimal
+    tail (no "-" for zero, no dropped ".00") since these are table/body
+    figures that need to line up, not a currency display string."""
+    is_negative = value < 0
+    whole, _, frac = f"{abs(value):.2f}".partition(".")
+    last_three = whole[-3:]
+    rest = whole[:-3]
+    if rest:
+        rest_reversed = rest[::-1]
+        rest_grouped = ",".join(rest_reversed[i:i + 2] for i in range(0, len(rest_reversed), 2))
+        whole = rest_grouped[::-1] + "," + last_three
+    sign = "-" if is_negative else ""
+    return f"{sign}{whole}.{frac}"
 
 
 # FSE and Party's Name get nearly all of the table's width (as percentages,
@@ -344,6 +358,10 @@ _COL_WIDTHS = {"fse": "16%", "party": "46%", "target": "72px", "received": "72px
 # only ever uses palette[0]) looks exactly as it did before this existed.
 ROW_PALETTE = ["#DCE6F1", "#E2EFDA", "#FCE4D6", "#FFF2CC", "#E4DFEC", "#EDEDED"]
 _GRAND_TOTAL_BG = "#D9D9D9"
+# Excel custom number format for Indian digit grouping (lakhs/crores) -
+# the repeated ",##" groups by 2 after the first group of 3, which Excel
+# extends correctly for any magnitude (e.g. 12,34,567.89).
+INDIAN_NUMBER_FORMAT = "#,##,##0.00"
 
 
 def _td(value, align: str = "right", bold: bool = False, bg: Optional[str] = None,
@@ -634,6 +652,8 @@ def build_broadcast_workbook(title: str, target_header: str, received_header: st
                 cell.font = bold
             if align:
                 cell.alignment = align
+            if col in (3, 4, 5) and row > 2:
+                cell.number_format = INDIAN_NUMBER_FORMAT
 
     wb = openpyxl.Workbook()
     ws = wb.active
