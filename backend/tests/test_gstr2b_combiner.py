@@ -7,12 +7,14 @@ router's _LogQueue nudges the job's progress fraction on every log_q.put
 call, so periodic writes from inside the row loop are enough to keep it
 moving without any new plumbing.
 """
+import tempfile
 import unittest
+from pathlib import Path
 
 import pandas as pd
 from openpyxl import Workbook
 
-from app.services.gstr2b.combiner import _write_sheet
+from app.services.gstr2b.combiner import _dedupe_by_content, _write_sheet
 
 
 class _LogQueue:
@@ -53,6 +55,42 @@ class WriteSheetProgressTests(unittest.TestCase):
         _write_sheet(ws, df, log_q=log_q)
         self.assertEqual(ws.cell(row=1, column=1).value, "A")
         self.assertEqual(log_q.messages, [])
+
+
+class DedupeByContentTests(unittest.TestCase):
+    def test_drops_byte_identical_uploads_regardless_of_filename(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            a = Path(tmp) / "a.xlsx"
+            b = Path(tmp) / "differently-named.xlsx"
+            c = Path(tmp) / "c.xlsx"
+            a.write_bytes(b"same content")
+            b.write_bytes(b"same content")
+            c.write_bytes(b"different content")
+            log_q = _LogQueue()
+
+            kept = _dedupe_by_content(
+                [("a.xlsx", str(a)), ("differently-named.xlsx", str(b)), ("c.xlsx", str(c))],
+                log_q,
+            )
+
+            self.assertEqual([name for name, _ in kept], ["a.xlsx", "c.xlsx"])
+            warnings = [msg for tag, msg in log_q.messages if tag == "warn"]
+            self.assertEqual(len(warnings), 1)
+            self.assertIn("differently-named.xlsx", warnings[0])
+            self.assertIn("duplicate content of a.xlsx", warnings[0])
+
+    def test_same_filename_different_content_is_not_a_duplicate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            a = Path(tmp) / "a.xlsx"
+            b = Path(tmp) / "b.xlsx"
+            a.write_bytes(b"content one")
+            b.write_bytes(b"content two")
+            log_q = _LogQueue()
+
+            kept = _dedupe_by_content([("same.xlsx", str(a)), ("same.xlsx", str(b))], log_q)
+
+            self.assertEqual(len(kept), 2)
+            self.assertEqual(log_q.messages, [])
 
 
 if __name__ == "__main__":

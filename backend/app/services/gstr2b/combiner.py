@@ -25,6 +25,7 @@ background job's progress_cb(frac, phase).
 
 from __future__ import annotations
 
+import hashlib
 from pathlib import Path
 
 import numpy as np
@@ -208,6 +209,27 @@ def _write_sheet(ws, df: pd.DataFrame, log_q=None) -> None:
     ws.freeze_panes = "A2"
 
 
+def _dedupe_by_content(files: list[tuple[str, str]], log_q) -> list[tuple[str, str]]:
+    """Drop any upload whose file content is byte-for-byte identical to one
+    already kept earlier in this same batch (a user re-selecting or
+    drag-dropping the same export twice being the common case) - keeping a
+    duplicate would double-count every row from it in the combined output.
+    Filename is irrelevant here: two differently-named files with identical
+    content are still a duplicate; two identically-named files with
+    different content are not."""
+    seen: dict[str, str] = {}  # sha256 hex digest -> first original filename with that content
+    unique: list[tuple[str, str]] = []
+    for original_name, saved_path in files:
+        digest = hashlib.sha256(Path(saved_path).read_bytes()).hexdigest()
+        first_seen = seen.get(digest)
+        if first_seen is not None:
+            log_q.put(("warn", f"Skipped {original_name}  (duplicate content of {first_seen})"))
+            continue
+        seen[digest] = original_name
+        unique.append((original_name, saved_path))
+    return unique
+
+
 def _parse_filename(fp: Path) -> tuple[str, int]:
     """
     Extract (month_year, state_code) from a GSTR-2B filename.
@@ -243,10 +265,16 @@ def run_combine(
     falls back to the original desktop app's exact
     f"Unknown state ({sc})" string (including for a code the user has since
     removed via the state-code CRUD UI).
+
+    Files with byte-identical content are silently deduplicated (see
+    _dedupe_by_content) before parsing, regardless of filename - the
+    returned "files" count and per-tab row counts both already reflect
+    the deduplicated set.
     """
     pairs = sorted(files, key=lambda pair: pair[0])
     if not pairs:
         raise JobUserError("No .xlsx files were uploaded")
+    pairs = _dedupe_by_content(pairs, log_q)
 
     frames: dict[str, list[pd.DataFrame]] = {t: [] for t in TARGET_TABS}
     counts: dict[str, int]                = {t: 0  for t in TARGET_TABS}
