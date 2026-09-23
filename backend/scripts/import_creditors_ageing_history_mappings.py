@@ -26,14 +26,23 @@ app.soft_delete.seed_missing_keyed_rows) - re-running this after an admin
 has since edited a mapping in the UI can never clobber that edit. Safe to
 run more than once and against more than one folder of files.
 
+After importing, the script also standardizes classifications ACROSS THE
+WHOLE TABLE (not just newly imported rows): if the same Location/Vendor
+Type/Vendor Sub Type value shows up under more than one casing (e.g.
+"wada", "WADA", "Wada"), every row is rewritten to one Title Case form so
+they stop being counted as different values. This never touches
+vendor_name/vendor_key - merging two different vendor NAME spellings into
+one vendor is a separate, riskier decision this script doesn't make.
+
 Usage (from backend/, with the venv active):
     python -m scripts.import_creditors_ageing_history_mappings <folder-or-file> [more...]
     python -m scripts.import_creditors_ageing_history_mappings <folder> --dry-run
+    python -m scripts.import_creditors_ageing_history_mappings  # no paths: standardize only
 
 Same command works unchanged on the production server: copy the same
 folder of .xlsx exports there and point this script at it. Run with
---dry-run first to preview what would be inserted before touching the
-live database.
+--dry-run first to preview what would be inserted/renamed before
+touching the live database.
 """
 
 import argparse
@@ -47,6 +56,8 @@ from app.database import SessionLocal
 from app.services.creditors_ageing import mapping_store
 from app.services.creditors_ageing.models import VendorMapping
 from app.soft_delete import seed_missing_keyed_rows
+
+CLASSIFICATION_FIELDS = ("location", "vendor_type", "vendor_sub_type")
 
 MONTHS = {
     "jan": 1, "january": 1, "feb": 2, "february": 2, "mar": 3, "march": 3,
@@ -190,6 +201,54 @@ def parse_file(path: Path) -> tuple[dict[str, dict], tuple[int, int] | None]:
         workbook.close()
 
 
+def standardize_classifications(db, *, dry_run: bool) -> int:
+    """Collapse case/whitespace-only duplicates within each classification
+    field (location, vendor_type, vendor_sub_type) across every active
+    mapping row, so "wada"/"WADA"/"Wada" all become one value ("Wada") and
+    stop being treated as different locations. A field's value is only
+    ever touched when at least one OTHER row already has the same value
+    under a different casing - a value with no duplicate is left exactly
+    as an admin typed it, so this never surprises anyone by "fixing"
+    something that wasn't actually inconsistent (e.g. a legitimate
+    all-caps abbreviation used the same way everywhere).
+    """
+    rows = db.query(VendorMapping).filter(VendorMapping.is_deleted.is_(False)).all()
+    total_changed = 0
+
+    for field in CLASSIFICATION_FIELDS:
+        variants_by_key: dict[str, set[str]] = {}
+        for row in rows:
+            value = (getattr(row, field) or "").strip()
+            if value:
+                variants_by_key.setdefault(value.upper(), set()).add(value)
+
+        canonical_by_key = {
+            key: key.title()
+            for key, variants in variants_by_key.items()
+            if len(variants) > 1
+        }
+        if not canonical_by_key:
+            continue
+
+        print(f"\n{field}: {len(canonical_by_key)} value(s) have casing/whitespace variants")
+        for key, canonical in sorted(canonical_by_key.items()):
+            print(f"  {sorted(variants_by_key[key])} -> {canonical!r}")
+
+        for row in rows:
+            value = (getattr(row, field) or "").strip()
+            if not value:
+                continue
+            canonical = canonical_by_key.get(value.upper())
+            if canonical and value != canonical:
+                total_changed += 1
+                if not dry_run:
+                    setattr(row, field, canonical)
+
+    if not dry_run and total_changed:
+        db.commit()
+    return total_changed
+
+
 def _iter_xlsx_paths(inputs: list[str]) -> list[Path]:
     paths: list[Path] = []
     for raw in inputs:
@@ -203,13 +262,8 @@ def _iter_xlsx_paths(inputs: list[str]) -> list[Path]:
     return paths
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("paths", nargs="+", help="Folder(s) of .xlsx report exports, or individual .xlsx files")
-    parser.add_argument("--dry-run", action="store_true", help="Parse and report only - don't write to the database")
-    args = parser.parse_args()
-
-    files = _iter_xlsx_paths(args.paths)
+def _import_mappings(db, paths: list[str], *, dry_run: bool) -> None:
+    files = _iter_xlsx_paths(paths)
     if not files:
         print("No .xlsx files found.", file=sys.stderr)
         sys.exit(1)
@@ -262,28 +316,50 @@ def main() -> None:
 
     print(f"\n{len(combined)} distinct vendors found across {len(files)} file(s).")
 
+    existing_keys = {row.vendor_key for row in db.query(VendorMapping.vendor_key).all()}
+    new_keys = [key for key in combined if key not in existing_keys]
+    print(f"{len(new_keys)} are new (not already in the mapping table, active or archived).")
+    print(f"{len(combined) - len(new_keys)} already exist in the mapping table and will be left untouched.")
+
+    if dry_run:
+        print("\n--dry-run: no changes written. New vendors that WOULD be added:")
+        for key in sorted(new_keys)[:50]:
+            row = combined[key]
+            print(f"  {row['vendor_name']} | {row['location']} | {row['vendor_type']} | {row['vendor_sub_type']} | intercompany={row['intercompany']}")
+        if len(new_keys) > 50:
+            print(f"  ... and {len(new_keys) - 50} more")
+        return
+
+    inserted = seed_missing_keyed_rows(db, VendorMapping, ("vendor_key",), combined)
+    db.commit()
+    print(f"\nInserted {inserted} new vendor mapping(s).")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument(
+        "paths", nargs="*",
+        help="Folder(s) of .xlsx report exports, or individual .xlsx files. Omit to only run the casing standardization step.",
+    )
+    parser.add_argument("--dry-run", action="store_true", help="Report only - don't write to the database")
+    parser.add_argument("--skip-mappings", action="store_true", help="Skip importing new vendor mappings even if paths are given")
+    parser.add_argument("--skip-standardize", action="store_true", help="Skip standardizing location/vendor type/vendor sub type casing")
+    args = parser.parse_args()
+
     db = SessionLocal()
     try:
-        existing_keys = {
-            row.vendor_key
-            for row in db.query(VendorMapping.vendor_key).all()
-        }
-        new_keys = [key for key in combined if key not in existing_keys]
-        print(f"{len(new_keys)} are new (not already in the mapping table, active or archived).")
-        print(f"{len(combined) - len(new_keys)} already exist in the mapping table and will be left untouched.")
+        if args.paths and not args.skip_mappings:
+            _import_mappings(db, args.paths, dry_run=args.dry_run)
+        elif not args.skip_mappings:
+            print("No folder/file given - skipping the new-mappings import step.")
 
-        if args.dry_run:
-            print("\n--dry-run: no changes written. New vendors that WOULD be added:")
-            for key in sorted(new_keys)[:50]:
-                row = combined[key]
-                print(f"  {row['vendor_name']} | {row['location']} | {row['vendor_type']} | {row['vendor_sub_type']} | intercompany={row['intercompany']}")
-            if len(new_keys) > 50:
-                print(f"  ... and {len(new_keys) - 50} more")
-            return
-
-        inserted = seed_missing_keyed_rows(db, VendorMapping, ("vendor_key",), combined)
-        db.commit()
-        print(f"\nInserted {inserted} new vendor mapping(s).")
+        if not args.skip_standardize:
+            changed = standardize_classifications(db, dry_run=args.dry_run)
+            if changed:
+                verb = "would be" if args.dry_run else "were"
+                print(f"\n{changed} field value(s) {verb} standardized.")
+            else:
+                print("\nNo casing/whitespace variants found - nothing to standardize.")
     finally:
         db.close()
 
