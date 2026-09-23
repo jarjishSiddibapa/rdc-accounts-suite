@@ -14,7 +14,7 @@ from pathlib import Path
 import pandas as pd
 from openpyxl import Workbook
 
-from app.services.gstr2b.combiner import _dedupe_by_content, _write_sheet
+from app.services.gstr2b.combiner import _dedupe_uploads, _write_sheet
 
 
 class _LogQueue:
@@ -57,7 +57,7 @@ class WriteSheetProgressTests(unittest.TestCase):
         self.assertEqual(log_q.messages, [])
 
 
-class DedupeByContentTests(unittest.TestCase):
+class DedupeUploadsTests(unittest.TestCase):
     def test_drops_byte_identical_uploads_regardless_of_filename(self):
         with tempfile.TemporaryDirectory() as tmp:
             a = Path(tmp) / "a.xlsx"
@@ -68,7 +68,7 @@ class DedupeByContentTests(unittest.TestCase):
             c.write_bytes(b"different content")
             log_q = _LogQueue()
 
-            kept = _dedupe_by_content(
+            kept = _dedupe_uploads(
                 [("a.xlsx", str(a)), ("differently-named.xlsx", str(b)), ("c.xlsx", str(c))],
                 log_q,
             )
@@ -79,7 +79,7 @@ class DedupeByContentTests(unittest.TestCase):
             self.assertIn("differently-named.xlsx", warnings[0])
             self.assertIn("duplicate content of a.xlsx", warnings[0])
 
-    def test_same_filename_different_content_is_not_a_duplicate(self):
+    def test_drops_same_filename_uploads_even_with_different_content(self):
         with tempfile.TemporaryDirectory() as tmp:
             a = Path(tmp) / "a.xlsx"
             b = Path(tmp) / "b.xlsx"
@@ -87,7 +87,23 @@ class DedupeByContentTests(unittest.TestCase):
             b.write_bytes(b"content two")
             log_q = _LogQueue()
 
-            kept = _dedupe_by_content([("same.xlsx", str(a)), ("same.xlsx", str(b))], log_q)
+            kept = _dedupe_uploads([("same.xlsx", str(a)), ("SAME.xlsx", str(b))], log_q)
+
+            self.assertEqual(len(kept), 1)
+            warnings = [msg for tag, msg in log_q.messages if tag == "warn"]
+            self.assertEqual(len(warnings), 1)
+            self.assertIn("SAME.xlsx", warnings[0])
+            self.assertIn("duplicate filename", warnings[0])
+
+    def test_distinct_filenames_and_content_are_both_kept(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            a = Path(tmp) / "a.xlsx"
+            b = Path(tmp) / "b.xlsx"
+            a.write_bytes(b"content one")
+            b.write_bytes(b"content two")
+            log_q = _LogQueue()
+
+            kept = _dedupe_uploads([("a.xlsx", str(a)), ("b.xlsx", str(b))], log_q)
 
             self.assertEqual(len(kept), 2)
             self.assertEqual(log_q.messages, [])

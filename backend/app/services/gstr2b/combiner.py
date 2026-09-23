@@ -209,23 +209,40 @@ def _write_sheet(ws, df: pd.DataFrame, log_q=None) -> None:
     ws.freeze_panes = "A2"
 
 
-def _dedupe_by_content(files: list[tuple[str, str]], log_q) -> list[tuple[str, str]]:
-    """Drop any upload whose file content is byte-for-byte identical to one
-    already kept earlier in this same batch (a user re-selecting or
-    drag-dropping the same export twice being the common case) - keeping a
-    duplicate would double-count every row from it in the combined output.
-    Filename is irrelevant here: two differently-named files with identical
-    content are still a duplicate; two identically-named files with
-    different content are not."""
-    seen: dict[str, str] = {}  # sha256 hex digest -> first original filename with that content
+def _dedupe_uploads(files: list[tuple[str, str]], log_q) -> list[tuple[str, str]]:
+    """Drop any upload that duplicates one already kept earlier in this same
+    batch, by either signal:
+
+      1. Same original filename (case-insensitive). Per the GSTR-2B naming
+         convention (MMYYYY_SSGSTIN_GSTR2B_DDMMYYYY.xlsx) the filename alone
+         already identifies period + GSTIN + download-date, so two uploads
+         sharing a filename are the same export re-selected, even if their
+         bytes differ - portal re-downloads of the same period/GSTIN are NOT
+         always byte-identical (the workbook embeds a generation timestamp
+         and other metadata that changes per download), so this is the more
+         reliable signal in practice.
+      2. Same file content (sha256), regardless of filename - covers a user
+         renaming a copy of the same export before re-uploading it.
+
+    Either match is enough to drop the later upload; a duplicate detected by
+    name is not also hashed."""
+    seen_names: set[str] = set()      # lowercased original filenames already kept
+    seen_hashes: dict[str, str] = {}  # sha256 hex digest -> first original filename with that content
     unique: list[tuple[str, str]] = []
     for original_name, saved_path in files:
+        name_key = original_name.strip().lower()
+        if name_key in seen_names:
+            log_q.put(("warn", f"Skipped {original_name}  (duplicate filename)"))
+            continue
+
         digest = hashlib.sha256(Path(saved_path).read_bytes()).hexdigest()
-        first_seen = seen.get(digest)
+        first_seen = seen_hashes.get(digest)
         if first_seen is not None:
             log_q.put(("warn", f"Skipped {original_name}  (duplicate content of {first_seen})"))
             continue
-        seen[digest] = original_name
+
+        seen_names.add(name_key)
+        seen_hashes[digest] = original_name
         unique.append((original_name, saved_path))
     return unique
 
@@ -266,15 +283,15 @@ def run_combine(
     f"Unknown state ({sc})" string (including for a code the user has since
     removed via the state-code CRUD UI).
 
-    Files with byte-identical content are silently deduplicated (see
-    _dedupe_by_content) before parsing, regardless of filename - the
-    returned "files" count and per-tab row counts both already reflect
-    the deduplicated set.
+    Duplicate uploads are silently dropped before parsing (see
+    _dedupe_uploads) - matched by original filename (case-insensitive) or by
+    byte-identical content, whichever fires first. The returned "files"
+    count and per-tab row counts both already reflect the deduplicated set.
     """
     pairs = sorted(files, key=lambda pair: pair[0])
     if not pairs:
         raise JobUserError("No .xlsx files were uploaded")
-    pairs = _dedupe_by_content(pairs, log_q)
+    pairs = _dedupe_uploads(pairs, log_q)
 
     frames: dict[str, list[pd.DataFrame]] = {t: [] for t in TARGET_TABS}
     counts: dict[str, int]                = {t: 0  for t in TARGET_TABS}
