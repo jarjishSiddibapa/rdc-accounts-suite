@@ -85,35 +85,57 @@ async function parseErrorMessage(res: Response): Promise<{ message: string; body
   }
 }
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms))
+}
+
+// A GET can safely be retried blind (it can't double-submit a job or
+// double-send a mail the way a POST/PUT/DELETE could) - so a handful of
+// brief backend restarts (worker crash-and-respawn, a deploy) show up to the
+// user as one slightly slower page load instead of "Unable to reach the
+// server", the same recovery a person gets by clicking retry a few times.
+const NETWORK_ERROR_RETRY_DELAYS_MS = [300, 800]
+
 async function request<T>(path: string, init?: RequestInit, timeoutMs = REQUEST_TIMEOUT_MS): Promise<T> {
+  const isRetryableRead = !init?.method || init.method === 'GET'
   // ProgressPanel already renders the shared loading notice for job polls;
   // excluding those frequent GETs prevents the fixed indicator from
   // flickering every 800 ms while a report is running.
-  const finishLoading = /\/jobs\/[^/]+\/?(?:\?|$)/.test(path) && (!init?.method || init.method === 'GET')
+  const finishLoading = /\/jobs\/[^/]+\/?(?:\?|$)/.test(path) && isRetryableRead
     ? () => undefined
     : beginGlobalLoading()
-  const controller = new AbortController()
-  const timeout = window.setTimeout(() => controller.abort(), timeoutMs)
   let res: Response
   try {
-    res = await fetch(`${BASE_PATH}${path}`, {
-      credentials: 'include',
-      ...init,
-      signal: init?.signal ?? controller.signal,
-      headers: {
-        ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
-        ...(init?.method && init.method !== 'GET' ? { 'X-Requested-With': REQUESTED_WITH } : {}),
-        ...clientTabHeaders(),
-        ...init?.headers,
-      },
-    })
-  } catch (error) {
-    if (error instanceof DOMException && error.name === 'AbortError') {
-      throw new ApiError(408, visibleErrorMessage('The request timed out. Please try again.'))
+    for (let attempt = 0; ; attempt++) {
+      const controller = new AbortController()
+      const timeout = window.setTimeout(() => controller.abort(), timeoutMs)
+      try {
+        res = await fetch(`${BASE_PATH}${path}`, {
+          credentials: 'include',
+          ...init,
+          signal: init?.signal ?? controller.signal,
+          headers: {
+            ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
+            ...(init?.method && init.method !== 'GET' ? { 'X-Requested-With': REQUESTED_WITH } : {}),
+            ...clientTabHeaders(),
+            ...init?.headers,
+          },
+        })
+        break
+      } catch (error) {
+        if (error instanceof DOMException && error.name === 'AbortError') {
+          throw new ApiError(408, visibleErrorMessage('The request timed out. Please try again.'))
+        }
+        if (isRetryableRead && attempt < NETWORK_ERROR_RETRY_DELAYS_MS.length) {
+          await sleep(NETWORK_ERROR_RETRY_DELAYS_MS[attempt])
+          continue
+        }
+        throw new ApiError(0, visibleErrorMessage('Unable to reach the server. Check your connection and try again.'))
+      } finally {
+        window.clearTimeout(timeout)
+      }
     }
-    throw new ApiError(0, visibleErrorMessage('Unable to reach the server. Check your connection and try again.'))
   } finally {
-    window.clearTimeout(timeout)
     finishLoading()
   }
 
