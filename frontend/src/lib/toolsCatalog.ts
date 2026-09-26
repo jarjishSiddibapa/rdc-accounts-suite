@@ -14,6 +14,7 @@ import {
   ChartNoAxesCombined,
   ClipboardCheck,
   Megaphone,
+  Tags,
 } from 'lucide-react'
 
 export type Company = 'RDC' | 'Ultrafine'
@@ -169,5 +170,14 @@ export const TOOLS_CATALOG: ToolCatalogEntry[] = [
     appKey: 'trial-balance-formatter',
     category: 'Ultrafine financial reporting',
     company: 'Ultrafine',
+  },
+  {
+    to: '/tools/untagged-invoices-report',
+    title: 'Untagged Invoices Report Generator',
+    description: 'Tag Aging export rows by Location and surface untagged receipts and small-balance invoices.',
+    icon: Tags,
+    appKey: 'untagged-invoices-report',
+    category: 'AR reconciliation',
+    company: 'RDC',
   },
 ]

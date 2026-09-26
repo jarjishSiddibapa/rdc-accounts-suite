@@ -21,6 +21,7 @@ APP_KEYS = [
     "ultrafine-fse-reminder",
     "gst-invoice-adder", "closing-period-report",
     "iocl-balance-monitor", "invoice-booking-tracker", "creditors-ageing-report", "trial-balance-formatter",
+    "untagged-invoices-report",
 ]
 RETIRED_APP_KEYS = {"dms", "it-po-lookup"}
 
@@ -40,6 +41,7 @@ APP_LABELS = {
     "invoice-booking-tracker": "Ultrafine Invoice Booking Tracker",
     "creditors-ageing-report": "Ultrafine Creditors Ageing Report Generator",
     "trial-balance-formatter": "Ultrafine Trial Balance Formatter",
+    "untagged-invoices-report": "Untagged Invoices Report Generator",
 }
 
 APP_COMPANIES = ("RDC", "Ultrafine")

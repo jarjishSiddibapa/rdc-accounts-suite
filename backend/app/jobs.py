@@ -68,6 +68,7 @@ _ALLOWED_TASKS = frozenset(
         "app.routers.unaccounted_txn:_job_po",
         "app.routers.unaccounted_txn:_job_mail_send",
         "app.routers.unapplied_receipts:_run_process_job",
+        "app.routers.untagged_invoices_report:_run_process_job",
         "app.routers.ultrafine_balance_confirmation:_job_preview",
         "app.routers.ultrafine_balance_confirmation:_job_send",
         "app.routers.ultrafine_payment_reminder:_job_preview",

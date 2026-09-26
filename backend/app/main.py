@@ -30,6 +30,7 @@ from app.routers import (
     trial_balance_formatter,
     unaccounted_txn,
     unapplied_receipts,
+    untagged_invoices_report,
     ultrafine_balance_confirmation,
     ultrafine_fse_reminder,
     ultrafine_payment_reminder,
@@ -148,6 +149,7 @@ app.include_router(iocl_balance.router)
 app.include_router(invoice_booking_tracker.router)
 app.include_router(creditors_ageing.router)
 app.include_router(trial_balance_formatter.router)
+app.include_router(untagged_invoices_report.router)
 
 # Serve the built React app's JS/CSS bundles directly.
 app.mount("/assets", StaticFiles(directory=str(config.STATIC_DIR / "assets")), name="static-assets")
