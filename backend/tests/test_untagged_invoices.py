@@ -19,6 +19,7 @@ from app.services.untagged_invoices.processor import (
     build_below_1k_pivot,
     build_untagged_detail,
     build_untagged_summary,
+    build_zero_to_1k_detail,
     missing_incharge_mappings,
     missing_location_mappings,
     read_ageing_file,
@@ -166,7 +167,9 @@ class PivotTests(unittest.TestCase):
             _base_row(**{"Location Name": "LOC B", "Accounted Outstanding": -10.0}),   # excluded: not > 0
         ]
         df = self._prepared(rows, as_on)
-        pivot = build_below_1k_pivot(df, {"Location A": "Alice"})
+        detail = build_zero_to_1k_detail(df)
+        self.assertEqual(len(detail), 2)  # the >=1000 and the negative row are excluded
+        pivot = build_below_1k_pivot(detail, {"Location A": "Alice"})
 
         self.assertEqual(list(pivot[LOCATION_COL]), ["Location A"])
         self.assertAlmostEqual(pivot["Total O/S"].iloc[0], 750.0)
@@ -211,19 +214,21 @@ class WriteReportTests(unittest.TestCase):
         df = pd.DataFrame(rows)
         df = add_location_column(df, {"LOC A": "Location A"})
         df = recompute_ageing_buckets(df, as_on, _LogQueue())
-        below_1k = build_below_1k_pivot(df, {"Location A": "Alice"})
+        zero_to_1k_detail = build_zero_to_1k_detail(df)
+        below_1k = build_below_1k_pivot(zero_to_1k_detail, {"Location A": "Alice"})
         untagged_detail = build_untagged_detail(df)
         untagged_summary = build_untagged_summary(untagged_detail, {"Location A": "Alice"})
 
         with tempfile.TemporaryDirectory() as tmp:
             out_path = Path(tmp) / "out.xlsx"
-            write_report(df, below_1k, untagged_detail, untagged_summary, out_path, as_on,
-                         log_q=_LogQueue())
+            write_report(df, below_1k, untagged_detail, untagged_summary, zero_to_1k_detail,
+                         out_path, as_on, log_q=_LogQueue())
 
             wb = openpyxl.load_workbook(out_path)
             self.assertEqual(
                 wb.sheetnames,
-                ["Untagged Summary", "Untagged Detailed Ageing", "Ageing", "Below 1k"],
+                ["Untagged Summary", "Untagged Detailed Ageing", "Ageing", "Below 1k",
+                 "Zero to 1k Ageing"],
             )
 
             below_ws = wb["Below 1k"]
@@ -236,6 +241,9 @@ class WriteReportTests(unittest.TestCase):
             summary_grand_row = summary_ws.max_row
             summary_total_cell = summary_ws.cell(row=summary_grand_row, column=3).value
             self.assertTrue(str(summary_total_cell).startswith("=SUBTOTAL(9,"))
+
+            zero_to_1k_ws = wb["Zero to 1k Ageing"]
+            self.assertEqual(zero_to_1k_ws.max_row - 1, len(zero_to_1k_detail))
 
 
 if __name__ == "__main__":

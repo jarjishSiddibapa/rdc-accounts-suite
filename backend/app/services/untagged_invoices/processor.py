@@ -215,13 +215,21 @@ def recompute_ageing_buckets(df: pd.DataFrame, as_on_date: _dt.date, log_q=None)
 
 # ── pivots ────────────────────────────────────────────────────────────────
 
-def build_below_1k_pivot(df: pd.DataFrame, incharge_map: dict[str, str]) -> pd.DataFrame:
-    """Location-wise pivot of rows with 0 < Accounted Outstanding < 1,000."""
+def build_zero_to_1k_detail(df: pd.DataFrame) -> pd.DataFrame:
+    """Rows where 0 < Accounted Outstanding < 1,000 - same columns as the
+    Ageing sheet. Feeds the Below 1k pivot and is also written as its own
+    "Zero to 1k Ageing" detail sheet."""
     outstanding_col = _find_col(df.columns, _ACCOUNTED_OUTSTANDING_TOKENS)
     outstanding = pd.to_numeric(df[outstanding_col], errors="coerce").fillna(0.0)
     mask = (outstanding > 0) & (outstanding < 1000)
-    subset = df[mask].copy()
-    subset["_outstanding"] = outstanding[mask]
+    return df[mask].reset_index(drop=True)
+
+
+def build_below_1k_pivot(df_zero_to_1k: pd.DataFrame, incharge_map: dict[str, str]) -> pd.DataFrame:
+    """Location-wise pivot of the Zero to 1k Ageing detail rows."""
+    outstanding_col = _find_col(df_zero_to_1k.columns, _ACCOUNTED_OUTSTANDING_TOKENS)
+    subset = df_zero_to_1k.copy()
+    subset["_outstanding"] = pd.to_numeric(subset[outstanding_col], errors="coerce").fillna(0.0)
 
     if subset.empty:
         pivot = pd.DataFrame(columns=[LOCATION_COL, "_outstanding", *BUCKET_COLS])
@@ -603,13 +611,15 @@ def write_report(
     df_below_1k: pd.DataFrame,
     df_untagged_detail: pd.DataFrame,
     df_untagged_summary: pd.DataFrame,
+    df_zero_to_1k_detail: pd.DataFrame,
     output_path: str | Path,
     as_on_date: _dt.date,
     log_q=None,
     progress_cb=None,
 ) -> None:
-    """Write the 4-sheet workbook, in the required order:
-    Untagged Summary, Untagged Detailed Ageing, Ageing, Below 1k.
+    """Write the 5-sheet workbook, in the required order:
+    Untagged Summary, Untagged Detailed Ageing, Ageing, Below 1k,
+    Zero to 1k Ageing.
 
     Built as a write-only workbook: every sheet is streamed row-by-row via
     ws.append() rather than kept as normal openpyxl Cell objects, which is
@@ -635,15 +645,22 @@ def write_report(
         progress_cb(0.65, "Writing Ageing (full detail)...")
     _write_detail_sheet(
         wb, "Ageing", df_ageing, "1F3864",
-        log_q=log_q, progress_cb=progress_cb, base=0.65, span=0.30,
+        log_q=log_q, progress_cb=progress_cb, base=0.65, span=0.28,
     )
 
     if progress_cb:
-        progress_cb(0.95, "Writing Below 1k...")
+        progress_cb(0.93, "Writing Below 1k...")
     _write_pivot_sheet(
         wb, "Below 1k", df_below_1k, "00897B",
         location_col_header="Location Name", amount_col="Total O/S",
         above_30_formula=lambda amount_ref, bucket_refs: f"={amount_ref}-{bucket_refs[0]}-{bucket_refs[1]}",
+    )
+
+    if progress_cb:
+        progress_cb(0.95, "Writing Zero to 1k Ageing...")
+    _write_detail_sheet(
+        wb, "Zero to 1k Ageing", df_zero_to_1k_detail, "C0CA33",
+        log_q=log_q, progress_cb=progress_cb, base=0.95, span=0.04,
     )
 
     output_path = Path(output_path)

@@ -96,12 +96,14 @@ def _run_process_job(input_path: str, output_path: str, as_on_date_str: Optional
 
         if progress_cb:
             progress_cb(0.45, "Building pivots...")
-        df_below_1k = processor.build_below_1k_pivot(df, incharge_map)
+        df_zero_to_1k_detail = processor.build_zero_to_1k_detail(df)
+        df_below_1k = processor.build_below_1k_pivot(df_zero_to_1k_detail, incharge_map)
         df_untagged_detail = processor.build_untagged_detail(df)
         df_untagged_summary = processor.build_untagged_summary(df_untagged_detail, incharge_map)
 
         processor.write_report(
             df, df_below_1k, df_untagged_detail, df_untagged_summary,
+            df_zero_to_1k_detail,
             output_path, as_on_date, log_q=log_q, progress_cb=progress_cb,
         )
     finally:
@@ -126,6 +128,7 @@ def _run_process_job(input_path: str, output_path: str, as_on_date_str: Optional
         "below_1k_row_count": int(len(df_below_1k)),
         "untagged_detail_row_count": int(len(df_untagged_detail)),
         "untagged_summary_row_count": int(len(df_untagged_summary)),
+        "zero_to_1k_detail_row_count": int(len(df_zero_to_1k_detail)),
         "validation_warnings": validation_warnings,
         "log": log_q.messages,
     }

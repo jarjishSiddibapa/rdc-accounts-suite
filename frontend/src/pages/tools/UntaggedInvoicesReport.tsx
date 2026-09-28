@@ -40,6 +40,7 @@ interface ProcessResult {
   below_1k_row_count: number
   untagged_detail_row_count: number
   untagged_summary_row_count: number
+  zero_to_1k_detail_row_count: number
   validation_warnings: ValidationWarning[]
   log: [string, string][]
 }
@@ -558,6 +559,7 @@ export default function UntaggedInvoicesReport() {
                 {[
                   ['Rows in Ageing', result.total_rows, 'text-ink'],
                   ['Below 1k locations', result.below_1k_row_count, 'text-accent'],
+                  ['Zero to 1k detail rows', result.zero_to_1k_detail_row_count, 'text-sky-500'],
                   ['Untagged detail rows', result.untagged_detail_row_count, 'text-amber-500'],
                   ['Untagged Summary locations', result.untagged_summary_row_count, 'text-emerald-500'],
                 ].map(([label, value, color]) => (
