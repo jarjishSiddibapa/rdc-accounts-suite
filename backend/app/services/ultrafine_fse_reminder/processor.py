@@ -366,11 +366,13 @@ INDIAN_NUMBER_FORMAT = "#,##,##0.00"
 
 def _td(value, align: str = "right", bold: bool = False, bg: Optional[str] = None,
         width: Optional[str] = None) -> str:
-    # A subtotal/total row gets a visibly thicker border, not just bold text,
-    # so it reads as a boundary between one FSE's rows and the next.
+    # A subtotal/total row gets a visibly thicker, black border (not just
+    # bold text and not the body rows' blue), so it reads as a hard boundary
+    # between one FSE's rows and the next.
     border_width = "2px" if bold else "1px"
+    border_color = "#000000" if bold else "#4472C4"
     style = (
-        f"border:{border_width} solid #4472C4;padding:5px 10px;text-align:{align};"
+        f"border:{border_width} solid {border_color};padding:5px 10px;text-align:{align};"
         "font-family:Calibri,Arial,sans-serif;font-size:11pt;"
     )
     if bold:
@@ -633,9 +635,9 @@ def build_broadcast_workbook(title: str, target_header: str, received_header: st
     body_fills = [PatternFill("solid", fgColor=color.lstrip("#")) for color in ROW_PALETTE]
     grand_total_fill = PatternFill("solid", fgColor=_GRAND_TOTAL_BG.lstrip("#"))
     border = Border(*(Side(style="thin", color="4472C4"),) * 4)
-    # A subtotal/total row gets a visibly thicker border to read as a
+    # A subtotal/total row gets a visibly thicker, black border to read as a
     # boundary, matching the HTML table's own bold-border treatment.
-    bold_border = Border(*(Side(style="medium", color="4472C4"),) * 4)
+    bold_border = Border(*(Side(style="medium", color="000000"),) * 4)
     bold = Font(bold=True)
     center = Alignment(horizontal="center", vertical="center", wrap_text=True)
     ncols = 5
