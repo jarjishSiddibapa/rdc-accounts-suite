@@ -204,7 +204,8 @@ class PivotTests(unittest.TestCase):
 
         summary = build_untagged_summary(ageing, {"Location A": "Alice"})
         self.assertEqual(list(summary[LOCATION_COL]), ["Location A"])
-        self.assertAlmostEqual(summary["Accounted Outstanding"].iloc[0], -1000.0)
+        # Untagged Summary is in Lakhs (divide by 1,00,000)
+        self.assertAlmostEqual(summary["Accounted Outstanding"].iloc[0], -1000.0 / 100_000)
         self.assertAlmostEqual(
             summary["Above 30 Days"].iloc[0],
             summary["Accounted Outstanding"].iloc[0] - summary["0-30 Days"].iloc[0],
@@ -247,9 +248,15 @@ class WriteReportTests(unittest.TestCase):
             self.assertTrue(str(total_cell).startswith("=SUBTOTAL(9,"))
 
             summary_ws = wb["Untagged Summary"]
-            summary_grand_row = summary_ws.max_row
+            # Untagged Summary carries a "values are in Lakhs" footnote two
+            # rows below the Grand Total row, so max_row is no longer the
+            # Grand Total row itself.
+            summary_grand_row = summary_ws.max_row - 2
+            self.assertEqual(summary_ws.cell(row=summary_grand_row, column=1).value, "Grand Total")
             summary_total_cell = summary_ws.cell(row=summary_grand_row, column=3).value
             self.assertTrue(str(summary_total_cell).startswith("=SUBTOTAL(9,"))
+            footnote_cell = summary_ws.cell(row=summary_ws.max_row, column=1).value
+            self.assertIn("Lakhs", str(footnote_cell))
 
             zero_to_1k_ws = wb["Zero to 1k Ageing"]
             self.assertEqual(zero_to_1k_ws.max_row - 1, len(zero_to_1k_ageing))

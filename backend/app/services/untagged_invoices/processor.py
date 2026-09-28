@@ -64,6 +64,7 @@ BUCKET_COLS = [
 _BUCKET_EDGES = (30, 60, 90, 120, 150, 180, 360)  # last bucket = anything above 360
 
 LOCATION_COL = "Location"
+_LAKH = 100_000
 
 
 def _find_col(columns, *token_sets: tuple[str, ...]) -> str | None:
@@ -291,7 +292,9 @@ def build_untagged_ageing(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def build_untagged_summary(df_untagged_ageing: pd.DataFrame, incharge_map: dict[str, str]) -> pd.DataFrame:
-    """Location-wise pivot of the Untagged Ageing rows."""
+    """Location-wise pivot of the Untagged Ageing rows, values in Lakhs
+    (÷ 1,00,000) - this is the one summary sheet the report shows in Lakhs;
+    Zero to 1k Summary stays in actual rupees."""
     outstanding_col = _find_col(df_untagged_ageing.columns, _ACCOUNTED_OUTSTANDING_TOKENS)
     subset = df_untagged_ageing.copy()
     subset["_outstanding"] = pd.to_numeric(subset[outstanding_col], errors="coerce").fillna(0.0)
@@ -309,6 +312,10 @@ def build_untagged_summary(df_untagged_ageing: pd.DataFrame, incharge_map: dict[
     for col in BUCKET_COLS:
         if col not in pivot.columns:
             pivot[col] = 0.0
+
+    value_cols = ["Accounted Outstanding", *BUCKET_COLS]
+    pivot[value_cols] = pivot[value_cols] / _LAKH
+
     pivot["Above 30 Days"] = pivot["Accounted Outstanding"] - pivot["0-30 Days"]
     pivot["Account Incharges"] = pivot[LOCATION_COL].map(lambda loc: incharge_map.get(loc, ""))
     pivot = pivot.sort_values("Accounted Outstanding").reset_index(drop=True)
@@ -491,9 +498,15 @@ def _write_detail_sheet(wb: Workbook, title: str, df: pd.DataFrame, tab_color: s
 
 
 def _write_pivot_sheet(wb: Workbook, title: str, df: pd.DataFrame, tab_color: str,
-                       location_col_header: str, amount_col: str, above_30_formula) -> None:
-    """Write a Location-wise pivot sheet (Below 1k / Untagged Summary) with
-    a live-SUBTOTAL Grand Total row.
+                       location_col_header: str, amount_col: str, above_30_formula,
+                       footnote: str | None = None) -> None:
+    """Write a Location-wise pivot sheet (Zero to 1k Summary / Untagged
+    Summary) with a live-SUBTOTAL Grand Total row.
+
+    `footnote`, if given, is written a couple of rows below the Grand
+    Total row (e.g. a "values are in Lakhs" note) - the values themselves
+    are expected to already be in whatever unit the footnote describes;
+    this only writes the note text.
 
     above_30_formula(amount_ref, bucket_refs) -> the Excel formula string
     for that sheet's own "Above 30 Days" column, built from cell refs so it
@@ -619,6 +632,12 @@ def _write_pivot_sheet(wb: Workbook, title: str, df: pd.DataFrame, tab_color: st
 
     ws.append(grand_cells)
 
+    if footnote:
+        ws.append([])  # blank spacer row
+        note_cell = WriteOnlyCell(ws, value=footnote)
+        note_cell.font = Font(name="Segoe UI", size=9, italic=True, color="808080")
+        ws.append([note_cell])
+
     ws.column_dimensions["A"].width = 26
     ws.column_dimensions["B"].width = 18
     for ci in range(3, n_cols + 1):
@@ -657,6 +676,7 @@ def write_report(
         wb, "Untagged Summary", df_untagged_summary, "6A1B9A",
         location_col_header="Location Name", amount_col="Accounted Outstanding",
         above_30_formula=lambda amount_ref, bucket_refs: f"={amount_ref}-{bucket_refs[0]}",
+        footnote="All amounts in Lakhs (÷ 1,00,000)",
     )
 
     if progress_cb:
