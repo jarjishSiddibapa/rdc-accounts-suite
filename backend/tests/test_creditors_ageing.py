@@ -88,6 +88,32 @@ class CreditorsAgeingTests(unittest.TestCase):
                 formulas.close()
                 values.close()
 
+    def test_returns_early_without_writing_when_a_vendor_is_unmapped(self):
+        mapping = {
+            "VENDOR A": {"name": "Vendor A", "loc": "Goa", "vt": "Expenses", "vst": "Testing", "intercompany": False},
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            input_path = Path(temp_dir) / "raw.xlsx"
+            output_path = Path(temp_dir) / "report.xlsx"
+            csv_path = Path(temp_dir) / "new-vendors.csv"
+            self._write_tally_export(input_path)
+
+            result = processor.generate_report(
+                str(input_path),
+                str(output_path),
+                mapping,
+                as_on_date="2026-08-28",
+                new_vendors_csv_path=str(csv_path),
+            )
+
+            self.assertTrue(result["needs_mapping_fix"])
+            self.assertEqual(result["new_vendors"], ["Vendor B"])
+            self.assertEqual(result["new_vendor_guesses"], {"Vendor B": "Wada"})
+            self.assertEqual(result["counts"], {"only_creditors": 1, "advances": 1, "intercompany": 0})
+            self.assertNotIn("output_path", result)
+            self.assertFalse(output_path.exists())
+            self.assertFalse(csv_path.exists())
+
     def test_invalid_workbook_has_clear_user_error(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             path = Path(temp_dir) / "invalid.xlsx"

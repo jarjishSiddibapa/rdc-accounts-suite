@@ -14,7 +14,7 @@ from pathlib import Path
 import pandas as pd
 from openpyxl import Workbook
 
-from app.services.gstr2b.combiner import _dedupe_uploads, _write_sheet
+from app.services.gstr2b.combiner import _dedupe_uploads, _write_sheet, run_combine
 
 
 class _LogQueue:
@@ -107,6 +107,37 @@ class DedupeUploadsTests(unittest.TestCase):
 
             self.assertEqual(len(kept), 2)
             self.assertEqual(log_q.messages, [])
+
+
+class RunCombinePreflightMappingCheckTests(unittest.TestCase):
+    def test_returns_early_without_writing_when_a_state_code_is_unresolved(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "092026_27ABCDE1234F1Z5_GSTR2B_28092026.xlsx"
+            Workbook().save(src)  # blank workbook: every tab read fails/empties, harmless here
+            output_path = Path(tmp) / "combined.xlsx"
+            log_q = _LogQueue()
+
+            result = run_combine([(src.name, str(src))], output_path, {}, log_q)
+
+        self.assertTrue(result["needs_mapping_fix"])
+        self.assertEqual(result["unresolved_state_codes"], [27])
+        self.assertEqual(result["files"], 1)
+        self.assertNotIn("output_path", result)
+        self.assertFalse(output_path.exists())
+
+    def test_writes_the_workbook_when_every_state_code_is_known(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "092026_27ABCDE1234F1Z5_GSTR2B_28092026.xlsx"
+            Workbook().save(src)
+            output_path = Path(tmp) / "combined.xlsx"
+            log_q = _LogQueue()
+
+            result = run_combine([(src.name, str(src))], output_path, {27: "Maharashtra"}, log_q)
+
+            self.assertFalse(result["needs_mapping_fix"])
+            self.assertEqual(result["unresolved_state_codes"], [])
+            self.assertEqual(result["output_path"], str(output_path))
+            self.assertTrue(output_path.exists())
 
 
 if __name__ == "__main__":

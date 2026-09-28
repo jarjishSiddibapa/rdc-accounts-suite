@@ -35,9 +35,10 @@ const MAPPING_COLUMNS: MappingColumn[] = [
 ]
 
 interface ReportResult {
-  output_path: string
+  needs_mapping_fix: boolean
+  output_path?: string
   download_filename: string
-  new_vendors_csv_path: string | null
+  new_vendors_csv_path?: string | null
   as_on_date: string
   as_on_label: string
   ageing_through_date: string
@@ -243,7 +244,8 @@ function NewVendorClassification({
           <div>
             <h3 className="font-display text-lg font-semibold text-ink">Classify new vendors</h3>
             <p className="mt-1 text-sm leading-6 text-ink-dim">
-              The workbook was generated with blank classification fields for these vendors. Save each mapping, then regenerate using the same uploaded file.
+              Nothing is written until every vendor below is classified. Save each mapping, then
+              generate the report using the same uploaded file.
             </p>
           </div>
         </div>
@@ -507,7 +509,9 @@ export default function CreditorsAgeing() {
               <GlassCard padding="lg" className="flex flex-col gap-5">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <h3 className="font-display text-lg font-semibold text-ink">Report progress</h3>
-                  {result && <Button icon={<Download className="h-4 w-4" />} onClick={downloadReport}>Save / download workbook</Button>}
+                  {result && !result.needs_mapping_fix && (
+                    <Button icon={<Download className="h-4 w-4" />} onClick={downloadReport}>Save / download workbook</Button>
+                  )}
                 </div>
                 <ProgressPanel
                   jobId={jobId}
@@ -519,24 +523,28 @@ export default function CreditorsAgeing() {
 
                 {result && (
                   <>
-                    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
-                      {[
-                        ['TB ledgers', result.tb_ledgers, 'text-ink'],
-                        ['Bill Wise rows', result.bill_wise_rows, 'text-accent'],
-                        ['Only Creditors', result.counts.only_creditors, 'text-emerald-500'],
-                        ['Advances', result.counts.advances, 'text-amber-500'],
-                        ['Intercompany', result.counts.intercompany, 'text-sky-500'],
-                      ].map(([label, value, color]) => (
-                        <div key={String(label)} className="subpanel px-4 py-3">
-                          <p className="text-xs font-medium text-ink-faint">{label}</p>
-                          <p className={`mt-1 font-display text-2xl font-semibold ${color}`}>{formatIndianNumber(Number(value))}</p>
+                    {!result.needs_mapping_fix && (
+                      <>
+                        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+                          {[
+                            ['TB ledgers', result.tb_ledgers, 'text-ink'],
+                            ['Bill Wise rows', result.bill_wise_rows, 'text-accent'],
+                            ['Only Creditors', result.counts.only_creditors, 'text-emerald-500'],
+                            ['Advances', result.counts.advances, 'text-amber-500'],
+                            ['Intercompany', result.counts.intercompany, 'text-sky-500'],
+                          ].map(([label, value, color]) => (
+                            <div key={String(label)} className="subpanel px-4 py-3">
+                              <p className="text-xs font-medium text-ink-faint">{label}</p>
+                              <p className={`mt-1 font-display text-2xl font-semibold ${color}`}>{formatIndianNumber(Number(value))}</p>
+                            </div>
+                          ))}
                         </div>
-                      ))}
-                    </div>
-                    <div className="subpanel flex flex-col gap-1 px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between">
-                      <span className="text-ink-dim">Report date</span>
-                      <strong className="text-ink">As on {result.as_on_label}</strong>
-                    </div>
+                        <div className="subpanel flex flex-col gap-1 px-4 py-3 text-sm sm:flex-row sm:items-center sm:justify-between">
+                          <span className="text-ink-dim">Report date</span>
+                          <strong className="text-ink">As on {result.as_on_label}</strong>
+                        </div>
+                      </>
+                    )}
 
                     {result.new_vendors.length > 0 ? (
                       <NewVendorClassification

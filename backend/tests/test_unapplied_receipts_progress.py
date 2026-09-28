@@ -13,7 +13,10 @@ from unittest.mock import patch
 
 import pandas as pd
 
-from app.routers.unapplied_receipts import _cpu_phase_finish_report
+from app.routers.unapplied_receipts import (
+    _cpu_phase_classify_and_validate,
+    _cpu_phase_write_report,
+)
 from app.services.unapplied_receipts import processor
 
 
@@ -59,9 +62,18 @@ class WriteFormattedExcelProgressTests(unittest.TestCase):
         self.assertTrue(Path(out).is_file())
 
 
-class CpuPhaseFinishReportWiringTests(unittest.TestCase):
-    def test_forwards_progress_cb_to_the_writer(self):
+class CpuPhaseSplitWiringTests(unittest.TestCase):
+    def test_write_phase_forwards_progress_cb_to_the_writer(self):
         sentinel = object()
+        with patch("app.routers.unapplied_receipts.processor.write_formatted_excel") as write_mock:
+            _cpu_phase_write_report(
+                "main_df", "advance_df", "out.xlsx", dt.date(2026, 8, 31), None, {},
+                progress_cb=sentinel,
+            )
+        _, kwargs = write_mock.call_args
+        self.assertIs(kwargs.get("progress_cb"), sentinel)
+
+    def test_classify_phase_never_touches_the_writer(self):
         with (
             patch(
                 "app.routers.unapplied_receipts.processor.classify_advance_customers",
@@ -69,16 +81,20 @@ class CpuPhaseFinishReportWiringTests(unittest.TestCase):
             ),
             patch(
                 "app.routers.unapplied_receipts.processor._validate_before_save",
-                return_value=[],
+                return_value=[("Accounts Incharge Not Mapped", ["Plant 9"])],
             ),
             patch("app.routers.unapplied_receipts.processor.write_formatted_excel") as write_mock,
         ):
-            _cpu_phase_finish_report(
-                "df", "ageing.xlsx", {}, {}, "out.xlsx", dt.date(2026, 8, 31), None,
-                progress_cb=sentinel,
+            df_main, df_advance, validation_warnings, _log = _cpu_phase_classify_and_validate(
+                "df", "ageing.xlsx", {}, {},
             )
-        _, kwargs = write_mock.call_args
-        self.assertIs(kwargs.get("progress_cb"), sentinel)
+        write_mock.assert_not_called()
+        self.assertEqual(df_main, "main_df")
+        self.assertEqual(df_advance, "advance_df")
+        self.assertEqual(
+            validation_warnings,
+            [{"category": "Accounts Incharge Not Mapped", "items": ["Plant 9"]}],
+        )
 
 
 if __name__ == "__main__":

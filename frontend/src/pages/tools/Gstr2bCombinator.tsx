@@ -32,10 +32,11 @@ function logLevelColor(tag: string): string {
 }
 
 interface CombineResult {
+  needs_mapping_fix: boolean
   files: number
   counts: Record<string, number>
-  output_path: string
-  download_filename: string
+  output_path?: string
+  download_filename?: string
   log: [string, string][]
   unresolved_state_codes: number[]
 }
@@ -84,9 +85,8 @@ function UnresolvedStateCodesFix({
         </h4>
       </div>
       <p className="text-sm text-ink-dim">
-        These GST state codes weren't in the State Codes table. The output workbook used a
-        placeholder like &quot;Unknown state (NN)&quot; instead. Enter the real state name for
-        each, then combine again.
+        These GST state codes aren't in the State Codes table. Enter the real state name for
+        each, then combine again. Nothing is written until every code is resolved.
       </p>
       {error && <ErrorBanner>{error}</ErrorBanner>}
       <div className="flex flex-col gap-2">
@@ -313,7 +313,7 @@ export default function Gstr2bCombinator() {
           <GlassCard padding="lg" className="flex flex-col gap-5">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <h3 className="font-display text-lg font-semibold text-ink">Combine progress</h3>
-              {result && (
+              {result && !result.needs_mapping_fix && (
                 <Button icon={<Download className="h-4 w-4" />} onClick={handleDownload}>
                   Save / download report
                 </Button>
@@ -328,7 +328,7 @@ export default function Gstr2bCombinator() {
               onCancel={() => post(`${BASE}/jobs/${jobId}/cancel`)}
             />
 
-            {result && (
+            {result && !result.needs_mapping_fix && (
               <div className="flex flex-col gap-3">
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
                   <div className="subpanel p-3 text-center">

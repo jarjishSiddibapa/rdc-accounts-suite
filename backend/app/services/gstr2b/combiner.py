@@ -336,6 +336,16 @@ def run_combine(
             "- see the log above for why each file was skipped."
         )
 
+    if unresolved_codes:
+        log_q.put(("warn", "Fix the state code mappings above and regenerate - "
+                            "the combined workbook was not written yet."))
+        return {
+            "needs_mapping_fix": True,
+            "files": n_files,
+            "counts": counts,
+            "unresolved_state_codes": sorted(unresolved_codes),
+        }
+
     log_q.put(("info", "Writing output workbook..."))
     wb = Workbook()
     wb.remove(wb.active)
@@ -351,8 +361,9 @@ def run_combine(
     log_q.put(("success", f"Saved  ->  {output_path}"))
 
     return {
+        "needs_mapping_fix": False,
         "files": n_files,
         "counts": counts,
         "output_path": str(output_path),
-        "unresolved_state_codes": sorted(unresolved_codes),
+        "unresolved_state_codes": [],
     }

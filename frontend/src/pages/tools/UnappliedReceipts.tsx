@@ -33,9 +33,10 @@ interface ValidationWarning {
 }
 
 interface ProcessResult {
-  output_path: string
-  download_filename: string
-  as_on_date: string
+  needs_mapping_fix: boolean
+  output_path?: string
+  download_filename?: string
+  as_on_date?: string
   total_input_rows: number
   unidentified_removed_count: number
   main_row_count: number
@@ -284,11 +285,12 @@ function ValidationWarnings({
       <div className="flex items-center gap-2 text-amber-600">
         <AlertTriangle className="h-4 w-4" />
         <h4 className="font-display text-sm font-semibold">
-          Missing mappings. The workbook was still written with these left blank
+          Missing mappings
         </h4>
       </div>
       <p className="text-sm text-ink-dim">
-        Fix each unmapped value below, then regenerate without re-uploading files.
+        Fix each unmapped value below, then generate the report. Nothing is written until
+        every mapping is resolved.
       </p>
       {warnings.map((warning) => (
         <WarningCategoryFix
@@ -307,7 +309,7 @@ function ValidationWarnings({
           loading={regenerating}
           onClick={onRegenerate}
         >
-          Regenerate report
+          Generate report
         </Button>
       </div>
     </div>
@@ -578,7 +580,7 @@ export default function UnappliedReceipts() {
             />
           )}
 
-          {result && !result.oracle_ok && (
+          {result && !result.needs_mapping_fix && !result.oracle_ok && (
             <div className="flex items-start gap-3 rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-600 dark:text-red-300">
               <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0" />
               <div>
@@ -595,30 +597,34 @@ export default function UnappliedReceipts() {
 
           {result && (
             <div className="subpanel flex flex-col gap-4 p-4">
-              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                {[
-                  ['Rows read', result.total_input_rows, 'text-ink'],
-                  ['Unidentified removed', result.unidentified_removed_count, 'text-amber-500'],
-                  ['Main report rows', result.main_row_count, 'text-accent'],
-                  ['Advance of customers', result.advance_row_count, 'text-emerald-500'],
-                ].map(([label, value, color]) => (
-                  <div key={String(label)} className="rounded-xl border border-stroke/70 bg-surface/55 px-4 py-3">
-                    <span className="text-xs font-medium text-ink-faint">{label}</span>
-                    <p className={`mt-1 font-display text-2xl font-semibold ${color}`}>
-                      {formatIndianNumber(Number(value))}
-                    </p>
+              {!result.needs_mapping_fix && (
+                <>
+                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                    {[
+                      ['Rows read', result.total_input_rows, 'text-ink'],
+                      ['Unidentified removed', result.unidentified_removed_count, 'text-amber-500'],
+                      ['Main report rows', result.main_row_count, 'text-accent'],
+                      ['Advance of customers', result.advance_row_count, 'text-emerald-500'],
+                    ].map(([label, value, color]) => (
+                      <div key={String(label)} className="rounded-xl border border-stroke/70 bg-surface/55 px-4 py-3">
+                        <span className="text-xs font-medium text-ink-faint">{label}</span>
+                        <p className={`mt-1 font-display text-2xl font-semibold ${color}`}>
+                          {formatIndianNumber(Number(value))}
+                        </p>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-              <div className="flex flex-wrap items-center gap-3 text-sm">
-                <div className="mr-auto">
-                  <span className="text-ink-faint">Output file</span>
-                  <p className="text-ink">{result.download_filename}</p>
-                </div>
-                <Button icon={<FileSpreadsheet className="h-4 w-4" />} onClick={handleDownloadReport}>
-                  Save / download report
-                </Button>
-              </div>
+                  <div className="flex flex-wrap items-center gap-3 text-sm">
+                    <div className="mr-auto">
+                      <span className="text-ink-faint">Output file</span>
+                      <p className="text-ink">{result.download_filename}</p>
+                    </div>
+                    <Button icon={<FileSpreadsheet className="h-4 w-4" />} onClick={handleDownloadReport}>
+                      Save / download report
+                    </Button>
+                  </div>
+                </>
+              )}
 
               <ValidationWarnings
                 warnings={validationWarnings}

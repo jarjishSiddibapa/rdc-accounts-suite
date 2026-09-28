@@ -14,7 +14,7 @@ class DesktopParityTests(unittest.TestCase):
     def test_payables_job_returns_desktop_stats_breakdowns_and_log(self):
         frame = pd.DataFrame(
             {
-                "Region": ["West", "", "North"],
+                "Region": ["West", "South", "North"],
                 "Vendor Site Code": ["A", "B", "C"],
                 "Transaction Type": ["Invoice", "Invoice", "TDS"],
                 "Aging Bucket": ["0-30", "31-60", "0-30"],
@@ -56,18 +56,68 @@ class DesktopParityTests(unittest.TestCase):
                     progress_cb=lambda fraction, phase: progress.append((fraction, phase)),
                 )
 
+        self.assertFalse(result["needs_mapping_fix"])
         self.assertEqual(result["raw_row_count"], 4)
         self.assertEqual(result["row_count"], 3)
-        self.assertEqual(result["matched_count"], 2)
-        self.assertEqual(result["unmatched_count"], 1)
+        self.assertEqual(result["matched_count"], 3)
+        self.assertEqual(result["unmatched_count"], 0)
         self.assertEqual(result["transaction_type_counts"], {"Invoice": 2, "TDS": 1})
         self.assertEqual(result["aging_bucket_counts"], {"0-30": 2, "31-60": 1})
         self.assertEqual(
             result["download_filename"],
             "Loans and Advance, IOCL, TDS, Other till Jul-26 as on 31.08.2026.xlsx",
         )
-        self.assertTrue(any("Unmapped site codes: 1" in line for line in result["log"]))
         self.assertEqual(progress[-1], (1.0, "Report ready"))
+
+    def test_payables_job_returns_early_when_mappings_are_missing(self):
+        frame = pd.DataFrame(
+            {
+                "Region": ["West", "", "North"],
+                "Vendor Site Code": ["A", "B", "C"],
+                "Transaction Type": ["Invoice", "Invoice", "TDS"],
+                "Aging Bucket": ["0-30", "31-60", "0-30"],
+            }
+        )
+        fake_session = SimpleNamespace(close=lambda: None)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            input_path = Path(temp_dir) / "input.xls"
+            output_path = Path(temp_dir) / "output.xlsx"
+            input_path.write_text("placeholder", encoding="utf-8")
+
+            with (
+                patch.object(rdc_payables, "SessionLocal", return_value=fake_session),
+                patch.object(
+                    rdc_payables.mapping_store,
+                    "load_all",
+                    return_value=({}, {}, set(), {}, {}, {}),
+                ),
+                patch.object(
+                    rdc_payables.processor,
+                    "parse_html_report",
+                    return_value=(["Column"], [[1], [2], [3], [4]]),
+                ),
+                patch.object(
+                    rdc_payables.processor,
+                    "process_report",
+                    return_value=(frame, datetime(2026, 7, 31)),
+                ),
+                patch.object(
+                    rdc_payables.processor,
+                    "to_excel_bytes",
+                    side_effect=AssertionError("to_excel_bytes must not run when mappings are missing"),
+                ),
+                patch.object(rdc_payables, "now_ist", return_value=datetime(2026, 8, 31, 10, 30)),
+            ):
+                result = rdc_payables._run_process_job(
+                    str(input_path), str(output_path), 2026, 7,
+                )
+
+        self.assertTrue(result["needs_mapping_fix"])
+        self.assertEqual(result["unmapped_vendor_sites"], ["B"])
+        self.assertNotIn("output_path", result)
+        self.assertFalse(output_path.exists())
+        self.assertTrue(any("Unmapped site codes: 1" in line for line in result["log"]))
 
     def test_payables_download_filename_is_editable_safe_and_xlsx(self):
         self.assertEqual(

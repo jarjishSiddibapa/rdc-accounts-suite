@@ -46,17 +46,18 @@ function withXlsxExtension(value: string): string {
 // ── report generation ────────────────────────────────────────────────────
 
 interface ProcessResult {
-  output_path: string
-  download_filename: string
+  needs_mapping_fix: boolean
+  output_path?: string
+  download_filename?: string
   unmapped_vendor_sites: string[]
-  row_count: number
+  row_count?: number
   raw_row_count: number
-  matched_count: number
-  unmatched_count: number
-  transaction_type_counts: Record<string, number>
-  aging_bucket_counts: Record<string, number>
+  matched_count?: number
+  unmatched_count?: number
+  transaction_type_counts?: Record<string, number>
+  aging_bucket_counts?: Record<string, number>
   log: string[]
-  reporting_ref_date: string | null
+  reporting_ref_date?: string | null
 }
 
 interface ProcessJobResponse {
@@ -516,35 +517,39 @@ export default function RdcPayables() {
 
           {result && (
             <div className="subpanel flex flex-col gap-4 p-4">
-              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                {[
-                  ['Rows parsed', result.raw_row_count, 'text-ink'],
-                  ['Output rows', result.row_count, 'text-accent'],
-                  ['Vendor matched', result.matched_count, 'text-emerald-500'],
-                  ['Unmatched', result.unmatched_count, 'text-amber-500'],
-                ].map(([label, value, color]) => (
-                  <div key={String(label)} className="rounded-xl border border-stroke/70 bg-surface/55 px-4 py-3">
-                    <span className="text-xs font-medium text-ink-faint">{label}</span>
-                    <p className={`mt-1 font-display text-2xl font-semibold ${color}`}>
-                      {formatIndianNumber(Number(value))}
-                    </p>
+              {!result.needs_mapping_fix && (
+                <>
+                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                    {[
+                      ['Rows parsed', result.raw_row_count, 'text-ink'],
+                      ['Output rows', result.row_count, 'text-accent'],
+                      ['Vendor matched', result.matched_count, 'text-emerald-500'],
+                      ['Unmatched', result.unmatched_count, 'text-amber-500'],
+                    ].map(([label, value, color]) => (
+                      <div key={String(label)} className="rounded-xl border border-stroke/70 bg-surface/55 px-4 py-3">
+                        <span className="text-xs font-medium text-ink-faint">{label}</span>
+                        <p className={`mt-1 font-display text-2xl font-semibold ${color}`}>
+                          {formatIndianNumber(Number(value))}
+                        </p>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-              <div className="flex flex-wrap items-center gap-3 text-sm">
-                <div className="mr-auto">
-                  <span className="text-ink-faint">Reporting reference date</span>
-                  <p className="text-ink">
-                    {result.reporting_ref_date ? formatIndianDate(result.reporting_ref_date) : 'Not available'}
-                  </p>
-                </div>
-                <Button
-                  icon={<FileSpreadsheet className="h-4 w-4" />}
-                  onClick={handleDownloadReport}
-                >
-                  Save / download report
-                </Button>
-              </div>
+                  <div className="flex flex-wrap items-center gap-3 text-sm">
+                    <div className="mr-auto">
+                      <span className="text-ink-faint">Reporting reference date</span>
+                      <p className="text-ink">
+                        {result.reporting_ref_date ? formatIndianDate(result.reporting_ref_date) : 'Not available'}
+                      </p>
+                    </div>
+                    <Button
+                      icon={<FileSpreadsheet className="h-4 w-4" />}
+                      onClick={handleDownloadReport}
+                    >
+                      Save / download report
+                    </Button>
+                  </div>
+                </>
+              )}
 
               {unmappedSites.length > 0 && (
                 <div className="flex flex-col gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
@@ -558,6 +563,7 @@ export default function RdcPayables() {
                   <p className="text-sm text-ink-dim">
                     Assign a Region for each. Accounts Incharge is filled in automatically once
                     that Region is in Region Incharge - otherwise you can enter one manually.
+                    Nothing is written until every mapping is resolved.
                   </p>
                   <div className="flex flex-col gap-2">
                     {unmappedPagination.pagedItems.map((site) => {
@@ -642,7 +648,7 @@ export default function RdcPayables() {
                       disabled={!allFixed}
                       onClick={() => void handleGenerate()}
                     >
-                      Regenerate report
+                      Generate report
                     </Button>
                   </div>
                 </div>

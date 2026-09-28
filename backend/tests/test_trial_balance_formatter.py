@@ -196,5 +196,40 @@ class SuppliedTrialBalanceParityTests(unittest.TestCase):
                         )
 
 
+class PreflightMappingCheckTests(unittest.TestCase):
+    """generate_report must return needs_mapping_fix=True and skip the
+    (expensive) formatted-workbook build entirely when any ledger has no
+    known Debit/Credit classification - mirrors the same pre-flight check
+    now applied across the rest of the suite's mapping-warning apps."""
+
+    def test_returns_early_without_writing_when_a_ledger_needs_review(self):
+        import datetime as dt
+        from unittest.mock import patch
+
+        fake_raw = {
+            "rows": [{"name": "Some Ledger"}],
+            "period_end": dt.date(2026, 6, 30),
+            "sheet_name": "June26",
+            "grand_total_debit": None,
+            "grand_total_credit": None,
+        }
+        with (
+            patch.object(processor, "_read_raw", return_value=fake_raw),
+            patch.object(
+                processor, "_classify_rows",
+                return_value=([], [{"name": "Some Ledger"}]),
+            ),
+            patch("openpyxl.load_workbook", side_effect=AssertionError("must not load a workbook")),
+        ):
+            with tempfile.TemporaryDirectory() as directory:
+                output = Path(directory) / "output.xlsx"
+                result = processor.generate_report("raw.xlsx", str(output), {})
+
+                self.assertTrue(result["needs_mapping_fix"])
+                self.assertEqual(result["needs_review"], [{"name": "Some Ledger"}])
+                self.assertNotIn("output_path", result)
+                self.assertFalse(output.exists())
+
+
 if __name__ == "__main__":
     unittest.main()

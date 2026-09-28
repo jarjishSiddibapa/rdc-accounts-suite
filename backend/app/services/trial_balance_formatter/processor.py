@@ -435,6 +435,17 @@ def generate_report(
                 f"({raw['grand_total_credit']:,.2f}). Check the Tally export before relying on this report."
             )
 
+    if needs_review:
+        log("warning", "Fix the ledger classifications above and regenerate - report was not written yet.")
+        return {
+            "needs_mapping_fix": True,
+            "as_on_label": as_on_label,
+            "as_on_date": period_end.isoformat(),
+            "row_count": len(rows),
+            "warnings": warnings,
+            "needs_review": needs_review,
+        }
+
     progress(0.45, "Building the formatted workbook...")
 
     # The supplied reference is a styled copy of the Tally export with one
@@ -693,6 +704,7 @@ def generate_report(
 
     progress(1.0, "Ultrafine Trial Balance report ready")
     return {
+        "needs_mapping_fix": False,
         "output_path": str(output_path),
         "download_filename": f"Ultrafine Trial Balance as on {as_on_label}.xlsx",
         "sheet_name": sheet_name,
@@ -700,7 +712,7 @@ def generate_report(
         "as_on_date": period_end.isoformat(),
         "row_count": len(rows),
         "warnings": warnings,
-        "needs_review": needs_review,
+        "needs_review": [],
         "reference_adjustments_applied": reference_adjustments_applied,
         "tb_balance": subtotal_total,
     }

@@ -407,6 +407,27 @@ def _build_workbook(
     )
     if new_vendors:
         log("warning", f"{len(new_vendors):,} vendor(s) need classification")
+        new_vendor_guesses = {
+            name: new_vendor_info[name.upper()]["loc"]
+            for name in new_vendors
+        }
+        log("warning", "Fix the vendor mappings above and regenerate - the workbook was not written yet.")
+        return None, {
+            "needs_mapping_fix": True,
+            "as_on_date": report_date.isoformat(),
+            "as_on_label": report_date_text,
+            "ageing_through_date": ageing_date.isoformat(),
+            "new_vendors": new_vendors,
+            "new_vendor_guesses": new_vendor_guesses,
+            "counts": {
+                "only_creditors": len(only_creditors),
+                "advances": len(advances),
+                "intercompany": len(intercompany),
+            },
+            "tb_ledgers": len(tb_rows),
+            "bill_wise_rows": len(bill_rows),
+            "default_name": f"Ultrafine Creditors Ageing as on {report_date_text}.xlsx",
+        }, None
 
     cached_values: dict[str, dict[str, float]] = defaultdict(dict)
 
@@ -655,6 +676,7 @@ def _build_workbook(
         for name in new_vendors
     }
     return workbook, {
+        "needs_mapping_fix": False,
         "as_on_date": report_date.isoformat(),
         "as_on_label": report_date_text,
         "ageing_through_date": ageing_date.isoformat(),
@@ -705,6 +727,9 @@ def generate_report(
         progress_cb=progress_cb,
         log_cb=log_cb,
     )
+    if meta["needs_mapping_fix"]:
+        return meta
+
     Path(output_path).parent.mkdir(parents=True, exist_ok=True)
     workbook.save(output_path)
     workbook.close()

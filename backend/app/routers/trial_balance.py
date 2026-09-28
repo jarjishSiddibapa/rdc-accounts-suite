@@ -235,6 +235,16 @@ def _run_process_job(input_path: str, columns: list, rows: list,
         if missing_account_ho:
             add_log("WARN", f"Unmapped account HO codes: {format_indian_number(len(missing_account_ho))}")
 
+        if missing_codes or missing_account_ho:
+            add_log("WARN", "Fix the mappings above and regenerate - report was not written yet.")
+            return {
+                "needs_mapping_fix": True,
+                "missing_codes": sorted(missing_codes, key=lambda c: (len(c), c)),
+                "missing_account_ho": sorted(missing_account_ho, key=lambda c: (len(c), c)),
+                "raw_row_count": raw_row_count,
+                "log": log,
+            }
+
         matched_count = int((df["Region"] != "").sum())
         unmatched_count = len(df) - matched_count
 
@@ -257,10 +267,11 @@ def _run_process_job(input_path: str, columns: list, rows: list,
         progress_cb(1.0, "Report ready")
 
     return {
+        "needs_mapping_fix": False,
         "output_path": str(output_path),
         "download_filename": download_filename,
-        "missing_codes": sorted(missing_codes, key=lambda c: (len(c), c)),
-        "missing_account_ho": sorted(missing_account_ho, key=lambda c: (len(c), c)),
+        "missing_codes": [],
+        "missing_account_ho": [],
         "row_count": len(df),
         "raw_row_count": raw_row_count,
         "matched_count": matched_count,
@@ -369,7 +380,7 @@ def download_report(job_id: str, user: User = Depends(get_current_user)):
 
     result = job.get("result") or {}
     output_path = Path(result.get("output_path", ""))
-    if not output_path.exists():
+    if not output_path.is_file():
         raise HTTPException(status_code=404, detail="Output file not found")
 
     filename = result.get("download_filename") or "Location_Report.xlsx"

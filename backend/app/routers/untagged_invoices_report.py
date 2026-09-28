@@ -90,6 +90,23 @@ def _run_process_job(input_path: str, output_path: str, as_on_date_str: Optional
             sorted(resolved_locations.unique()), incharge_map,
         )
 
+        validation_warnings = []
+        if missing_locations:
+            validation_warnings.append({"category": "Location Not Mapped", "items": missing_locations})
+        if missing_incharges:
+            validation_warnings.append({"category": "Accounts Incharge Not Mapped", "items": missing_incharges})
+
+        if validation_warnings:
+            for warning in validation_warnings:
+                log_q.put(("warn", f"{warning['category']}: {len(warning['items'])} unmapped value(s)"))
+            log_q.put(("warn", "Fix the mappings above and regenerate - report was not written yet."))
+            return {
+                "needs_mapping_fix": True,
+                "total_rows": int(len(df)),
+                "validation_warnings": validation_warnings,
+                "log": log_q.messages,
+            }
+
         if progress_cb:
             progress_cb(0.30, "Recomputing ageing buckets...")
         df = processor.recompute_ageing_buckets(df, as_on_date, log_q)
@@ -109,18 +126,11 @@ def _run_process_job(input_path: str, output_path: str, as_on_date_str: Optional
     finally:
         Path(input_path).unlink(missing_ok=True)
 
-    validation_warnings = []
-    if missing_locations:
-        validation_warnings.append({"category": "Location Not Mapped", "items": missing_locations})
-    if missing_incharges:
-        validation_warnings.append({"category": "Accounts Incharge Not Mapped", "items": missing_incharges})
-    for warning in validation_warnings:
-        log_q.put(("warn", f"{warning['category']}: {len(warning['items'])} unmapped value(s)"))
-
     filename = f"Untagged_Invoices_Report_As_On_{as_on_date.isoformat()}.xlsx"
     log_q.put(("ok", f"Done - {filename}"))
 
     return {
+        "needs_mapping_fix": False,
         "output_path": str(output_path),
         "download_filename": filename,
         "as_on_date": as_on_date.isoformat(),
@@ -129,7 +139,7 @@ def _run_process_job(input_path: str, output_path: str, as_on_date_str: Optional
         "untagged_detail_row_count": int(len(df_untagged_detail)),
         "untagged_summary_row_count": int(len(df_untagged_summary)),
         "zero_to_1k_detail_row_count": int(len(df_zero_to_1k_detail)),
-        "validation_warnings": validation_warnings,
+        "validation_warnings": [],
         "log": log_q.messages,
     }
 
@@ -185,7 +195,7 @@ def download_report(job_id: str, user: User = Depends(get_current_user)):
 
     result = job.get("result") or {}
     output_path = Path(result.get("output_path", ""))
-    if not output_path.exists():
+    if not output_path.is_file():
         raise HTTPException(status_code=404, detail="Output file not found")
 
     filename = result.get("download_filename") or "Untagged_Invoices_Report.xlsx"

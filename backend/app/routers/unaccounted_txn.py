@@ -145,30 +145,36 @@ class _CollectingLogQueue:
         self.messages.append(item)
 
 
-def _cpu_phase_unaccounted(paths: list, output_path: str, progress_cb=None):
+def _cpu_phase_process_unaccounted(paths: list):
     log_q = _CollectingLogQueue()
     df, total_rows, input_cols, matched = processing.process_report_multi(paths, log_q)
-    excel_writers.write_formatted_excel(df, output_path, progress_cb=progress_cb)
     return df, total_rows, input_cols, matched, log_q.messages
 
 
-def _cpu_phase_mrn(path: str, exclude_periods: set, output_path: str, progress_cb=None):
+def _cpu_phase_write_unaccounted(df, output_path: str, progress_cb=None):
+    excel_writers.write_formatted_excel(df, output_path, progress_cb=progress_cb)
+
+
+def _cpu_phase_process_mrn(path: str, exclude_periods: set):
     log_q = _CollectingLogQueue()
     df, total_rows, input_cols, matched = processing.process_mrn_report(path, exclude_periods, log_q)
-    excel_writers.write_formatted_mrn_excel(df, output_path, progress_cb=progress_cb)
     return df, total_rows, input_cols, matched, log_q.messages
 
 
-def _cpu_phase_po(
-    path: str, exclude_months: set, keywords: list, fuzzy_threshold: float, output_path: str,
-    progress_cb=None,
-):
+def _cpu_phase_write_mrn(df, output_path: str, progress_cb=None):
+    excel_writers.write_formatted_mrn_excel(df, output_path, progress_cb=progress_cb)
+
+
+def _cpu_phase_process_po(path: str, exclude_months: set, keywords: list, fuzzy_threshold: float):
     log_q = _CollectingLogQueue()
     main_df, moved_df, unmapped_df, total_rows, input_cols, matched = processing.process_po_report(
         path, exclude_months, keywords, log_q, fuzzy_threshold
     )
-    excel_writers.write_formatted_po_excel(main_df, moved_df, unmapped_df, output_path, progress_cb=progress_cb)
     return main_df, moved_df, unmapped_df, total_rows, input_cols, matched, log_q.messages
+
+
+def _cpu_phase_write_po(main_df, moved_df, unmapped_df, output_path: str, progress_cb=None):
+    excel_writers.write_formatted_po_excel(main_df, moved_df, unmapped_df, output_path, progress_cb=progress_cb)
 
 
 # ── Job bodies (run in the background thread pool; CPU-heavy work above runs
@@ -184,23 +190,34 @@ def _job_unaccounted(
         progress_cb(0.05, "Processing report...")
     try:
         df, total_rows, input_cols, matched, log_messages = run_cpu_phase(
-            _cpu_phase_unaccounted, paths, output_path, progress_cb=progress_cb,
+            _cpu_phase_process_unaccounted, paths,
         )
+        unmapped = sorted(
+            df[df["Location"].astype(str).str.strip() == ""]["Supplier Site"]
+            .astype(str).unique().tolist()
+        )
+        if unmapped:
+            log_messages.append(("warn", f"Unmapped supplier sites: {len(unmapped)}"))
+            return {
+                "needs_mapping_fix": True,
+                "total_rows": total_rows,
+                "input_cols": input_cols,
+                "unmapped_sites": unmapped,
+                "log": log_messages,
+            }
+        run_cpu_phase(_cpu_phase_write_unaccounted, df, output_path, progress_cb=progress_cb)
     finally:
         for path in paths:
             Path(path).unlink(missing_ok=True)
     if progress_cb:
         progress_cb(0.95, "Report ready")
-    unmapped = sorted(
-        df[df["Location"].astype(str).str.strip() == ""]["Supplier Site"]
-        .astype(str).unique().tolist()
-    )
     return {
+        "needs_mapping_fix": False,
         "total_rows": total_rows,
         "input_cols": input_cols,
         "matched": matched,
         "unmatched": total_rows - matched,
-        "unmapped_sites": unmapped,
+        "unmapped_sites": [],
         "output_path": output_path,
         "download_name": download_name,
         "log": log_messages,
@@ -216,25 +233,36 @@ def _job_mrn(
 ) -> dict:
     if progress_cb:
         progress_cb(0.05, "Processing report...")
+    from app.services.unaccounted.constants import MRN_SITE_COL
     try:
         df, total_rows, input_cols, matched, log_messages = run_cpu_phase(
-            _cpu_phase_mrn, path, exclude_periods, output_path, progress_cb=progress_cb,
+            _cpu_phase_process_mrn, path, exclude_periods,
         )
+        unmapped = sorted(
+            df[df["Location"].astype(str).str.strip() == ""][MRN_SITE_COL]
+            .astype(str).unique().tolist()
+        )
+        if unmapped:
+            log_messages.append(("warn", f"Unmapped supplier sites: {len(unmapped)}"))
+            return {
+                "needs_mapping_fix": True,
+                "total_rows": total_rows,
+                "input_cols": input_cols,
+                "unmapped_sites": unmapped,
+                "log": log_messages,
+            }
+        run_cpu_phase(_cpu_phase_write_mrn, df, output_path, progress_cb=progress_cb)
     finally:
         Path(path).unlink(missing_ok=True)
     if progress_cb:
         progress_cb(0.95, "Report ready")
-    from app.services.unaccounted.constants import MRN_SITE_COL
-    unmapped = sorted(
-        df[df["Location"].astype(str).str.strip() == ""][MRN_SITE_COL]
-        .astype(str).unique().tolist()
-    )
     return {
+        "needs_mapping_fix": False,
         "total_rows": total_rows,
         "input_cols": input_cols,
         "matched": matched,
         "unmatched": total_rows - matched,
-        "unmapped_sites": unmapped,
+        "unmapped_sites": [],
         "output_path": output_path,
         "download_name": download_name,
         "log": log_messages,
@@ -252,26 +280,38 @@ def _job_po(
 ) -> dict:
     if progress_cb:
         progress_cb(0.05, "Processing report...")
+    from app.services.unaccounted.constants import PO_SITE_COL
     try:
         main_df, moved_df, unmapped_df, total_rows, input_cols, matched, log_messages = run_cpu_phase(
-            _cpu_phase_po, path, exclude_months, keywords, fuzzy_threshold, output_path,
-            progress_cb=progress_cb,
+            _cpu_phase_process_po, path, exclude_months, keywords, fuzzy_threshold,
+        )
+        unmapped = (
+            sorted(unmapped_df[PO_SITE_COL].astype(str).unique().tolist())
+            if PO_SITE_COL in unmapped_df.columns else []
+        )
+        if unmapped:
+            log_messages.append(("warn", f"Unmapped supplier sites: {len(unmapped)}"))
+            return {
+                "needs_mapping_fix": True,
+                "total_rows": total_rows,
+                "input_cols": input_cols,
+                "unmapped_sites": unmapped,
+                "log": log_messages,
+            }
+        run_cpu_phase(
+            _cpu_phase_write_po, main_df, moved_df, unmapped_df, output_path, progress_cb=progress_cb,
         )
     finally:
         Path(path).unlink(missing_ok=True)
     if progress_cb:
         progress_cb(0.95, "Report ready")
-    from app.services.unaccounted.constants import PO_SITE_COL
-    unmapped = (
-        sorted(unmapped_df[PO_SITE_COL].astype(str).unique().tolist())
-        if PO_SITE_COL in unmapped_df.columns else []
-    )
     return {
+        "needs_mapping_fix": False,
         "total_rows": total_rows,
         "input_cols": input_cols,
         "matched": matched,
         "unmatched": total_rows - matched,
-        "unmapped_sites": unmapped,
+        "unmapped_sites": [],
         "output_path": output_path,
         "download_name": download_name,
         "log": log_messages,

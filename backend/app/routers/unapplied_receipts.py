@@ -119,12 +119,12 @@ class _CollectingLogQueue:
         self.messages.append(item)
 
 
-def _cpu_phase_finish_report(df, ageing_path, incharge_map, supplier_site_map,
-                              output_path, as_on_date, df_unidentified, progress_cb=None):
-    """The rest of the pipeline after process_report's Oracle-dependent read
-    (which stays on the calling thread) - classify, validate, and write the
-    workbook are all pure pandas/openpyxl CPU work with no I/O, so this runs
-    on the CPU process pool for real multi-core throughput."""
+def _cpu_phase_classify_and_validate(df, ageing_path, incharge_map, supplier_site_map):
+    """Classify + validate only - pure pandas CPU work with no I/O, so this
+    runs on the CPU process pool. Split out from the write step below so the
+    caller can skip the (much more expensive) workbook write entirely when
+    mappings are missing, without giving up multi-core throughput for
+    classify/validate itself."""
     log_q = _CollectingLogQueue()
     df_main, df_advance, _salesperson_map = processor.classify_advance_customers(
         df, ageing_path, log_q,
@@ -135,12 +135,18 @@ def _cpu_phase_finish_report(df, ageing_path, incharge_map, supplier_site_map,
     ]
     for category, items in validation_errors:
         log_q.put(("warn", f"{category}: {len(items)} unmapped value(s)"))
+    return df_main, df_advance, validation_warnings, log_q.messages
+
+
+def _cpu_phase_write_report(df_main, df_advance, output_path, as_on_date, df_unidentified,
+                             incharge_map, progress_cb=None):
+    log_q = _CollectingLogQueue()
     processor.write_formatted_excel(
         df_main, df_advance, output_path, as_on_date,
         df_unidentified=df_unidentified, incharge_map=incharge_map, log_q=log_q,
         progress_cb=progress_cb,
     )
-    return len(df_main), len(df_advance), validation_warnings, log_q.messages
+    return log_q.messages
 
 
 # ── /process job pipeline ───────────────────────────────────────────────────
@@ -174,12 +180,33 @@ def _run_process_job(input_path: str, ageing_path: str, output_path: str,
         )
 
         if progress_cb:
-            progress_cb(0.55, "Classifying, validating, and writing the workbook...")
-        # Pure pandas/openpyxl CPU work, no Oracle/DB - runs on the CPU
-        # process pool for real multi-core throughput.
-        main_row_count, advance_row_count, validation_warnings, cpu_log_messages = run_cpu_phase(
-            _cpu_phase_finish_report,
-            df, ageing_path, incharge_map, supplier_site_map, output_path, as_on_date, df_unidentified,
+            progress_cb(0.55, "Classifying and validating...")
+        # Pure pandas CPU work, no Oracle/DB - runs on the CPU process pool
+        # for real multi-core throughput.
+        df_main, df_advance, validation_warnings, cpu_log_messages = run_cpu_phase(
+            _cpu_phase_classify_and_validate,
+            df, ageing_path, incharge_map, supplier_site_map,
+        )
+        log_q.messages.extend(cpu_log_messages)
+
+        if validation_warnings:
+            log_q.put(("warn", "Fix the mappings above and regenerate - report was not written yet."))
+            return {
+                "needs_mapping_fix": True,
+                "total_input_rows": total_input_rows,
+                "unidentified_removed_count": unidentified_removed_count,
+                "main_row_count": len(df_main),
+                "advance_row_count": len(df_advance),
+                "validation_warnings": validation_warnings,
+                "oracle_ok": erp_ok,
+                "log": log_q.messages,
+            }
+
+        if progress_cb:
+            progress_cb(0.65, "Writing the workbook...")
+        cpu_log_messages = run_cpu_phase(
+            _cpu_phase_write_report,
+            df_main, df_advance, output_path, as_on_date, df_unidentified, incharge_map,
             progress_cb=progress_cb,
         )
         log_q.messages.extend(cpu_log_messages)
@@ -193,14 +220,15 @@ def _run_process_job(input_path: str, ageing_path: str, output_path: str,
         progress_cb(1.0, "Report ready")
 
     return {
+        "needs_mapping_fix": False,
         "output_path": str(output_path),
         "download_filename": filename,
         "as_on_date": as_on_date.isoformat(),
         "total_input_rows": total_input_rows,
         "unidentified_removed_count": unidentified_removed_count,
-        "main_row_count": main_row_count,
-        "advance_row_count": advance_row_count,
-        "validation_warnings": validation_warnings,
+        "main_row_count": len(df_main),
+        "advance_row_count": len(df_advance),
+        "validation_warnings": [],
         "oracle_ok": erp_ok,
         "log": log_q.messages,
     }
@@ -267,7 +295,7 @@ def download_report(job_id: str, user: User = Depends(get_current_user)):
 
     result = job.get("result") or {}
     output_path = Path(result.get("output_path", ""))
-    if not output_path.exists():
+    if not output_path.is_file():
         raise HTTPException(status_code=404, detail="Output file not found")
 
     filename = result.get("download_filename") or "Unapplied_Receipts_Report.xlsx"

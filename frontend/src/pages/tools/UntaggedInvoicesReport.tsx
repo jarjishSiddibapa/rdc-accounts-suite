@@ -33,14 +33,15 @@ interface ValidationWarning {
 }
 
 interface ProcessResult {
-  output_path: string
-  download_filename: string
-  as_on_date: string
+  needs_mapping_fix: boolean
+  output_path?: string
+  download_filename?: string
+  as_on_date?: string
   total_rows: number
-  below_1k_row_count: number
-  untagged_detail_row_count: number
-  untagged_summary_row_count: number
-  zero_to_1k_detail_row_count: number
+  below_1k_row_count?: number
+  untagged_detail_row_count?: number
+  untagged_summary_row_count?: number
+  zero_to_1k_detail_row_count?: number
   validation_warnings: ValidationWarning[]
   log: [string, string][]
 }
@@ -282,11 +283,12 @@ function ValidationWarnings({
       <div className="flex items-center gap-2 text-amber-600">
         <AlertTriangle className="h-4 w-4" />
         <h4 className="font-display text-sm font-semibold">
-          Missing mappings. The workbook was still written with these left blank
+          Missing mappings
         </h4>
       </div>
       <p className="text-sm text-ink-dim">
-        Fix each unmapped value below, then regenerate without re-uploading the file.
+        Fix each unmapped value below, then generate the report. Nothing is written until
+        every mapping is resolved.
       </p>
       {warnings.map((warning) => (
         <WarningCategoryFix
@@ -305,7 +307,7 @@ function ValidationWarnings({
           loading={regenerating}
           onClick={onRegenerate}
         >
-          Regenerate report
+          Generate report
         </Button>
       </div>
     </div>
@@ -555,31 +557,35 @@ export default function UntaggedInvoicesReport() {
 
           {result && (
             <div className="subpanel flex flex-col gap-4 p-4">
-              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                {[
-                  ['Rows in Ageing', result.total_rows, 'text-ink'],
-                  ['Below 1k locations', result.below_1k_row_count, 'text-accent'],
-                  ['Zero to 1k detail rows', result.zero_to_1k_detail_row_count, 'text-sky-500'],
-                  ['Untagged detail rows', result.untagged_detail_row_count, 'text-amber-500'],
-                  ['Untagged Summary locations', result.untagged_summary_row_count, 'text-emerald-500'],
-                ].map(([label, value, color]) => (
-                  <div key={String(label)} className="rounded-xl border border-stroke/70 bg-surface/55 px-4 py-3">
-                    <span className="text-xs font-medium text-ink-faint">{label}</span>
-                    <p className={`mt-1 font-display text-2xl font-semibold ${color}`}>
-                      {formatIndianNumber(Number(value))}
-                    </p>
+              {!result.needs_mapping_fix && (
+                <>
+                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                    {[
+                      ['Rows in Ageing', result.total_rows, 'text-ink'],
+                      ['Below 1k locations', result.below_1k_row_count, 'text-accent'],
+                      ['Zero to 1k detail rows', result.zero_to_1k_detail_row_count, 'text-sky-500'],
+                      ['Untagged detail rows', result.untagged_detail_row_count, 'text-amber-500'],
+                      ['Untagged Summary locations', result.untagged_summary_row_count, 'text-emerald-500'],
+                    ].map(([label, value, color]) => (
+                      <div key={String(label)} className="rounded-xl border border-stroke/70 bg-surface/55 px-4 py-3">
+                        <span className="text-xs font-medium text-ink-faint">{label}</span>
+                        <p className={`mt-1 font-display text-2xl font-semibold ${color}`}>
+                          {formatIndianNumber(Number(value))}
+                        </p>
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-              <div className="flex flex-wrap items-center gap-3 text-sm">
-                <div className="mr-auto">
-                  <span className="text-ink-faint">Output file</span>
-                  <p className="text-ink">{result.download_filename}</p>
-                </div>
-                <Button icon={<FileSpreadsheet className="h-4 w-4" />} onClick={handleDownloadReport}>
-                  Save / download report
-                </Button>
-              </div>
+                  <div className="flex flex-wrap items-center gap-3 text-sm">
+                    <div className="mr-auto">
+                      <span className="text-ink-faint">Output file</span>
+                      <p className="text-ink">{result.download_filename}</p>
+                    </div>
+                    <Button icon={<FileSpreadsheet className="h-4 w-4" />} onClick={handleDownloadReport}>
+                      Save / download report
+                    </Button>
+                  </div>
+                </>
+              )}
 
               <ValidationWarnings
                 warnings={validationWarnings}

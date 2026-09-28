@@ -204,6 +204,13 @@ def _run_process_job(input_path: str, output_path: str,
                 missing_codes = unmapped_df["Vendor Site Code"].dropna().unique().tolist()
         if missing_codes:
             add_log("WARN", f"Unmapped site codes: {format_indian_number(len(missing_codes))}")
+            add_log("WARN", "Fix the mappings above and regenerate - report was not written yet.")
+            return {
+                "needs_mapping_fix": True,
+                "unmapped_vendor_sites": missing_codes,
+                "raw_row_count": raw_row_count,
+                "log": log,
+            }
 
         matched_count = int((df["Region"] != "").sum()) if "Region" in df.columns else 0
         unmatched_count = len(df) - matched_count
@@ -235,9 +242,10 @@ def _run_process_job(input_path: str, output_path: str,
     if progress_cb:
         progress_cb(1.0, "Report ready")
     return {
+        "needs_mapping_fix": False,
         "output_path": str(output_path),
         "download_filename": filename,
-        "unmapped_vendor_sites": missing_codes,
+        "unmapped_vendor_sites": [],
         "row_count": len(df),
         "raw_row_count": raw_row_count,
         "matched_count": matched_count,
@@ -319,7 +327,7 @@ def download_report(
 
     result = job.get("result") or {}
     output_path = Path(result.get("output_path", ""))
-    if not output_path.exists():
+    if not output_path.is_file():
         raise HTTPException(status_code=404, detail="Output file not found")
 
     try:

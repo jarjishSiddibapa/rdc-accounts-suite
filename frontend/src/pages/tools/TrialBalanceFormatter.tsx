@@ -4,6 +4,7 @@ import {
   Download,
   FileSpreadsheet,
   MapPinned,
+  RefreshCw,
   RotateCcw,
   Terminal,
   TriangleAlert,
@@ -43,16 +44,17 @@ interface MissingLedger {
 }
 
 interface ReportResult {
-  output_path: string
-  download_filename: string
-  sheet_name: string
+  needs_mapping_fix: boolean
+  output_path?: string
+  download_filename?: string
+  sheet_name?: string
   as_on_label: string
   as_on_date: string
   row_count: number
   warnings: string[]
   needs_review: MissingLedger[]
-  reference_adjustments_applied: boolean
-  tb_balance: number
+  reference_adjustments_applied?: boolean
+  tb_balance?: number
   log: [string, string][]
 }
 
@@ -175,15 +177,20 @@ function MappingManager({
 function MissingLedgerReview({
   rows,
   onSaved,
+  onRegenerate,
+  regenerating,
 }: {
   rows: MissingLedger[]
   onSaved: () => Promise<void>
+  onRegenerate: () => void
+  regenerating: boolean
 }) {
   const [drafts, setDrafts] = useState<Record<string, MissingLedger>>({})
   const [saving, setSaving] = useState<string | null>(null)
   const [saved, setSaved] = useState<Set<string>>(new Set())
   const [error, setError] = useState<string | null>(null)
   const pagination = usePagination(rows, 10, rows.map((row) => row.name).join('\u0000'))
+  const allSaved = rows.length > 0 && rows.every((row) => saved.has(row.name))
 
   useEffect(() => {
     setDrafts(Object.fromEntries(rows.map((row) => [row.name, row])))
@@ -216,7 +223,7 @@ function MissingLedgerReview({
         <TriangleAlert className="mt-0.5 h-5 w-5 shrink-0 text-amber-500" />
         <div>
           <h3 className="font-display text-lg font-semibold text-ink">Review new ledger classifications</h3>
-          <p className="mt-1 text-sm leading-6 text-ink-dim">The workbook is available now using clearly reported provisional classifications. Save the correct nature and row treatment so every later run uses the centralized decision.</p>
+          <p className="mt-1 text-sm leading-6 text-ink-dim">Nothing is written until every ledger below has a saved nature. Save the correct nature and row treatment for each, then generate the report.</p>
         </div>
       </div>
       {error && <ErrorBanner className="mt-4">{error}</ErrorBanner>}
@@ -277,6 +284,16 @@ function MissingLedgerReview({
         onPageChange={pagination.setPage}
         onPageSizeChange={pagination.setPageSize}
       />
+      <div className="mt-4 flex justify-stretch sm:justify-end">
+        <Button
+          icon={<RefreshCw className="h-4 w-4" />}
+          disabled={!allSaved}
+          loading={regenerating}
+          onClick={onRegenerate}
+        >
+          Generate report
+        </Button>
+      </div>
     </div>
   )
 }
@@ -405,7 +422,9 @@ export default function TrialBalanceFormatter() {
               <GlassCard padding="lg" className="flex flex-col gap-5">
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <h3 className="font-display text-lg font-semibold text-ink">Formatting progress</h3>
-                  {result && <Button icon={<Download className="h-4 w-4" />} onClick={downloadReport}>Save / download workbook</Button>}
+                  {result && !result.needs_mapping_fix && (
+                    <Button icon={<Download className="h-4 w-4" />} onClick={downloadReport}>Save / download workbook</Button>
+                  )}
                 </div>
                 <ProgressPanel
                   jobId={jobId}
@@ -417,26 +436,33 @@ export default function TrialBalanceFormatter() {
 
                 {result && (
                   <>
-                    <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-                      {[
-                        ['Report date', `As on ${result.as_on_label}`],
-                        ['Worksheet', result.sheet_name],
-                        ['Ledger rows', formatIndianNumber(result.row_count)],
-                        ['TB Balance', formatIndianNumber(result.tb_balance, { maximumFractionDigits: 2 })],
-                      ].map(([label, value]) => (
-                        <div key={label} className="subpanel px-4 py-3">
-                          <p className="text-xs font-medium text-ink-faint">{label}</p>
-                          <p className="mt-1 text-sm font-semibold text-ink">{value}</p>
-                        </div>
-                      ))}
-                    </div>
+                    {!result.needs_mapping_fix && (
+                      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                        {[
+                          ['Report date', `As on ${result.as_on_label}`],
+                          ['Worksheet', result.sheet_name],
+                          ['Ledger rows', formatIndianNumber(result.row_count)],
+                          ['TB Balance', formatIndianNumber(result.tb_balance ?? 0, { maximumFractionDigits: 2 })],
+                        ].map(([label, value]) => (
+                          <div key={label} className="subpanel px-4 py-3">
+                            <p className="text-xs font-medium text-ink-faint">{label}</p>
+                            <p className="mt-1 text-sm font-semibold text-ink">{value}</p>
+                          </div>
+                        ))}
+                      </div>
+                    )}
 
                     {result.warnings.map((warning) => (
                       <p key={warning} className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-700 dark:text-amber-300">{warning}</p>
                     ))}
 
                     {result.needs_review.length > 0 ? (
-                      <MissingLedgerReview rows={result.needs_review} onSaved={loadMappings} />
+                      <MissingLedgerReview
+                        rows={result.needs_review}
+                        onSaved={loadMappings}
+                        onRegenerate={() => void generate()}
+                        regenerating={submitting}
+                      />
                     ) : (
                       <div className="flex items-center gap-2 rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-600 dark:text-emerald-300">
                         <CheckCircle2 className="h-4 w-4" />

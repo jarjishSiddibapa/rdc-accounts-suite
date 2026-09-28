@@ -114,12 +114,13 @@ function PeriodDetectionNotice({
 // ── shared report-job types & log panel ──────────────────────────────────
 
 interface ReportJobResult {
+  needs_mapping_fix: boolean
   total_rows: number
   input_cols: number
-  matched: number
-  unmatched: number
+  matched?: number
+  unmatched?: number
   unmapped_sites: string[]
-  output_path: string
+  output_path?: string
   log: [string, string][]
 }
 
@@ -186,6 +187,7 @@ function LogPanel({ log }: { log: [string, string][] }) {
 }
 
 function ResultSummary({ result, onDownload }: { result: ReportJobResult; onDownload: () => void }) {
+  if (result.needs_mapping_fix) return null
   return (
     <div className="subpanel flex flex-wrap items-center gap-6 p-4 text-sm">
       <div>
@@ -194,11 +196,11 @@ function ResultSummary({ result, onDownload }: { result: ReportJobResult; onDown
       </div>
       <div>
         <span className="text-ink-faint">Matched</span>
-        <p className="text-ink">{formatIndianNumber(result.matched)}</p>
+        <p className="text-ink">{formatIndianNumber(result.matched ?? 0)}</p>
       </div>
       <div>
         <span className="text-ink-faint">Unmatched</span>
-        <p className="text-ink">{formatIndianNumber(result.unmatched)}</p>
+        <p className="text-ink">{formatIndianNumber(result.unmatched ?? 0)}</p>
       </div>
       <Button className="sm:ml-auto" icon={<Download className="h-4 w-4" />} onClick={onDownload}>
         Save / download report
@@ -253,7 +255,8 @@ function UnmappedSitesFix({
       </div>
       <p className="text-sm text-ink-dim">
         Pick a Location for each unmapped Supplier Site. Accounts Incharge is filled in
-        automatically from the Location table.
+        automatically from the Location table. Nothing is written until every mapping is
+        resolved.
       </p>
       {error && <ErrorBanner>{error}</ErrorBanner>}
       <div className="flex flex-col gap-2">
@@ -306,7 +309,7 @@ function UnmappedSitesFix({
           loading={regenerating}
           onClick={onRegenerate}
         >
-          Regenerate report
+          Generate report
         </Button>
       </div>
     </div>
