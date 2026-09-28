@@ -1,7 +1,9 @@
 """Coverage for the Untagged Invoices Report Generator's processing
 pipeline: header/row cleanup, Location mapping, ageing-bucket recompute
 (from an as-on date, not the source file's own frozen buckets), the two
-pivots (Below 1k / Untagged Summary), and the 4-sheet workbook's shape."""
+Ageing/Summary pairs (Zero to 1k, Untagged - both restricted to
+Type = Transactions, with the Type column dropped from their output),
+and the 5-sheet workbook's shape."""
 
 import datetime as dt
 import tempfile
@@ -16,16 +18,18 @@ from app.services.untagged_invoices.processor import (
     LOCATION_COL,
     _bucket_index,
     add_location_column,
-    build_below_1k_pivot,
-    build_untagged_detail,
+    build_untagged_ageing,
     build_untagged_summary,
-    build_zero_to_1k_detail,
+    build_zero_to_1k_ageing,
+    build_zero_to_1k_summary,
     missing_incharge_mappings,
     missing_location_mappings,
     read_ageing_file,
     recompute_ageing_buckets,
     write_report,
 )
+
+_TYPE_COL = "Type (Transaction/Receipt)"
 
 _HEADERS = [
     "Customer Name", "Customer Account", "Customer Group Name", "Location Number",
@@ -158,18 +162,21 @@ class PivotTests(unittest.TestCase):
         df = add_location_column(df, {"LOC A": "Location A", "LOC B": "Location B"})
         return recompute_ageing_buckets(df, as_on, _LogQueue())
 
-    def test_below_1k_filters_and_groups_by_location(self):
+    def test_zero_to_1k_ageing_filters_by_type_and_amount_and_groups_by_location(self):
         as_on = dt.date(2026, 1, 31)  # 30 days after invoice date -> bucket 0-30
         rows = [
             _base_row(**{"Location Name": "LOC A", "Accounted Outstanding": 500.0}),
             _base_row(**{"Location Name": "LOC A", "Accounted Outstanding": 250.0}),
             _base_row(**{"Location Name": "LOC A", "Accounted Outstanding": 5000.0}),  # excluded: >= 1000
+            _base_row(**{"Location Name": "LOC A", _TYPE_COL: "Receipts",
+                         "Accounted Outstanding": 300.0}),  # excluded: not a Transaction
             _base_row(**{"Location Name": "LOC B", "Accounted Outstanding": -10.0}),   # excluded: not > 0
         ]
         df = self._prepared(rows, as_on)
-        detail = build_zero_to_1k_detail(df)
-        self.assertEqual(len(detail), 2)  # the >=1000 and the negative row are excluded
-        pivot = build_below_1k_pivot(detail, {"Location A": "Alice"})
+        ageing = build_zero_to_1k_ageing(df)
+        self.assertEqual(len(ageing), 2)  # the >=1000, Receipts, and negative rows are excluded
+        self.assertNotIn(_TYPE_COL, ageing.columns)
+        pivot = build_zero_to_1k_summary(ageing, {"Location A": "Alice"})
 
         self.assertEqual(list(pivot[LOCATION_COL]), ["Location A"])
         self.assertAlmostEqual(pivot["Total O/S"].iloc[0], 750.0)
@@ -179,22 +186,23 @@ class PivotTests(unittest.TestCase):
             pivot["Total O/S"].iloc[0] - pivot["0-30 Days"].iloc[0] - pivot["31-60 Days"].iloc[0],
         )
 
-    def test_untagged_detail_and_summary(self):
+    def test_untagged_ageing_and_summary(self):
         as_on = dt.date(2026, 1, 31)
         rows = [
-            _base_row(**{"Location Name": "LOC A", "Type (Transaction/Receipt)": "Receipts",
+            _base_row(**{"Location Name": "LOC A", _TYPE_COL: "Transactions",
                          "Accounted Outstanding": -1000.0}),
-            _base_row(**{"Location Name": "LOC A", "Type (Transaction/Receipt)": "Transactions",
-                         "Accounted Outstanding": 1000.0}),   # excluded: not a Receipt
-            _base_row(**{"Location Name": "LOC A", "Type (Transaction/Receipt)": "Receipts",
+            _base_row(**{"Location Name": "LOC A", _TYPE_COL: "Receipts",
+                         "Accounted Outstanding": -500.0}),   # excluded: not a Transaction
+            _base_row(**{"Location Name": "LOC A", _TYPE_COL: "Transactions",
                          "Accounted Outstanding": 50.0}),      # excluded: outstanding not < 0
         ]
         df = self._prepared(rows, as_on)
-        detail = build_untagged_detail(df)
-        self.assertEqual(len(detail), 1)
-        self.assertEqual(detail["Accounted Outstanding"].iloc[0], -1000.0)
+        ageing = build_untagged_ageing(df)
+        self.assertEqual(len(ageing), 1)
+        self.assertEqual(ageing["Accounted Outstanding"].iloc[0], -1000.0)
+        self.assertNotIn(_TYPE_COL, ageing.columns)
 
-        summary = build_untagged_summary(detail, {"Location A": "Alice"})
+        summary = build_untagged_summary(ageing, {"Location A": "Alice"})
         self.assertEqual(list(summary[LOCATION_COL]), ["Location A"])
         self.assertAlmostEqual(summary["Accounted Outstanding"].iloc[0], -1000.0)
         self.assertAlmostEqual(
@@ -207,34 +215,35 @@ class WriteReportTests(unittest.TestCase):
     def test_sheet_order_and_grand_total_formula(self):
         as_on = dt.date(2026, 1, 31)
         rows = [
-            _base_row(**{"Location Name": "LOC A", "Type (Transaction/Receipt)": "Receipts",
-                         "Accounted Outstanding": -1000.0}),
-            _base_row(**{"Location Name": "LOC A", "Accounted Outstanding": 500.0}),
+            _base_row(**{"Location Name": "LOC A", "Accounted Outstanding": -1000.0}),  # untagged
+            _base_row(**{"Location Name": "LOC A", "Accounted Outstanding": 500.0}),    # zero to 1k
+            _base_row(**{"Location Name": "LOC A", _TYPE_COL: "Receipts",
+                         "Accounted Outstanding": -2000.0}),  # Receipts: in Ageing only
         ]
         df = pd.DataFrame(rows)
         df = add_location_column(df, {"LOC A": "Location A"})
         df = recompute_ageing_buckets(df, as_on, _LogQueue())
-        zero_to_1k_detail = build_zero_to_1k_detail(df)
-        below_1k = build_below_1k_pivot(zero_to_1k_detail, {"Location A": "Alice"})
-        untagged_detail = build_untagged_detail(df)
-        untagged_summary = build_untagged_summary(untagged_detail, {"Location A": "Alice"})
+        zero_to_1k_ageing = build_zero_to_1k_ageing(df)
+        zero_to_1k_summary = build_zero_to_1k_summary(zero_to_1k_ageing, {"Location A": "Alice"})
+        untagged_ageing = build_untagged_ageing(df)
+        untagged_summary = build_untagged_summary(untagged_ageing, {"Location A": "Alice"})
 
         with tempfile.TemporaryDirectory() as tmp:
             out_path = Path(tmp) / "out.xlsx"
-            write_report(df, below_1k, untagged_detail, untagged_summary, zero_to_1k_detail,
+            write_report(df, untagged_summary, untagged_ageing, zero_to_1k_summary, zero_to_1k_ageing,
                          out_path, as_on, log_q=_LogQueue())
 
             wb = openpyxl.load_workbook(out_path)
             self.assertEqual(
                 wb.sheetnames,
-                ["Untagged Summary", "Untagged Detailed Ageing", "Ageing", "Below 1k",
-                 "Zero to 1k Ageing"],
+                ["Untagged Summary", "Untagged Ageing", "Zero to 1k Summary", "Zero to 1k Ageing",
+                 "Ageing"],
             )
 
-            below_ws = wb["Below 1k"]
-            grand_total_row = below_ws.max_row
-            self.assertEqual(below_ws.cell(row=grand_total_row, column=1).value, "Grand Total")
-            total_cell = below_ws.cell(row=grand_total_row, column=3).value
+            zero_to_1k_summary_ws = wb["Zero to 1k Summary"]
+            grand_total_row = zero_to_1k_summary_ws.max_row
+            self.assertEqual(zero_to_1k_summary_ws.cell(row=grand_total_row, column=1).value, "Grand Total")
+            total_cell = zero_to_1k_summary_ws.cell(row=grand_total_row, column=3).value
             self.assertTrue(str(total_cell).startswith("=SUBTOTAL(9,"))
 
             summary_ws = wb["Untagged Summary"]
@@ -243,7 +252,19 @@ class WriteReportTests(unittest.TestCase):
             self.assertTrue(str(summary_total_cell).startswith("=SUBTOTAL(9,"))
 
             zero_to_1k_ws = wb["Zero to 1k Ageing"]
-            self.assertEqual(zero_to_1k_ws.max_row - 1, len(zero_to_1k_detail))
+            self.assertEqual(zero_to_1k_ws.max_row - 1, len(zero_to_1k_ageing))
+
+            # Type column dropped from both Ageing sub-sheets, but kept on the
+            # raw "Ageing" sheet, which also keeps the Receipts row.
+            untagged_header = [c.value for c in wb["Untagged Ageing"][1]]
+            self.assertNotIn(_TYPE_COL, untagged_header)
+            zero_to_1k_header = [c.value for c in wb["Zero to 1k Ageing"][1]]
+            self.assertNotIn(_TYPE_COL, zero_to_1k_header)
+
+            ageing_ws = wb["Ageing"]
+            ageing_header = [c.value for c in ageing_ws[1]]
+            self.assertIn(_TYPE_COL, ageing_header)
+            self.assertEqual(ageing_ws.max_row - 1, len(df))
 
 
 if __name__ == "__main__":

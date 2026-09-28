@@ -113,14 +113,14 @@ def _run_process_job(input_path: str, output_path: str, as_on_date_str: Optional
 
         if progress_cb:
             progress_cb(0.45, "Building pivots...")
-        df_zero_to_1k_detail = processor.build_zero_to_1k_detail(df)
-        df_below_1k = processor.build_below_1k_pivot(df_zero_to_1k_detail, incharge_map)
-        df_untagged_detail = processor.build_untagged_detail(df)
-        df_untagged_summary = processor.build_untagged_summary(df_untagged_detail, incharge_map)
+        df_untagged_ageing = processor.build_untagged_ageing(df)
+        df_untagged_summary = processor.build_untagged_summary(df_untagged_ageing, incharge_map)
+        df_zero_to_1k_ageing = processor.build_zero_to_1k_ageing(df)
+        df_zero_to_1k_summary = processor.build_zero_to_1k_summary(df_zero_to_1k_ageing, incharge_map)
 
         processor.write_report(
-            df, df_below_1k, df_untagged_detail, df_untagged_summary,
-            df_zero_to_1k_detail,
+            df, df_untagged_summary, df_untagged_ageing,
+            df_zero_to_1k_summary, df_zero_to_1k_ageing,
             output_path, as_on_date, log_q=log_q, progress_cb=progress_cb,
         )
     finally:
@@ -135,10 +135,10 @@ def _run_process_job(input_path: str, output_path: str, as_on_date_str: Optional
         "download_filename": filename,
         "as_on_date": as_on_date.isoformat(),
         "total_rows": int(len(df)),
-        "below_1k_row_count": int(len(df_below_1k)),
-        "untagged_detail_row_count": int(len(df_untagged_detail)),
+        "untagged_ageing_row_count": int(len(df_untagged_ageing)),
         "untagged_summary_row_count": int(len(df_untagged_summary)),
-        "zero_to_1k_detail_row_count": int(len(df_zero_to_1k_detail)),
+        "zero_to_1k_ageing_row_count": int(len(df_zero_to_1k_ageing)),
+        "zero_to_1k_summary_row_count": int(len(df_zero_to_1k_summary)),
         "validation_warnings": [],
         "log": log_q.messages,
     }

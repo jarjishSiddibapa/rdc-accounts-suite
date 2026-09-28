@@ -38,10 +38,10 @@ interface ProcessResult {
   download_filename?: string
   as_on_date?: string
   total_rows: number
-  below_1k_row_count?: number
-  untagged_detail_row_count?: number
+  untagged_ageing_row_count?: number
   untagged_summary_row_count?: number
-  zero_to_1k_detail_row_count?: number
+  zero_to_1k_ageing_row_count?: number
+  zero_to_1k_summary_row_count?: number
   validation_warnings: ValidationWarning[]
   log: [string, string][]
 }
@@ -504,7 +504,7 @@ export default function UntaggedInvoicesReport() {
               </h2>
               <p className="mt-1 text-sm leading-6 text-ink-dim">
                 Upload the Aging export to generate the formatted workbook (Untagged Summary,
-                Untagged Detailed Ageing, Ageing and Below 1k sheets).
+                Untagged Ageing, Zero to 1k Summary, Zero to 1k Ageing and Ageing sheets).
               </p>
             </div>
           </div>
@@ -562,9 +562,9 @@ export default function UntaggedInvoicesReport() {
                   <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                     {[
                       ['Rows in Ageing', result.total_rows, 'text-ink'],
-                      ['Below 1k locations', result.below_1k_row_count, 'text-accent'],
-                      ['Zero to 1k detail rows', result.zero_to_1k_detail_row_count, 'text-sky-500'],
-                      ['Untagged detail rows', result.untagged_detail_row_count, 'text-amber-500'],
+                      ['Zero to 1k Summary locations', result.zero_to_1k_summary_row_count, 'text-accent'],
+                      ['Zero to 1k Ageing rows', result.zero_to_1k_ageing_row_count, 'text-sky-500'],
+                      ['Untagged Ageing rows', result.untagged_ageing_row_count, 'text-amber-500'],
                       ['Untagged Summary locations', result.untagged_summary_row_count, 'text-emerald-500'],
                     ].map(([label, value, color]) => (
                       <div key={String(label)} className="rounded-xl border border-stroke/70 bg-surface/55 px-4 py-3">
