@@ -798,6 +798,16 @@ data needs a manual look before it can be enforced; every other constraint in
 the file still applies normally. This was verified with a real dry run before
 being written up here, not assumed from reading the SQL.
 
+The Untagged Invoices mapping update is
+`deployment/mysql/20261007_untagged_invoices_mappings.sql`. Mapping data lives in
+MySQL and does not travel with `git pull`, so this script carries the Location
+Name and Accounts Incharge rows added after the original seed. It creates the
+two tables if missing, inserts only absent keys (never overwriting application
+edits or reviving archived rows), and changes the BANGALORE / MANGALORE incharge
+only while it still holds the original `Elairaja` value. Run it in MySQL
+Workbench against the production schema; it is repeatable and works before or
+after the application has first started.
+
 Normal production update sequence:
 
 1. `git pull origin main`
