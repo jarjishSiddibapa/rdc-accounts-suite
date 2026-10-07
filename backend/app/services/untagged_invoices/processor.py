@@ -5,24 +5,26 @@ Unapplied Receipts Report's ageing file — see
 app.services.unapplied_receipts.processor._read_ageing). Produces one
 workbook with 5 sheets, in this fixed order:
 
-  1. Untagged Summary    - Location-wise pivot of the Untagged Ageing rows
+  1. Untagged Summary    - Location-wise pivot of the Untagged Ageing rows,
+                            sorted by Accounted Outstanding ascending
   2. Untagged Ageing      - rows from Ageing where Type = Transactions and
-                            Accounted Outstanding < 0 (the Type column is
-                            dropped, since it's now a constant)
-  3. Zero to 1k Summary   - Location-wise pivot of the Zero to 1k Ageing rows
-  4. Zero to 1k Ageing    - rows from Ageing where Type = Transactions and
-                            0 < Accounted Outstanding < 1,000 (Type dropped)
+                            Accounted Outstanding < 0 (keeps the Type column)
+  3. Below 1k Summary     - Location-wise pivot of the Below 1k Ageing rows,
+                            sorted by Total O/S descending
+  4. Below 1k Ageing      - rows from Ageing where Type = Transactions and
+                            0 < Accounted Outstanding < 1,000 (keeps the
+                            Type column)
   5. Ageing               - the full input, with a "Location" column added
                             right after "Location Name" (mapped via the
                             centralized Location Name -> Location mapping)
                             and ageing buckets recomputed; every row, both
                             Transactions and Receipts, unfiltered
 
-Both "Ageing" detail sheets (Untagged Ageing, Zero to 1k Ageing) are
+Both "Ageing" detail sheets (Untagged Ageing, Below 1k Ageing) are
 restricted to Type = Transactions - Receipts rows are never untagged or
-zero-to-1k candidates, only the raw "Ageing" sheet itself carries them.
+below-1k candidates, only the raw "Ageing" sheet itself carries them.
 
-Ageing buckets (Days O/S, 0-30 Days, 31-60 Days, ...) are always recomputed
+Ageing buckets (Days O/S, 0-15 Days, 16-30 Days, ...) are always recomputed
 from (Invoice/ Receipt Date, as_on_date) rather than trusted from the
 source file's own bucket columns - those are frozen to whatever "As of
 Date" the ERP export itself was run with, so recomputing lets this report
@@ -33,6 +35,7 @@ defaults to today when not given.
 from __future__ import annotations
 
 import datetime as _dt
+import re
 from pathlib import Path
 
 import numpy as np
@@ -58,10 +61,21 @@ _DAYS_OS_COL = "Days O/S"
 
 # Bucket columns, in order - recomputed from (as_on_date - invoice date).days.
 BUCKET_COLS = [
-    "0-30 Days", "31-60 Days", "61-90 Days", "91-120 Days",
-    "121-150 Days", "151-180 Days", "181-360 Days", "361-999999 Days ",
+    "0-15 Days", "16-30 Days", "31-60 Days", "61-90 Days", "91-120 Days",
+    "121-150 Days", "151-180 Days", "181-360 Days", "360+ Days",
 ]
-_BUCKET_EDGES = (30, 60, 90, 120, 150, 180, 360)  # last bucket = anything above 360
+_BUCKET_EDGES = (15, 30, 60, 90, 120, 150, 180, 360)  # last bucket = anything above 360
+
+# Matches any "<number>-<number> Days" / "<number>+ Days"-shaped header,
+# regardless of its exact wording - used to strip the source file's own
+# (frozen) bucket columns before recomputing, see recompute_ageing_buckets.
+_BUCKET_LIKE_RE = re.compile(r"^\d+\s*[-+]")
+
+
+def _looks_like_bucket_col(name) -> bool:
+    s = str(name).strip()
+    return bool(_BUCKET_LIKE_RE.match(s)) and "day" in s.lower()
+
 
 LOCATION_COL = "Location"
 _LAKH = 100_000
@@ -171,7 +185,17 @@ def recompute_ageing_buckets(df: pd.DataFrame, as_on_date: _dt.date, log_q=None)
     """Overwrite Days O/S and every bucket column from
     (as_on_date - Invoice/Receipt Date).days, ignoring whatever the source
     file's own bucket columns held (they're frozen to the ERP export's own
-    "As of Date")."""
+    "As of Date").
+
+    The source file's own bucket columns are dropped and replaced rather
+    than overwritten in place by exact name match: the ERP export's last
+    bucket header ("361-999999 Days ") carries a trailing space that
+    read_ageing_file's own column-name stripping removes, so an exact-name
+    overwrite silently left that untouched raw column behind alongside a
+    freshly computed one of an almost-identical name - the sheet then
+    showed that bucket column twice. Matching any "<number>-Days"-shaped
+    header instead avoids relying on the exact wording of either the source
+    file's or this module's own bucket names."""
     df = df.copy()
     date_col = _find_col(df.columns, _INVOICE_DATE_TOKENS)
     outstanding_col = _find_col(df.columns, _ACCOUNTED_OUTSTANDING_TOKENS)
@@ -181,9 +205,9 @@ def recompute_ageing_buckets(df: pd.DataFrame, as_on_date: _dt.date, log_q=None)
             "columns in the uploaded file."
         )
 
-    for col in BUCKET_COLS:
-        if col not in df.columns:
-            df[col] = 0.0
+    stale_bucket_cols = [c for c in df.columns if _looks_like_bucket_col(c)]
+    df = df.drop(columns=stale_bucket_cols)
+    insert_at = (df.columns.get_loc(_DAYS_OS_COL) + 1) if _DAYS_OS_COL in df.columns else len(df.columns)
 
     invoice_dates = pd.to_datetime(df[date_col], errors="coerce")
     as_on_ts = pd.Timestamp(as_on_date)
@@ -212,8 +236,8 @@ def recompute_ageing_buckets(df: pd.DataFrame, as_on_date: _dt.date, log_q=None)
     bucket_matrix[row_idx, bucket_idx[row_idx]] = outstanding.to_numpy()[row_idx]
     bucket_frame = pd.DataFrame(bucket_matrix, index=df.index, columns=BUCKET_COLS)
 
-    for col in BUCKET_COLS:
-        df[col] = bucket_frame[col].where(valid, other=pd.NA)
+    for offset, col in enumerate(BUCKET_COLS):
+        df.insert(insert_at + offset, col, bucket_frame[col].where(valid, other=pd.NA))
     df[_DAYS_OS_COL] = df[_DAYS_OS_COL].where(valid, other=pd.NA)
 
     if log_q:
@@ -223,18 +247,10 @@ def recompute_ageing_buckets(df: pd.DataFrame, as_on_date: _dt.date, log_q=None)
 
 # ── pivots ────────────────────────────────────────────────────────────────
 
-def _drop_type_col(df: pd.DataFrame) -> pd.DataFrame:
-    """Drop the 'Type (Transaction/Receipt)' column - once a sheet is
-    filtered down to Transactions only, the column is a constant and isn't
-    shown in that sheet's output."""
-    type_col = _find_col(df.columns, _TYPE_TOKENS)
-    return df.drop(columns=[type_col]) if type_col else df
-
-
-def build_zero_to_1k_ageing(df: pd.DataFrame) -> pd.DataFrame:
+def build_below_1k_ageing(df: pd.DataFrame) -> pd.DataFrame:
     """Rows where Type = Transactions and 0 < Accounted Outstanding < 1,000 -
-    same columns as the Ageing sheet minus the Type column. Feeds the Zero
-    to 1k Summary pivot and is also written as its own "Zero to 1k Ageing"
+    same columns as the Ageing sheet, Type column included. Feeds the Below
+    1k Summary pivot and is also written as its own "Below 1k Ageing"
     detail sheet."""
     type_col = _find_col(df.columns, _TYPE_TOKENS)
     outstanding_col = _find_col(df.columns, _ACCOUNTED_OUTSTANDING_TOKENS)
@@ -246,13 +262,14 @@ def build_zero_to_1k_ageing(df: pd.DataFrame) -> pd.DataFrame:
     is_transaction = df[type_col].astype(str).str.strip().str.lower().str.startswith("transaction")
     outstanding = pd.to_numeric(df[outstanding_col], errors="coerce").fillna(0.0)
     mask = is_transaction & (outstanding > 0) & (outstanding < 1000)
-    return _drop_type_col(df[mask].reset_index(drop=True))
+    return df[mask].reset_index(drop=True)
 
 
-def build_zero_to_1k_summary(df_zero_to_1k_ageing: pd.DataFrame, incharge_map: dict[str, str]) -> pd.DataFrame:
-    """Location-wise pivot of the Zero to 1k Ageing rows."""
-    outstanding_col = _find_col(df_zero_to_1k_ageing.columns, _ACCOUNTED_OUTSTANDING_TOKENS)
-    subset = df_zero_to_1k_ageing.copy()
+def build_below_1k_summary(df_below_1k_ageing: pd.DataFrame, incharge_map: dict[str, str]) -> pd.DataFrame:
+    """Location-wise pivot of the Below 1k Ageing rows, sorted by Total O/S
+    descending."""
+    outstanding_col = _find_col(df_below_1k_ageing.columns, _ACCOUNTED_OUTSTANDING_TOKENS)
+    subset = df_below_1k_ageing.copy()
     subset["_outstanding"] = pd.to_numeric(subset[outstanding_col], errors="coerce").fillna(0.0)
 
     if subset.empty:
@@ -268,16 +285,16 @@ def build_zero_to_1k_summary(df_zero_to_1k_ageing: pd.DataFrame, incharge_map: d
     for col in BUCKET_COLS:
         if col not in pivot.columns:
             pivot[col] = 0.0
-    pivot["Above 30 days"] = pivot["Total O/S"] - pivot["0-30 Days"] - pivot["31-60 Days"]
+    pivot["Above 30 days"] = pivot["Total O/S"] - pivot[BUCKET_COLS[0]] - pivot[BUCKET_COLS[1]]
     pivot["Account Incharges"] = pivot[LOCATION_COL].map(lambda loc: incharge_map.get(loc, ""))
-    pivot = pivot.sort_values(LOCATION_COL, key=lambda s: s.str.lower()).reset_index(drop=True)
+    pivot = pivot.sort_values("Total O/S", ascending=False).reset_index(drop=True)
 
     return pivot[[LOCATION_COL, "Account Incharges", "Total O/S", *BUCKET_COLS, "Above 30 days"]]
 
 
 def build_untagged_ageing(df: pd.DataFrame) -> pd.DataFrame:
     """Rows where Type = Transactions and Accounted Outstanding < 0 - same
-    columns as the Ageing sheet minus the Type column."""
+    columns as the Ageing sheet, Type column included."""
     type_col = _find_col(df.columns, _TYPE_TOKENS)
     outstanding_col = _find_col(df.columns, _ACCOUNTED_OUTSTANDING_TOKENS)
     if not type_col or not outstanding_col:
@@ -288,13 +305,14 @@ def build_untagged_ageing(df: pd.DataFrame) -> pd.DataFrame:
     is_transaction = df[type_col].astype(str).str.strip().str.lower().str.startswith("transaction")
     outstanding = pd.to_numeric(df[outstanding_col], errors="coerce").fillna(0.0)
     mask = is_transaction & (outstanding < 0)
-    return _drop_type_col(df[mask].reset_index(drop=True))
+    return df[mask].reset_index(drop=True)
 
 
 def build_untagged_summary(df_untagged_ageing: pd.DataFrame, incharge_map: dict[str, str]) -> pd.DataFrame:
     """Location-wise pivot of the Untagged Ageing rows, values in Lakhs
     (÷ 1,00,000) - this is the one summary sheet the report shows in Lakhs;
-    Zero to 1k Summary stays in actual rupees."""
+    Below 1k Summary stays in actual rupees. Sorted by Accounted Outstanding
+    ascending."""
     outstanding_col = _find_col(df_untagged_ageing.columns, _ACCOUNTED_OUTSTANDING_TOKENS)
     subset = df_untagged_ageing.copy()
     subset["_outstanding"] = pd.to_numeric(subset[outstanding_col], errors="coerce").fillna(0.0)
@@ -316,7 +334,7 @@ def build_untagged_summary(df_untagged_ageing: pd.DataFrame, incharge_map: dict[
     value_cols = ["Accounted Outstanding", *BUCKET_COLS]
     pivot[value_cols] = pivot[value_cols] / _LAKH
 
-    pivot["Above 30 Days"] = pivot["Accounted Outstanding"] - pivot["0-30 Days"]
+    pivot["Above 30 Days"] = pivot["Accounted Outstanding"] - pivot[BUCKET_COLS[0]] - pivot[BUCKET_COLS[1]]
     pivot["Account Incharges"] = pivot[LOCATION_COL].map(lambda loc: incharge_map.get(loc, ""))
     pivot = pivot.sort_values("Accounted Outstanding").reset_index(drop=True)
 
@@ -500,7 +518,7 @@ def _write_detail_sheet(wb: Workbook, title: str, df: pd.DataFrame, tab_color: s
 def _write_pivot_sheet(wb: Workbook, title: str, df: pd.DataFrame, tab_color: str,
                        location_col_header: str, amount_col: str, above_30_formula,
                        footnote: str | None = None) -> None:
-    """Write a Location-wise pivot sheet (Zero to 1k Summary / Untagged
+    """Write a Location-wise pivot sheet (Below 1k Summary / Untagged
     Summary) with a live-SUBTOTAL Grand Total row.
 
     `footnote`, if given, is written a couple of rows below the Grand
@@ -519,7 +537,6 @@ def _write_pivot_sheet(wb: Workbook, title: str, df: pd.DataFrame, tab_color: st
     cols = [LOCATION_COL, "Account Incharges", amount_col, *BUCKET_COLS, "Above 30 Days"]
     header_labels = {
         LOCATION_COL: location_col_header,
-        "361-999999 Days ": "361-99999" if amount_col == "Total O/S" else "361+",
     }
     bdr = _thin_border()
     n_cols = len(cols)
@@ -652,15 +669,15 @@ def write_report(
     df_ageing: pd.DataFrame,
     df_untagged_summary: pd.DataFrame,
     df_untagged_ageing: pd.DataFrame,
-    df_zero_to_1k_summary: pd.DataFrame,
-    df_zero_to_1k_ageing: pd.DataFrame,
+    df_below_1k_summary: pd.DataFrame,
+    df_below_1k_ageing: pd.DataFrame,
     output_path: str | Path,
     as_on_date: _dt.date,
     log_q=None,
     progress_cb=None,
 ) -> None:
     """Write the 5-sheet workbook, in the required order:
-    Untagged Summary, Untagged Ageing, Zero to 1k Summary, Zero to 1k
+    Untagged Summary, Untagged Ageing, Below 1k Summary, Below 1k
     Ageing, Ageing.
 
     Built as a write-only workbook: every sheet is streamed row-by-row via
@@ -670,12 +687,16 @@ def write_report(
     the write-phase progress span belongs to it."""
     wb = Workbook(write_only=True)
 
+    # Both summaries' "Above 30 Days" is Total minus the first two bucket
+    # columns (0-15 + 16-30 Days = 0-30 days), so both use the same formula.
+    above_30_formula = lambda amount_ref, bucket_refs: f"={amount_ref}-{bucket_refs[0]}-{bucket_refs[1]}"
+
     if progress_cb:
         progress_cb(0.55, "Writing Untagged Summary...")
     _write_pivot_sheet(
         wb, "Untagged Summary", df_untagged_summary, "6A1B9A",
         location_col_header="Location Name", amount_col="Accounted Outstanding",
-        above_30_formula=lambda amount_ref, bucket_refs: f"={amount_ref}-{bucket_refs[0]}",
+        above_30_formula=above_30_formula,
         footnote="All amounts in Lakhs (÷ 1,00,000)",
     )
 
@@ -687,17 +708,17 @@ def write_report(
     )
 
     if progress_cb:
-        progress_cb(0.65, "Writing Zero to 1k Summary...")
+        progress_cb(0.65, "Writing Below 1k Summary...")
     _write_pivot_sheet(
-        wb, "Zero to 1k Summary", df_zero_to_1k_summary, "00897B",
+        wb, "Below 1k Summary", df_below_1k_summary, "00897B",
         location_col_header="Location Name", amount_col="Total O/S",
-        above_30_formula=lambda amount_ref, bucket_refs: f"={amount_ref}-{bucket_refs[0]}-{bucket_refs[1]}",
+        above_30_formula=above_30_formula,
     )
 
     if progress_cb:
-        progress_cb(0.68, "Writing Zero to 1k Ageing...")
+        progress_cb(0.68, "Writing Below 1k Ageing...")
     _write_detail_sheet(
-        wb, "Zero to 1k Ageing", df_zero_to_1k_ageing, "C0CA33",
+        wb, "Below 1k Ageing", df_below_1k_ageing, "C0CA33",
         log_q=log_q, progress_cb=progress_cb, base=0.68, span=0.05,
     )
 

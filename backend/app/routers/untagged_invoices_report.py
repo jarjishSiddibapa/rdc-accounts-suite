@@ -1,7 +1,7 @@
 """Untagged Invoices Report Generator tool routes.
 
   1. POST /process           - upload the Aging export (+ an optional "as on"
-                                date, defaults to today) and run the 4-sheet
+                                date, defaults to today) and run the 5-sheet
                                 report pipeline (see
                                 app.services.untagged_invoices.processor) as
                                 a background job.
@@ -115,12 +115,12 @@ def _run_process_job(input_path: str, output_path: str, as_on_date_str: Optional
             progress_cb(0.45, "Building pivots...")
         df_untagged_ageing = processor.build_untagged_ageing(df)
         df_untagged_summary = processor.build_untagged_summary(df_untagged_ageing, incharge_map)
-        df_zero_to_1k_ageing = processor.build_zero_to_1k_ageing(df)
-        df_zero_to_1k_summary = processor.build_zero_to_1k_summary(df_zero_to_1k_ageing, incharge_map)
+        df_below_1k_ageing = processor.build_below_1k_ageing(df)
+        df_below_1k_summary = processor.build_below_1k_summary(df_below_1k_ageing, incharge_map)
 
         processor.write_report(
             df, df_untagged_summary, df_untagged_ageing,
-            df_zero_to_1k_summary, df_zero_to_1k_ageing,
+            df_below_1k_summary, df_below_1k_ageing,
             output_path, as_on_date, log_q=log_q, progress_cb=progress_cb,
         )
     finally:
@@ -137,8 +137,8 @@ def _run_process_job(input_path: str, output_path: str, as_on_date_str: Optional
         "total_rows": int(len(df)),
         "untagged_ageing_row_count": int(len(df_untagged_ageing)),
         "untagged_summary_row_count": int(len(df_untagged_summary)),
-        "zero_to_1k_ageing_row_count": int(len(df_zero_to_1k_ageing)),
-        "zero_to_1k_summary_row_count": int(len(df_zero_to_1k_summary)),
+        "below_1k_ageing_row_count": int(len(df_below_1k_ageing)),
+        "below_1k_summary_row_count": int(len(df_below_1k_summary)),
         "validation_warnings": [],
         "log": log_q.messages,
     }

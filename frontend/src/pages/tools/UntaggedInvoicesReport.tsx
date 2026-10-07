@@ -40,8 +40,8 @@ interface ProcessResult {
   total_rows: number
   untagged_ageing_row_count?: number
   untagged_summary_row_count?: number
-  zero_to_1k_ageing_row_count?: number
-  zero_to_1k_summary_row_count?: number
+  below_1k_ageing_row_count?: number
+  below_1k_summary_row_count?: number
   validation_warnings: ValidationWarning[]
   log: [string, string][]
 }
@@ -504,7 +504,7 @@ export default function UntaggedInvoicesReport() {
               </h2>
               <p className="mt-1 text-sm leading-6 text-ink-dim">
                 Upload the Aging export to generate the formatted workbook (Untagged Summary,
-                Untagged Ageing, Zero to 1k Summary, Zero to 1k Ageing and Ageing sheets).
+                Untagged Ageing, Below 1k Summary, Below 1k Ageing and Ageing sheets).
               </p>
             </div>
           </div>
@@ -562,8 +562,8 @@ export default function UntaggedInvoicesReport() {
                   <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                     {[
                       ['Rows in Ageing', result.total_rows, 'text-ink'],
-                      ['Zero to 1k Summary locations', result.zero_to_1k_summary_row_count, 'text-accent'],
-                      ['Zero to 1k Ageing rows', result.zero_to_1k_ageing_row_count, 'text-sky-500'],
+                      ['Below 1k Summary locations', result.below_1k_summary_row_count, 'text-accent'],
+                      ['Below 1k Ageing rows', result.below_1k_ageing_row_count, 'text-sky-500'],
                       ['Untagged Ageing rows', result.untagged_ageing_row_count, 'text-amber-500'],
                       ['Untagged Summary locations', result.untagged_summary_row_count, 'text-emerald-500'],
                     ].map(([label, value, color]) => (

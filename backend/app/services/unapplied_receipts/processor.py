@@ -595,13 +595,15 @@ def process_report(input_path: str, log_q, as_on_date: _dt.date = None, *,
             if pd.isna(days):
                 return ""
             d = int(days)
-            if d <= 30:   return "0 - 30"
+            if d <= 15:   return "0 - 15"
+            if d <= 30:   return "16 - 30"
             if d <= 60:   return "31 - 60"
             if d <= 90:   return "61 - 90"
             if d <= 120:  return "91 - 120"
             if d <= 150:  return "121 - 150"
             if d <= 180:  return "151 - 180"
-            return ">180 days"
+            if d <= 360:  return "181 - 360"
+            return "360+ days"
 
         df["Ageing Bucket"] = df["Due Days"].apply(_bucket)
         log_q.put(("ok", f"Ageing buckets computed (as on {as_on_date.strftime('%d-%b-%Y')})"))
@@ -1037,8 +1039,8 @@ def _write_pivot_sheet(wb, df: pd.DataFrame, as_on_date: _dt.date,
     df["_total"] = _to_num(unapplied_col) + _to_num(prepay_col)
 
     # ── Build pivot ───────────────────────────────────────────────────────────
-    BUCKET_ORDER = ["0 - 30", "31 - 60", "61 - 90",
-                    "91 - 120", "121 - 150", "151 - 180", ">180 days"]
+    BUCKET_ORDER = ["0 - 15", "16 - 30", "31 - 60", "61 - 90",
+                    "91 - 120", "121 - 150", "151 - 180", "181 - 360", "360+ days"]
 
     pivot = (
         df.groupby(["Location", "Ageing Bucket"])["_total"]

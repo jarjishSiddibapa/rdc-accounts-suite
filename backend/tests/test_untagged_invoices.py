@@ -1,9 +1,10 @@
 """Coverage for the Untagged Invoices Report Generator's processing
 pipeline: header/row cleanup, Location mapping, ageing-bucket recompute
-(from an as-on date, not the source file's own frozen buckets), the two
-Ageing/Summary pairs (Zero to 1k, Untagged - both restricted to
-Type = Transactions, with the Type column dropped from their output),
-and the 5-sheet workbook's shape."""
+(from an as-on date, not the source file's own frozen buckets, and not
+duplicated when the source file's own bucket columns don't exactly match
+this module's bucket names), the two Ageing/Summary pairs (Below 1k,
+Untagged - both restricted to Type = Transactions, with the Type column
+kept in their output), and the 5-sheet workbook's shape."""
 
 import datetime as dt
 import tempfile
@@ -18,10 +19,10 @@ from app.services.untagged_invoices.processor import (
     LOCATION_COL,
     _bucket_index,
     add_location_column,
+    build_below_1k_ageing,
+    build_below_1k_summary,
     build_untagged_ageing,
     build_untagged_summary,
-    build_zero_to_1k_ageing,
-    build_zero_to_1k_summary,
     missing_incharge_mappings,
     missing_location_mappings,
     read_ageing_file,
@@ -88,13 +89,15 @@ def _base_row(**overrides):
 class BucketIndexTests(unittest.TestCase):
     def test_boundaries(self):
         self.assertEqual(_bucket_index(0), 0)
-        self.assertEqual(_bucket_index(30), 0)
-        self.assertEqual(_bucket_index(31), 1)
-        self.assertEqual(_bucket_index(60), 1)
-        self.assertEqual(_bucket_index(61), 2)
-        self.assertEqual(_bucket_index(360), 6)
-        self.assertEqual(_bucket_index(361), 7)
-        self.assertEqual(_bucket_index(10_000), 7)
+        self.assertEqual(_bucket_index(15), 0)
+        self.assertEqual(_bucket_index(16), 1)
+        self.assertEqual(_bucket_index(30), 1)
+        self.assertEqual(_bucket_index(31), 2)
+        self.assertEqual(_bucket_index(60), 2)
+        self.assertEqual(_bucket_index(61), 3)
+        self.assertEqual(_bucket_index(360), 7)
+        self.assertEqual(_bucket_index(361), 8)
+        self.assertEqual(_bucket_index(10_000), 8)
 
 
 class ReadAgeingFileTests(unittest.TestCase):
@@ -142,18 +145,35 @@ class RecomputeAgeingBucketsTests(unittest.TestCase):
         df = pd.DataFrame([_base_row(
             **{"Invoice/ Receipt Date": dt.datetime(2026, 1, 1), "Accounted Outstanding": 16812.05},
         )])
-        as_on = dt.date(2026, 1, 1) + dt.timedelta(days=655)  # -> bucket "361-999999 Days "
+        as_on = dt.date(2026, 1, 1) + dt.timedelta(days=655)  # -> bucket "360+ Days"
         out = recompute_ageing_buckets(df, as_on, _LogQueue())
         self.assertEqual(out["Days O/S"].iloc[0], 655)
         for col in BUCKET_COLS[:-1]:
             self.assertEqual(out[col].iloc[0], 0.0)
-        self.assertEqual(out["361-999999 Days "].iloc[0], 16812.05)
+        self.assertEqual(out["360+ Days"].iloc[0], 16812.05)
 
     def test_unparseable_date_leaves_buckets_blank(self):
         df = pd.DataFrame([_base_row(**{"Invoice/ Receipt Date": "not a date"})])
         out = recompute_ageing_buckets(df, dt.date(2026, 1, 1), _LogQueue())
         self.assertTrue(pd.isna(out["Days O/S"].iloc[0]))
-        self.assertTrue(pd.isna(out["0-30 Days"].iloc[0]))
+        self.assertTrue(pd.isna(out[BUCKET_COLS[0]].iloc[0]))
+
+    def test_stale_source_bucket_columns_are_replaced_not_duplicated(self):
+        """Regression test for a real production bug: the ERP export's own
+        frozen bucket columns must be dropped before the new ones are
+        computed, not left behind alongside them under a near-identical
+        name. This is exactly what happened when the source file's
+        "361-999999 Days " (trailing space) didn't exact-match this
+        module's own bucket name after header-stripping - the sheet showed
+        that bucket twice."""
+        row = _base_row(**{"Invoice/ Receipt Date": dt.datetime(2026, 1, 1)})
+        row["361-999999 Days"] = 999.0  # stale raw ERP column, old naming
+        df = pd.DataFrame([row])
+        out = recompute_ageing_buckets(df, dt.date(2026, 1, 31), _LogQueue())
+        self.assertNotIn("361-999999 Days", out.columns)
+        self.assertEqual(out.columns.nunique(), len(out.columns))
+        for col in BUCKET_COLS:
+            self.assertIn(col, out.columns)
 
 
 class PivotTests(unittest.TestCase):
@@ -162,8 +182,8 @@ class PivotTests(unittest.TestCase):
         df = add_location_column(df, {"LOC A": "Location A", "LOC B": "Location B"})
         return recompute_ageing_buckets(df, as_on, _LogQueue())
 
-    def test_zero_to_1k_ageing_filters_by_type_and_amount_and_groups_by_location(self):
-        as_on = dt.date(2026, 1, 31)  # 30 days after invoice date -> bucket 0-30
+    def test_below_1k_ageing_filters_by_type_and_amount_and_groups_by_location(self):
+        as_on = dt.date(2026, 1, 31)  # 30 days after invoice date -> bucket 16-30
         rows = [
             _base_row(**{"Location Name": "LOC A", "Accounted Outstanding": 500.0}),
             _base_row(**{"Location Name": "LOC A", "Accounted Outstanding": 250.0}),
@@ -173,18 +193,29 @@ class PivotTests(unittest.TestCase):
             _base_row(**{"Location Name": "LOC B", "Accounted Outstanding": -10.0}),   # excluded: not > 0
         ]
         df = self._prepared(rows, as_on)
-        ageing = build_zero_to_1k_ageing(df)
+        ageing = build_below_1k_ageing(df)
         self.assertEqual(len(ageing), 2)  # the >=1000, Receipts, and negative rows are excluded
-        self.assertNotIn(_TYPE_COL, ageing.columns)
-        pivot = build_zero_to_1k_summary(ageing, {"Location A": "Alice"})
+        self.assertIn(_TYPE_COL, ageing.columns)
+        pivot = build_below_1k_summary(ageing, {"Location A": "Alice"})
 
         self.assertEqual(list(pivot[LOCATION_COL]), ["Location A"])
         self.assertAlmostEqual(pivot["Total O/S"].iloc[0], 750.0)
         self.assertEqual(pivot["Account Incharges"].iloc[0], "Alice")
         self.assertAlmostEqual(
             pivot["Above 30 days"].iloc[0],
-            pivot["Total O/S"].iloc[0] - pivot["0-30 Days"].iloc[0] - pivot["31-60 Days"].iloc[0],
+            pivot["Total O/S"].iloc[0] - pivot[BUCKET_COLS[0]].iloc[0] - pivot[BUCKET_COLS[1]].iloc[0],
         )
+
+    def test_below_1k_summary_sorted_by_total_os_descending(self):
+        as_on = dt.date(2026, 1, 31)
+        rows = [
+            _base_row(**{"Location Name": "LOC A", "Accounted Outstanding": 100.0}),
+            _base_row(**{"Location Name": "LOC B", "Accounted Outstanding": 900.0}),
+        ]
+        df = self._prepared(rows, as_on)
+        ageing = build_below_1k_ageing(df)
+        pivot = build_below_1k_summary(ageing, {})
+        self.assertEqual(list(pivot[LOCATION_COL]), ["Location B", "Location A"])
 
     def test_untagged_ageing_and_summary(self):
         as_on = dt.date(2026, 1, 31)
@@ -200,7 +231,7 @@ class PivotTests(unittest.TestCase):
         ageing = build_untagged_ageing(df)
         self.assertEqual(len(ageing), 1)
         self.assertEqual(ageing["Accounted Outstanding"].iloc[0], -1000.0)
-        self.assertNotIn(_TYPE_COL, ageing.columns)
+        self.assertIn(_TYPE_COL, ageing.columns)
 
         summary = build_untagged_summary(ageing, {"Location A": "Alice"})
         self.assertEqual(list(summary[LOCATION_COL]), ["Location A"])
@@ -208,8 +239,21 @@ class PivotTests(unittest.TestCase):
         self.assertAlmostEqual(summary["Accounted Outstanding"].iloc[0], -1000.0 / 100_000)
         self.assertAlmostEqual(
             summary["Above 30 Days"].iloc[0],
-            summary["Accounted Outstanding"].iloc[0] - summary["0-30 Days"].iloc[0],
+            summary["Accounted Outstanding"].iloc[0] - summary[BUCKET_COLS[0]].iloc[0] - summary[BUCKET_COLS[1]].iloc[0],
         )
+
+    def test_untagged_summary_sorted_by_accounted_outstanding_ascending(self):
+        as_on = dt.date(2026, 1, 31)
+        rows = [
+            _base_row(**{"Location Name": "LOC A", _TYPE_COL: "Transactions",
+                         "Accounted Outstanding": -100.0}),
+            _base_row(**{"Location Name": "LOC B", _TYPE_COL: "Transactions",
+                         "Accounted Outstanding": -900.0}),
+        ]
+        df = self._prepared(rows, as_on)
+        ageing = build_untagged_ageing(df)
+        summary = build_untagged_summary(ageing, {})
+        self.assertEqual(list(summary[LOCATION_COL]), ["Location B", "Location A"])
 
 
 class WriteReportTests(unittest.TestCase):
@@ -217,34 +261,34 @@ class WriteReportTests(unittest.TestCase):
         as_on = dt.date(2026, 1, 31)
         rows = [
             _base_row(**{"Location Name": "LOC A", "Accounted Outstanding": -1000.0}),  # untagged
-            _base_row(**{"Location Name": "LOC A", "Accounted Outstanding": 500.0}),    # zero to 1k
+            _base_row(**{"Location Name": "LOC A", "Accounted Outstanding": 500.0}),    # below 1k
             _base_row(**{"Location Name": "LOC A", _TYPE_COL: "Receipts",
                          "Accounted Outstanding": -2000.0}),  # Receipts: in Ageing only
         ]
         df = pd.DataFrame(rows)
         df = add_location_column(df, {"LOC A": "Location A"})
         df = recompute_ageing_buckets(df, as_on, _LogQueue())
-        zero_to_1k_ageing = build_zero_to_1k_ageing(df)
-        zero_to_1k_summary = build_zero_to_1k_summary(zero_to_1k_ageing, {"Location A": "Alice"})
+        below_1k_ageing = build_below_1k_ageing(df)
+        below_1k_summary = build_below_1k_summary(below_1k_ageing, {"Location A": "Alice"})
         untagged_ageing = build_untagged_ageing(df)
         untagged_summary = build_untagged_summary(untagged_ageing, {"Location A": "Alice"})
 
         with tempfile.TemporaryDirectory() as tmp:
             out_path = Path(tmp) / "out.xlsx"
-            write_report(df, untagged_summary, untagged_ageing, zero_to_1k_summary, zero_to_1k_ageing,
+            write_report(df, untagged_summary, untagged_ageing, below_1k_summary, below_1k_ageing,
                          out_path, as_on, log_q=_LogQueue())
 
             wb = openpyxl.load_workbook(out_path)
             self.assertEqual(
                 wb.sheetnames,
-                ["Untagged Summary", "Untagged Ageing", "Zero to 1k Summary", "Zero to 1k Ageing",
+                ["Untagged Summary", "Untagged Ageing", "Below 1k Summary", "Below 1k Ageing",
                  "Ageing"],
             )
 
-            zero_to_1k_summary_ws = wb["Zero to 1k Summary"]
-            grand_total_row = zero_to_1k_summary_ws.max_row
-            self.assertEqual(zero_to_1k_summary_ws.cell(row=grand_total_row, column=1).value, "Grand Total")
-            total_cell = zero_to_1k_summary_ws.cell(row=grand_total_row, column=3).value
+            below_1k_summary_ws = wb["Below 1k Summary"]
+            grand_total_row = below_1k_summary_ws.max_row
+            self.assertEqual(below_1k_summary_ws.cell(row=grand_total_row, column=1).value, "Grand Total")
+            total_cell = below_1k_summary_ws.cell(row=grand_total_row, column=3).value
             self.assertTrue(str(total_cell).startswith("=SUBTOTAL(9,"))
 
             summary_ws = wb["Untagged Summary"]
@@ -258,15 +302,15 @@ class WriteReportTests(unittest.TestCase):
             footnote_cell = summary_ws.cell(row=summary_ws.max_row, column=1).value
             self.assertIn("Lakhs", str(footnote_cell))
 
-            zero_to_1k_ws = wb["Zero to 1k Ageing"]
-            self.assertEqual(zero_to_1k_ws.max_row - 1, len(zero_to_1k_ageing))
+            below_1k_ws = wb["Below 1k Ageing"]
+            self.assertEqual(below_1k_ws.max_row - 1, len(below_1k_ageing))
 
-            # Type column dropped from both Ageing sub-sheets, but kept on the
-            # raw "Ageing" sheet, which also keeps the Receipts row.
+            # Type column kept on every Ageing sub-sheet, including the raw
+            # "Ageing" sheet, which also keeps the Receipts row.
             untagged_header = [c.value for c in wb["Untagged Ageing"][1]]
-            self.assertNotIn(_TYPE_COL, untagged_header)
-            zero_to_1k_header = [c.value for c in wb["Zero to 1k Ageing"][1]]
-            self.assertNotIn(_TYPE_COL, zero_to_1k_header)
+            self.assertIn(_TYPE_COL, untagged_header)
+            below_1k_header = [c.value for c in wb["Below 1k Ageing"][1]]
+            self.assertIn(_TYPE_COL, below_1k_header)
 
             ageing_ws = wb["Ageing"]
             ageing_header = [c.value for c in ageing_ws[1]]
