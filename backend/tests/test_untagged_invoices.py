@@ -16,6 +16,7 @@ import pandas as pd
 
 from app.services.untagged_invoices.processor import (
     BUCKET_COLS,
+    COUNT_COL,
     LOCATION_COL,
     _bucket_index,
     add_location_column,
@@ -200,6 +201,10 @@ class PivotTests(unittest.TestCase):
 
         self.assertEqual(list(pivot[LOCATION_COL]), ["Location A"])
         self.assertAlmostEqual(pivot["Total O/S"].iloc[0], 750.0)
+        self.assertEqual(pivot[COUNT_COL].iloc[0], 2)
+        self.assertEqual(
+            list(pivot.columns[:4]), [LOCATION_COL, "Account Incharges", COUNT_COL, "Total O/S"],
+        )
         self.assertEqual(pivot["Account Incharges"].iloc[0], "Alice")
         self.assertAlmostEqual(
             pivot["Above 30 days"].iloc[0],
@@ -237,6 +242,11 @@ class PivotTests(unittest.TestCase):
         self.assertEqual(list(summary[LOCATION_COL]), ["Location A"])
         # Untagged Summary is in Lakhs (divide by 1,00,000)
         self.assertAlmostEqual(summary["Accounted Outstanding"].iloc[0], -1000.0 / 100_000)
+        self.assertEqual(summary[COUNT_COL].iloc[0], 1)  # a count, not scaled to Lakhs
+        self.assertEqual(
+            list(summary.columns[:4]),
+            [LOCATION_COL, "Account Incharges", COUNT_COL, "Accounted Outstanding"],
+        )
         self.assertAlmostEqual(
             summary["Above 30 Days"].iloc[0],
             summary["Accounted Outstanding"].iloc[0] - summary[BUCKET_COLS[0]].iloc[0] - summary[BUCKET_COLS[1]].iloc[0],
@@ -288,8 +298,15 @@ class WriteReportTests(unittest.TestCase):
             below_1k_summary_ws = wb["Below 1k Summary"]
             grand_total_row = below_1k_summary_ws.max_row
             self.assertEqual(below_1k_summary_ws.cell(row=grand_total_row, column=1).value, "Grand Total")
-            total_cell = below_1k_summary_ws.cell(row=grand_total_row, column=3).value
-            self.assertTrue(str(total_cell).startswith("=SUBTOTAL(9,"))
+            self.assertEqual(
+                [c.value for c in below_1k_summary_ws[1]][:4],
+                ["Location Name", "Account Incharges", "Count of Invoices", "Total O/S"],
+            )
+            count_cell = below_1k_summary_ws.cell(row=grand_total_row, column=3).value
+            self.assertTrue(str(count_cell).startswith("=SUBTOTAL(9,C"))
+            total_cell = below_1k_summary_ws.cell(row=grand_total_row, column=4).value
+            self.assertTrue(str(total_cell).startswith("=SUBTOTAL(9,D"))
+            self.assertEqual(below_1k_summary_ws.cell(row=2, column=3).value, 1)
 
             summary_ws = wb["Untagged Summary"]
             # Untagged Summary carries a "values are in Lakhs" footnote two
@@ -297,8 +314,13 @@ class WriteReportTests(unittest.TestCase):
             # Grand Total row itself.
             summary_grand_row = summary_ws.max_row - 2
             self.assertEqual(summary_ws.cell(row=summary_grand_row, column=1).value, "Grand Total")
-            summary_total_cell = summary_ws.cell(row=summary_grand_row, column=3).value
-            self.assertTrue(str(summary_total_cell).startswith("=SUBTOTAL(9,"))
+            self.assertEqual(
+                [c.value for c in summary_ws[1]][:4],
+                ["Location Name", "Account Incharges", "Count of Invoices", "Accounted Outstanding"],
+            )
+            summary_total_cell = summary_ws.cell(row=summary_grand_row, column=4).value
+            self.assertTrue(str(summary_total_cell).startswith("=SUBTOTAL(9,D"))
+            self.assertEqual(summary_ws.cell(row=2, column=3).value, 1)
             footnote_cell = summary_ws.cell(row=summary_ws.max_row, column=1).value
             self.assertIn("Lakhs", str(footnote_cell))
 

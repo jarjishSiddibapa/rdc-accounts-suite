@@ -79,6 +79,7 @@ def _looks_like_bucket_col(name) -> bool:
 
 LOCATION_COL = "Location"
 _LAKH = 100_000
+COUNT_COL = "Count of Invoices"
 
 
 def _find_col(columns, *token_sets: tuple[str, ...]) -> str | None:
@@ -247,6 +248,12 @@ def recompute_ageing_buckets(df: pd.DataFrame, as_on_date: _dt.date, log_q=None)
 
 # ── pivots ────────────────────────────────────────────────────────────────
 
+def _invoice_counts(subset: pd.DataFrame, pivot: pd.DataFrame) -> pd.Series:
+    """Number of Ageing rows (one per invoice) behind each pivot Location."""
+    per_location = subset.groupby(LOCATION_COL).size()
+    return pivot[LOCATION_COL].map(per_location).fillna(0).astype(int)
+
+
 def build_below_1k_ageing(df: pd.DataFrame) -> pd.DataFrame:
     """Rows where Type = Transactions and 0 < Accounted Outstanding < 1,000 -
     same columns as the Ageing sheet, Type column included. Feeds the Below
@@ -285,11 +292,12 @@ def build_below_1k_summary(df_below_1k_ageing: pd.DataFrame, incharge_map: dict[
     for col in BUCKET_COLS:
         if col not in pivot.columns:
             pivot[col] = 0.0
+    pivot[COUNT_COL] = _invoice_counts(subset, pivot)
     pivot["Above 30 days"] = pivot["Total O/S"] - pivot[BUCKET_COLS[0]] - pivot[BUCKET_COLS[1]]
     pivot["Account Incharges"] = pivot[LOCATION_COL].map(lambda loc: incharge_map.get(loc, ""))
     pivot = pivot.sort_values("Total O/S", ascending=False).reset_index(drop=True)
 
-    return pivot[[LOCATION_COL, "Account Incharges", "Total O/S", *BUCKET_COLS, "Above 30 days"]]
+    return pivot[[LOCATION_COL, "Account Incharges", COUNT_COL, "Total O/S", *BUCKET_COLS, "Above 30 days"]]
 
 
 def build_untagged_ageing(df: pd.DataFrame) -> pd.DataFrame:
@@ -330,6 +338,7 @@ def build_untagged_summary(df_untagged_ageing: pd.DataFrame, incharge_map: dict[
     for col in BUCKET_COLS:
         if col not in pivot.columns:
             pivot[col] = 0.0
+    pivot[COUNT_COL] = _invoice_counts(subset, pivot)
 
     value_cols = ["Accounted Outstanding", *BUCKET_COLS]
     pivot[value_cols] = pivot[value_cols] / _LAKH
@@ -338,7 +347,7 @@ def build_untagged_summary(df_untagged_ageing: pd.DataFrame, incharge_map: dict[
     pivot["Account Incharges"] = pivot[LOCATION_COL].map(lambda loc: incharge_map.get(loc, ""))
     pivot = pivot.sort_values("Accounted Outstanding").reset_index(drop=True)
 
-    return pivot[[LOCATION_COL, "Account Incharges", "Accounted Outstanding", *BUCKET_COLS, "Above 30 Days"]]
+    return pivot[[LOCATION_COL, "Account Incharges", COUNT_COL, "Accounted Outstanding", *BUCKET_COLS, "Above 30 Days"]]
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -534,7 +543,7 @@ def _write_pivot_sheet(wb: Workbook, title: str, df: pd.DataFrame, tab_color: st
     ws.sheet_properties.tabColor = tab_color
     ws.sheet_view.showGridLines = False
 
-    cols = [LOCATION_COL, "Account Incharges", amount_col, *BUCKET_COLS, "Above 30 Days"]
+    cols = [LOCATION_COL, "Account Incharges", COUNT_COL, amount_col, *BUCKET_COLS, "Above 30 Days"]
     header_labels = {
         LOCATION_COL: location_col_header,
     }
@@ -573,7 +582,7 @@ def _write_pivot_sheet(wb: Workbook, title: str, df: pd.DataFrame, tab_color: st
     # form - several of these column names ("Account Incharges", "Above 30
     # Days") aren't valid Python identifiers, and relying on pandas' name-
     # mangling for them would be fragile.
-    data_cols = [LOCATION_COL, "Account Incharges", amount_col, *BUCKET_COLS]
+    data_cols = [LOCATION_COL, "Account Incharges", COUNT_COL, amount_col, *BUCKET_COLS]
     for ri, row_vals in enumerate(df[data_cols].itertuples(index=False, name=None), 2):
         row_fill = fill_even if ri % 2 == 0 else fill_odd
         row_cells = []
@@ -588,8 +597,12 @@ def _write_pivot_sheet(wb: Workbook, title: str, df: pd.DataFrame, tab_color: st
             else:
                 c.font = num_font
                 c.alignment = align_right
-                c.number_format = "#,##0.00"
-                c.value = None if val is None or pd.isna(val) else float(val)
+                is_count = col_name == COUNT_COL
+                c.number_format = "#,##0" if is_count else "#,##0.00"
+                if val is None or pd.isna(val):
+                    c.value = None
+                else:
+                    c.value = int(val) if is_count else float(val)
             row_cells.append(c)
 
         report_amount_ref = f"{get_column_letter(amount_col_idx)}{ri}"
@@ -623,14 +636,14 @@ def _write_pivot_sheet(wb: Workbook, title: str, df: pd.DataFrame, tab_color: st
     inc_cell.border = bdr
     grand_cells.append(inc_cell)
 
-    for ci in range(3, n_cols):  # amount col + bucket cols (excludes Above 30 Days)
+    for ci in range(3, n_cols):  # count + amount + bucket cols (excludes Above 30 Days)
         col_letter = get_column_letter(ci)
         c = WriteOnlyCell(ws)
         if n_rows:
             c.value = f"=SUBTOTAL(9,{col_letter}2:{col_letter}{n_rows + 1})"
         else:
             c.value = 0
-        c.number_format = "#,##0.00"
+        c.number_format = "#,##0" if cols[ci - 1] == COUNT_COL else "#,##0.00"
         c.font = gt_font
         c.fill = gt_fill
         c.alignment = align_right
