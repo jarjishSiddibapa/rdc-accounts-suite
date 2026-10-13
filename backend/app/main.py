@@ -33,6 +33,7 @@ from app.routers import (
     untagged_invoices_report,
     ultrafine_balance_confirmation,
     ultrafine_fse_reminder,
+    ultrafine_cashflow,
     ultrafine_payment_reminder,
 )
 
@@ -144,6 +145,7 @@ app.include_router(ultrafine_balance_confirmation.router)
 app.include_router(gst_invoice_adder.router)
 app.include_router(ultrafine_payment_reminder.router)
 app.include_router(ultrafine_fse_reminder.router)
+app.include_router(ultrafine_cashflow.router)
 app.include_router(closing_period.router)
 app.include_router(iocl_balance.router)
 app.include_router(invoice_booking_tracker.router)

@@ -28,6 +28,7 @@ import {
   ClipboardCheck,
   ChartNoAxesCombined,
   Megaphone,
+  Landmark,
   Tags,
 } from 'lucide-react'
 import { cn } from '@/utils/cn'
@@ -76,6 +77,7 @@ const mainNav: NavItem[] = [
     icon: Megaphone,
     appKey: 'ultrafine-fse-reminder',
   },
+  { to: '/tools/ultrafine-cashflow', label: 'Ultrafine Cashflow Generator', icon: Landmark, appKey: 'ultrafine-cashflow' },
   { to: '/tools/gst-invoice-adder', label: 'GST Invoice Number Adder', icon: FileCheck2, appKey: 'gst-invoice-adder' },
   { to: '/tools/closing-period-report', label: 'Closing Period Report Generator', icon: PackageCheck, appKey: 'closing-period-report' },
   { to: '/tools/iocl-balance', label: 'Ultrafine IOCL Balance Monitor', icon: WalletCards, appKey: 'iocl-balance-monitor' },

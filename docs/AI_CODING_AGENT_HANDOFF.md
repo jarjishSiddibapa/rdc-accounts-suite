@@ -650,6 +650,49 @@ database rather than dropped — see
 `deployment/mysql/20260918_remove_it_po_lookup.sql` for the optional,
 not-yet-applied migration that actually drops them.
 
+### Ultrafine Cashflow Generator (`ultrafine-cashflow`)
+
+Route `/tools/ultrafine-cashflow`; code in `app/services/ultrafine_cashflow/`,
+`app/routers/ultrafine_cashflow.py`, `frontend/src/pages/tools/cashflow/`.
+Users upload **bank statements** (never cashflows); each month that receives
+new lines is regenerated into one stored workbook (Summary, Payments,
+Receipts, Working), latest version per month.
+
+- **Only three mappings**, all normalized and referenced by ID (tables
+  `ufcf_*`, soft-deleted): description key -> name (`DescriptionAlias` ->
+  `Party`), name -> location + CF location (on `Party`), and sharing ratios
+  (`SharingGroup` / `SharingRatioSet` / `SharingRatioLine`) per payment group
+  (RDC, IOCL, ETC Pool). A line's name, location and CF location are resolved
+  at read time (`resolver.py`) and never stored on the transaction, so
+  changing a mapping changes every month on regeneration. Per-line overrides
+  are `Transaction.party_id` (another name) and `TransactionSplit` (a typed
+  split over locations, which replaces the mapped allocation entirely).
+- The bank's C.D. flag decides the sheet: D = Payments, C = Receipts.
+- The Summary adds up **CF location** only (SUMIF over the Payments /
+  Receipts CF column, in lakhs; closing = opening + payable - paid -
+  statutory). Location is an informational label. CF-location Summary
+  settings (order, authorized person, payable / reserve %, subtotal group)
+  are edited in the Month setup tab.
+- Ratio sets are chosen by **month** (stored as the first of the month) and
+  carry forward until a newer set exists. Only Oct 2026 sets are seeded, so
+  earlier months show "no ratio" for sharing-group names.
+- Description keys (`keys.py`) strip IFSC codes, long digit tokens, dates,
+  duplicate segments and the company's own name; a date/time-only key is
+  rejected.
+- Uploads are deduplicated (account, minute, direction, amount, description,
+  occurrence) and checked against the statement header totals. A month is not
+  written while any line lacks a name or CF location.
+- Transaction times are naive Indian wall-clock times from the bank; the
+  frontend appends `+05:30` before formatting (never treat them as UTC).
+  `generated_at` fields are UTC.
+- Seed (`seed_data/ultrafine-cashflow-seed.json`, built from the October
+  workbook by `build_ultrafine_cashflow_seed.py`) is additive and idempotent.
+  The October workbook is stored as `seed_data/ultrafine-cashflow-oct-2026.xlsx`
+  and attached as the Oct 2026 download (`source = "uploaded"`) only when that
+  month has no stored file; generating the month replaces it.
+- Tables are created by `create_all` on start; no manual SQL migration is
+  needed for a fresh deployment.
+
 ## 5. Email behavior
 
 Default recipients and other system mail configuration are managed centrally

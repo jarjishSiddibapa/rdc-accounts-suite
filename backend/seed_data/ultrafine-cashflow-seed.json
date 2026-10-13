@@ -1,0 +1,1991 @@
+{
+ "summary_groups": [
+  "Panagarh"
+ ],
+ "cf_locations": [
+  {
+   "name": "Aggregate Pachami Trading",
+   "sort_order": 1,
+   "authorized_person": "Saptarishi Majumdar / Sandeep Singh",
+   "payable_pct": 95.0,
+   "reserve_pct": 20.0,
+   "group": "Panagarh"
+  },
+  {
+   "name": "Aggregate Panagarh Crusher",
+   "sort_order": 2,
+   "authorized_person": "",
+   "payable_pct": 95.0,
+   "reserve_pct": 20.0,
+   "group": "Panagarh"
+  },
+  {
+   "name": "Main Operation",
+   "sort_order": 3,
+   "authorized_person": "Devanand Singh",
+   "payable_pct": 80.0,
+   "reserve_pct": 20.0,
+   "group": null
+  },
+  {
+   "name": "Flyash Business",
+   "sort_order": 4,
+   "authorized_person": "Harish Ludhani",
+   "payable_pct": 80.0,
+   "reserve_pct": 20.0,
+   "group": null
+  },
+  {
+   "name": "Trading Business",
+   "sort_order": 5,
+   "authorized_person": "Saif Khan",
+   "payable_pct": 80.0,
+   "reserve_pct": null,
+   "group": null
+  },
+  {
+   "name": "Capex",
+   "sort_order": 6,
+   "authorized_person": "",
+   "payable_pct": 100.0,
+   "reserve_pct": null,
+   "group": null
+  },
+  {
+   "name": "Head Office",
+   "sort_order": 7,
+   "authorized_person": "",
+   "payable_pct": 100.0,
+   "reserve_pct": null,
+   "group": null
+  }
+ ],
+ "locations": [
+  {
+   "name": "Aggregate"
+  },
+  {
+   "name": "Aggregate Pachami Trading"
+  },
+  {
+   "name": "Aggregate Panagarh Crusher"
+  },
+  {
+   "name": "Bangalore"
+  },
+  {
+   "name": "Capex"
+  },
+  {
+   "name": "Flyash"
+  },
+  {
+   "name": "Flyash Business"
+  },
+  {
+   "name": "Galsi"
+  },
+  {
+   "name": "Goa"
+  },
+  {
+   "name": "Gujarat"
+  },
+  {
+   "name": "Haryana"
+  },
+  {
+   "name": "Head Office"
+  },
+  {
+   "name": "Kerala"
+  },
+  {
+   "name": "Main"
+  },
+  {
+   "name": "Main Operation"
+  },
+  {
+   "name": "Microsilica"
+  },
+  {
+   "name": "Nagpur"
+  },
+  {
+   "name": "Nellore"
+  },
+  {
+   "name": "Raipur"
+  },
+  {
+   "name": "Telangana"
+  },
+  {
+   "name": "Trading Business"
+  },
+  {
+   "name": "Vizag"
+  },
+  {
+   "name": "Wada"
+  }
+ ],
+ "sharing_groups": [
+  "RDC",
+  "IOCL",
+  "ETC Pool"
+ ],
+ "parties": [
+  {
+   "name": "Abhishri Logistics and Travels- Crs",
+   "location": "Gujarat",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "ACE HIMALAYAN FERRO ALLOYS PRIVATE LIMITED - CRS",
+   "location": "Haryana",
+   "cf_location": "Trading Business",
+   "sharing_group": null
+  },
+  {
+   "name": "AKRUTI ENTERPRISE-CRS",
+   "location": "Head Office",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "Alliance Enterprises - Crs",
+   "location": "Goa",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "AMBUJA CEMENTS LIMITED -Crs",
+   "location": "Flyash",
+   "cf_location": "Flyash Business",
+   "sharing_group": null
+  },
+  {
+   "name": "Anil Das Constructions Private Limited-Drs",
+   "location": "Nagpur",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "Arcelormittal Nippon Steel India Limited - Crs",
+   "location": "Gujarat",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "Arya CS - Crs",
+   "location": "Kerala",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "Ashutosh Kumar Singh-Employee",
+   "location": "Galsi",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "Ashvarya Kumar Verma-Employee",
+   "location": "Nagpur",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "AVENGERS SECURITY SERVICES-CR",
+   "location": "Nellore",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "Balram Kumar Chakrawarti - Employee",
+   "location": "Head Office",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "Bank Charges",
+   "location": "Head Office",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "Bharatkumar Shankarlal Patel-Crs",
+   "location": "Gujarat",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "BHARTIBEN SATISHBHAI PATEL-CR",
+   "location": "Gujarat",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "BHUMAN ENTERPRISE-Crs",
+   "location": "Microsilica",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "Bipin Jadhav Guest House - Crs",
+   "location": "Wada",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "BISWAJIT RUI DAS - Crs",
+   "location": "Galsi",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "BN TRADING AND TRANSPORT COMPANY-CR",
+   "location": "Gujarat",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "Buildcast Solutions Private Limited - Drs",
+   "location": "Wada",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "Capacite Infraprojects Limited - Drs",
+   "location": "Wada",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "CB SURATWALA AND SONS-CRS",
+   "location": "Gujarat",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "Cemindia Projects Limited - Drs",
+   "location": "Galsi",
+   "cf_location": "Trading Business",
+   "sharing_group": null
+  },
+  {
+   "name": "Cenlub Systems - Crs",
+   "location": "Capex",
+   "cf_location": "Capex",
+   "sharing_group": null
+  },
+  {
+   "name": "Chettinad Cement Corporation Private Limited - Crs",
+   "location": "Vizag",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "CJ DARCL Logistics Limited-Crs",
+   "location": "Nagpur",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "CO-ORDINATION GREEN PRODUCTS PRIVATE LIMITED -CR",
+   "location": "Gujarat",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "D & H SECHERON INFRASTRUCTURE PVT LTD - CRS",
+   "location": "Wada",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "D.E.C. Infrastructure and Projects (India) PVT LTD-DRS",
+   "location": "Haryana",
+   "cf_location": "Trading Business",
+   "sharing_group": null
+  },
+  {
+   "name": "D.K. SERVICES - Crs",
+   "location": "Nagpur",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "DEEP ENTERPRISES-CRS",
+   "location": "Nagpur",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "Dev Security Services- Crs",
+   "location": "Aggregate",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "Dmk Logistic - Crs",
+   "location": "Bangalore",
+   "cf_location": "Trading Business",
+   "sharing_group": null
+  },
+  {
+   "name": "DOED JUNG KUEN PHEN TRADING HOUSE-CRS",
+   "location": "Nagpur",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "Dokania Purushottam - Crs",
+   "location": "Gujarat",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "DRM Enterprise-DRS",
+   "location": "Aggregate Pachami Trading",
+   "cf_location": "Aggregate Pachami Trading",
+   "sharing_group": null
+  },
+  {
+   "name": "Dukhiram Ruidas - Crs",
+   "location": "Galsi",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "Eon Infotech Ltd - Crs",
+   "location": "Aggregate",
+   "cf_location": "Aggregate Pachami Trading",
+   "sharing_group": null
+  },
+  {
+   "name": "ETC POOL - Crs",
+   "location": null,
+   "cf_location": null,
+   "sharing_group": "ETC Pool"
+  },
+  {
+   "name": "Exalt Druk Enviroklens Pvt Ltd - Crs",
+   "location": "Haryana",
+   "cf_location": "Trading Business",
+   "sharing_group": null
+  },
+  {
+   "name": "FIRDOSH ERUCH ICHHAPORIA-Crs",
+   "location": "Gujarat",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "FLEETX TECHNOLOGIES PRIVATE LIMITED-Crs",
+   "location": "Aggregate",
+   "cf_location": "Aggregate Panagarh Crusher",
+   "sharing_group": null
+  },
+  {
+   "name": "Fourteckh Enviro India Pvt Ltd - Crs",
+   "location": "Head Office",
+   "cf_location": "Capex",
+   "sharing_group": null
+  },
+  {
+   "name": "Fucons Techindia LLP - Drs",
+   "location": "Gujarat",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "G R Infraprojects Limited - Drs",
+   "location": "Nagpur",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "GMS INFRATECH -Drs",
+   "location": "Telangana",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "H.G. Infra Engineering Ltd. - Drs",
+   "location": "Nagpur",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "Hare Krishna Auto Service (COCO Punp)- Crs",
+   "location": "Galsi",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "Harish Ludhani - Employee",
+   "location": "Flyash",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "HDFC IOCL CREDIT CARD",
+   "location": null,
+   "cf_location": null,
+   "sharing_group": "IOCL"
+  },
+  {
+   "name": "HDFC Term Loan",
+   "location": "Head Office",
+   "cf_location": "Head Office",
+   "sharing_group": null
+  },
+  {
+   "name": "I V S Industries - Crs",
+   "location": "Nagpur",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "Icegate IGST",
+   "location": "Haryana",
+   "cf_location": "Trading Business",
+   "sharing_group": null
+  },
+  {
+   "name": "INDIA INTERNATIONAL COMPANY - Crs",
+   "location": "Nagpur",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "Indian Oil Corporation Limited - Crs",
+   "location": null,
+   "cf_location": null,
+   "sharing_group": "IOCL"
+  },
+  {
+   "name": "Info Tech Computers - Crs",
+   "location": "Aggregate",
+   "cf_location": "Aggregate Panagarh Crusher",
+   "sharing_group": null
+  },
+  {
+   "name": "Inmark Equipments - Crs",
+   "location": "Nagpur",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "Interest on Term Loan",
+   "location": "Head Office",
+   "cf_location": "Head Office",
+   "sharing_group": null
+  },
+  {
+   "name": "Jai Bhairunath",
+   "location": "Aggregate",
+   "cf_location": "Aggregate Panagarh Crusher",
+   "sharing_group": null
+  },
+  {
+   "name": "JANTA CEMENT INDUSTRIES-Crs",
+   "location": "Nagpur",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "JFC Logistics - Crs",
+   "location": "Wada",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "Jhuman Bagdi- Crs",
+   "location": "Galsi",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "Joshi Dharmarajan Andezath - Employee",
+   "location": "Vizag",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "K D Enterprises-Crs",
+   "location": "Flyash",
+   "cf_location": "Flyash Business",
+   "sharing_group": null
+  },
+  {
+   "name": "Kamakhya Enterprises - Crs",
+   "location": "Aggregate",
+   "cf_location": "Aggregate Panagarh Crusher",
+   "sharing_group": null
+  },
+  {
+   "name": "KAMAL S PATIL - Crs",
+   "location": "Wada",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "Kaneria Building Solutions Pvt Ltd - Crs",
+   "location": "Gujarat",
+   "cf_location": "Trading Business",
+   "sharing_group": null
+  },
+  {
+   "name": "KAPIL THAKARE - Crs",
+   "location": "Wada",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "Karim Shah - Employee",
+   "location": "Head Office",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "Karishma Ramnaresh Sharma-Crs",
+   "location": "Nagpur",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "Karthik Crane & Infra Services- Crs",
+   "location": "Goa",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "KLC Constructions-Drs",
+   "location": "Vizag",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "KRISHNA ENTERPRISES- Crs",
+   "location": "Flyash",
+   "cf_location": "Flyash Business",
+   "sharing_group": null
+  },
+  {
+   "name": "LANSUM & MK REALTY LLP-Drs",
+   "location": "Vizag",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "Lansum Leisures & Entertainment Llp-Drs",
+   "location": "Vizag",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "LAXMI ENGINEERING INDUSTRIES - CRS",
+   "location": "Galsi",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "M B ENTERPRISE- Crs",
+   "location": "Microsilica",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "M. Venkata Rao Infra Projects Pvt Ltd - Drs",
+   "location": "Goa",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "M/s Anjali Tyres - Crs",
+   "location": "Aggregate",
+   "cf_location": "Aggregate Panagarh Crusher",
+   "sharing_group": null
+  },
+  {
+   "name": "MAA ENTERPRISE-Crs",
+   "location": "Gujarat",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "MACPOWER ELECTRICALS-Crs (Cap)",
+   "location": "Capex",
+   "cf_location": "Capex",
+   "sharing_group": null
+  },
+  {
+   "name": "MADAN MOHAN SINGH-CRS",
+   "location": "Gujarat",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "Mahalaxmi Industrial & Hardware Store - Crs",
+   "location": "Wada",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "Mahesh Trading Company - Drs",
+   "location": "Galsi",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "Midas Autosoft Engineers Pvt Ltd - Crs",
+   "location": "Capex",
+   "cf_location": "Capex",
+   "sharing_group": null
+  },
+  {
+   "name": "Miloni International - Crs",
+   "location": "Capex",
+   "cf_location": "Capex",
+   "sharing_group": null
+  },
+  {
+   "name": "Mohd. Saif - Employee",
+   "location": "Haryana",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "MSEDCL - CRS",
+   "location": "Nagpur",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "Nanak Auto Parts-Crs",
+   "location": "Gujarat",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "National Securities Depository Limited-Crs",
+   "location": "Head Office",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "NAVEEN P REDDY - Crs",
+   "location": "Nellore",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "NCC LIMITED -DRS",
+   "location": "Galsi",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "Neofines Solution-CRS",
+   "location": "Raipur",
+   "cf_location": "Trading Business",
+   "sharing_group": null
+  },
+  {
+   "name": "New India Ceramic Engineers - Drs",
+   "location": "Galsi",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "Nikhil Ash Handlers Pvt Ltd - Crs",
+   "location": "Flyash",
+   "cf_location": "Flyash Business",
+   "sharing_group": null
+  },
+  {
+   "name": "NUVOCO VISTAS CORP. LTD. - Drs",
+   "location": "Gujarat",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "Om Sai Krupa Chai - Crs",
+   "location": "Wada",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "Omkar Spare Parts & Garage - Crs",
+   "location": "Wada",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "P.K. Traders- Crs",
+   "location": "Aggregate Panagarh Crusher",
+   "cf_location": "Aggregate Panagarh Crusher",
+   "sharing_group": null
+  },
+  {
+   "name": "Paras Sales Corporation -Crs",
+   "location": "Nagpur",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "PSC Industries - Drs",
+   "location": "Vizag",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "R & S Enterprises - Drs",
+   "location": "Flyash",
+   "cf_location": "Flyash Business",
+   "sharing_group": null
+  },
+  {
+   "name": "R M Enterprises- Crs",
+   "location": "Goa",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "R. G. Brothers Engineering Works - Crs",
+   "location": "Capex",
+   "cf_location": "Capex",
+   "sharing_group": null
+  },
+  {
+   "name": "Raghava Highrise Projects - Drs",
+   "location": "Vizag",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "Ramakant L Dalal - Crs",
+   "location": "Nagpur",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "Ramteja Constructions Private Limited-Drs",
+   "location": "Vizag",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "Rashmi Cement - Crs",
+   "location": "Galsi",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "RATHI ASSOCIATES - Crs",
+   "location": "Head Office",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "Ravi Jadhav-Employee",
+   "location": "Wada",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "Rdc Concrete (India) Pvt Ltd",
+   "location": null,
+   "cf_location": null,
+   "sharing_group": "RDC"
+  },
+  {
+   "name": "RDC CONCRETE (INDIA) Pvt Ltd -ICD",
+   "location": null,
+   "cf_location": null,
+   "sharing_group": "RDC"
+  },
+  {
+   "name": "Rohit Prasad - Employee",
+   "location": "Gujarat",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "Rushika Enterprise - Crs",
+   "location": "Flyash",
+   "cf_location": "Flyash Business",
+   "sharing_group": null
+  },
+  {
+   "name": "SAHIL ENTERPRISES - Crs",
+   "location": "Wada",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "SAI INDUSTRIES-Crs",
+   "location": "Bangalore",
+   "cf_location": "Trading Business",
+   "sharing_group": null
+  },
+  {
+   "name": "Sairaj Enterprises - Crs",
+   "location": "Wada",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "Saket Road Carriers Pvt Ltd - Crs",
+   "location": "Nagpur",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "Salary Payable",
+   "location": null,
+   "cf_location": null,
+   "sharing_group": null
+  },
+  {
+   "name": "Salim",
+   "location": "Gujarat",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "Samdrubling Metals Pvt Ltd - Crs",
+   "location": "Haryana",
+   "cf_location": "Trading Business",
+   "sharing_group": null
+  },
+  {
+   "name": "Senco India Projects Private Limited",
+   "location": "Aggregate Pachami Trading",
+   "cf_location": "Aggregate Pachami Trading",
+   "sharing_group": null
+  },
+  {
+   "name": "Shanidev Enterprises - Crs",
+   "location": "Haryana",
+   "cf_location": "Trading Business",
+   "sharing_group": null
+  },
+  {
+   "name": "Shree Mahalaxmi Traders-Crs",
+   "location": "Gujarat",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "Shree Pad Corporation-Crs",
+   "location": "Gujarat",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "SHREYASHI H VAKHARIA - Crs",
+   "location": "Gujarat",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "Shri Raghavendra Enterprises - Crs",
+   "location": "Bangalore",
+   "cf_location": "Trading Business",
+   "sharing_group": null
+  },
+  {
+   "name": "SREERAMA INDUSTRIES PRIVATE LIMITED-Crs",
+   "location": "Vizag",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "Srihari Service Station- Crs",
+   "location": "Galsi",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "SRK Buildwell Private Limited-Drs",
+   "location": "Gujarat",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "SRL Group and Company - Crs",
+   "location": "Wada",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "Srm Logistics - Crs",
+   "location": "Haryana",
+   "cf_location": "Trading Business",
+   "sharing_group": null
+  },
+  {
+   "name": "SSP Enterprises - Crs",
+   "location": "Capex",
+   "cf_location": "Capex",
+   "sharing_group": null
+  },
+  {
+   "name": "SSY TRADING PRIVATE LIMITED-Drs",
+   "location": "Galsi",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "State Bank of India",
+   "location": "Head Office",
+   "cf_location": "Head Office",
+   "sharing_group": null
+  },
+  {
+   "name": "STEEL ENTERPRISE-CRS",
+   "location": "Galsi",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "Steel Plus - Crs",
+   "location": "Gujarat",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "Sumangala Naik - Crs",
+   "location": "Goa",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "Sunrise Pd Pumps & Systems - Crs",
+   "location": "Capex",
+   "cf_location": "Capex",
+   "sharing_group": null
+  },
+  {
+   "name": "Tara Shree Enterprises",
+   "location": "Galsi",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "TDS Payable",
+   "location": null,
+   "cf_location": null,
+   "sharing_group": null
+  },
+  {
+   "name": "TEAMLEASE SERVICES LTD. - Crs",
+   "location": "Head Office",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "TMS ENTERPRISES - Crs",
+   "location": "Wada",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "Ultratech Cement Limited - Drs",
+   "location": "Gujarat",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "Uniqmix Concrete- Drs",
+   "location": "Aggregate Panagarh Crusher",
+   "cf_location": "Aggregate Panagarh Crusher",
+   "sharing_group": null
+  },
+  {
+   "name": "V.R.R Instruments - CRS",
+   "location": "Capex",
+   "cf_location": "Capex",
+   "sharing_group": null
+  },
+  {
+   "name": "Vaishnavi Aggregates - Crs",
+   "location": "Telangana",
+   "cf_location": "Trading Business",
+   "sharing_group": null
+  },
+  {
+   "name": "VANDANA SHARMA - Crs",
+   "location": "Nagpur",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "Vashi Integrated Solution Limited - Crs",
+   "location": "Head Office",
+   "cf_location": "Capex",
+   "sharing_group": null
+  },
+  {
+   "name": "Veena Dilip Bokde - Crs",
+   "location": "Nagpur",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "Verma Earthmovers - Crs",
+   "location": "Goa",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "Vishwas BuildTech - Drs",
+   "location": "Vizag",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "VRAJ Cement Carrier LLP Maharashtra - Crs",
+   "location": "Flyash",
+   "cf_location": "Flyash Business",
+   "sharing_group": null
+  },
+  {
+   "name": "WBSEDCL (Galsi) - Crs",
+   "location": "Galsi",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "WBSEDCL-CRS",
+   "location": "Aggregate Panagarh Crusher",
+   "cf_location": "Aggregate Panagarh Crusher",
+   "sharing_group": null
+  },
+  {
+   "name": "Yaa Baba Taj Restaurants - CRS",
+   "location": "Nagpur",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  },
+  {
+   "name": "Yogya Logistics Pvt Ltd-CRS",
+   "location": "Wada",
+   "cf_location": "Main Operation",
+   "sharing_group": null
+  }
+ ],
+ "aliases": [
+  {
+   "desc_key": "AUTO INTEREST PAYMENT ON TERM LOAN AGAINST",
+   "party": "Interest on Term Loan"
+  },
+  {
+   "desc_key": "AUTO TERM LOAN LIQUIDATED AGAINST",
+   "party": "HDFC Term Loan"
+  },
+  {
+   "desc_key": "CBDT/BANK REFERENCE",
+   "party": "TDS Payable"
+  },
+  {
+   "desc_key": "CC AUTOPAY SI - TAD",
+   "party": "HDFC IOCL CREDIT CARD"
+  },
+  {
+   "desc_key": "CHQ DEP - TRANSFER OW 1 - MUMBAI CLEARIN: RDC CONCRETE (INDIA) :HDFC BANK LTD",
+   "party": "Rdc Concrete (India) Pvt Ltd"
+  },
+  {
+   "desc_key": "CR - CHQ - AMT - 6 - RTGS/FT CR - RAGHAVA HIGHRISE PROJECTS",
+   "party": "Raghava Highrise Projects - Drs"
+  },
+  {
+   "desc_key": "EPI - CBICICEGATE_DHCEYD91XVMGXL",
+   "party": "Icegate IGST"
+  },
+  {
+   "desc_key": "EPI - CBICICEGATE_EHCEPVV1YJPDV5",
+   "party": "Icegate IGST"
+  },
+  {
+   "desc_key": "FT - ANJALI TYRE",
+   "party": "M/s Anjali Tyres - Crs"
+  },
+  {
+   "desc_key": "FT - ASHUTOSH SINGH",
+   "party": "Ashutosh Kumar Singh-Employee"
+  },
+  {
+   "desc_key": "FT - BALRAM CHAKRAWARTI",
+   "party": "Balram Kumar Chakrawarti - Employee"
+  },
+  {
+   "desc_key": "FT - BIPIN JADHAV",
+   "party": "Bipin Jadhav Guest House - Crs"
+  },
+  {
+   "desc_key": "FT - CHETTINAD CEMENT",
+   "party": "Chettinad Cement Corporation Private Limited - Crs"
+  },
+  {
+   "desc_key": "FT - CR - LANSUM & MK REALTY LLP",
+   "party": "LANSUM & MK REALTY LLP-Drs"
+  },
+  {
+   "desc_key": "FT - CR - SSY TRADING PRIVATE LIMITED",
+   "party": "SSY TRADING PRIVATE LIMITED-Drs"
+  },
+  {
+   "desc_key": "FT - EON INFOTECH LTD",
+   "party": "Eon Infotech Ltd - Crs"
+  },
+  {
+   "desc_key": "FT - G R INFRAPROJECTS LIMITED",
+   "party": "G R Infraprojects Limited - Drs"
+  },
+  {
+   "desc_key": "FT - H. G. INFRA ENGINEERING LIMITED",
+   "party": "H.G. Infra Engineering Ltd. - Drs"
+  },
+  {
+   "desc_key": "FT - IOCL",
+   "party": "Indian Oil Corporation Limited - Crs"
+  },
+  {
+   "desc_key": "FT - JFC LOGISTICS",
+   "party": "JFC Logistics - Crs"
+  },
+  {
+   "desc_key": "FT - KANERIA",
+   "party": "Kaneria Building Solutions Pvt Ltd - Crs"
+  },
+  {
+   "desc_key": "FT - KARIM SHAH",
+   "party": "Karim Shah - Employee"
+  },
+  {
+   "desc_key": "FT - MAA ENTERPRISE",
+   "party": "MAA ENTERPRISE-Crs"
+  },
+  {
+   "desc_key": "FT - MACPOWER ELECTRICALS",
+   "party": "MACPOWER ELECTRICALS-Crs (Cap)"
+  },
+  {
+   "desc_key": "FT - MOHAMAMD SALIM",
+   "party": "Salim"
+  },
+  {
+   "desc_key": "FT - MOHD SAIF KHAN",
+   "party": "Mohd. Saif - Employee"
+  },
+  {
+   "desc_key": "FT - P K TRADERS",
+   "party": "P.K. Traders- Crs"
+  },
+  {
+   "desc_key": "FT - P2100P2100",
+   "party": "Ultratech Cement Limited - Drs"
+  },
+  {
+   "desc_key": "FT - R G BROTHERS ENGINEE",
+   "party": "R. G. Brothers Engineering Works - Crs"
+  },
+  {
+   "desc_key": "FT - RAVI JADHAV",
+   "party": "Ravi Jadhav-Employee"
+  },
+  {
+   "desc_key": "FT - RDC CONCRETE INDIA LIMITED",
+   "party": "Rdc Concrete (India) Pvt Ltd"
+  },
+  {
+   "desc_key": "FT - RDC ICD HDFC CC",
+   "party": "RDC CONCRETE (INDIA) Pvt Ltd -ICD"
+  },
+  {
+   "desc_key": "FT - SAI INDUSTRIES",
+   "party": "SAI INDUSTRIES-Crs"
+  },
+  {
+   "desc_key": "FT - SAKET ROAD CARRIERS",
+   "party": "Saket Road Carriers Pvt Ltd - Crs"
+  },
+  {
+   "desc_key": "FT - STEEL ENTERPRISE",
+   "party": "STEEL ENTERPRISE-CRS"
+  },
+  {
+   "desc_key": "FT - TEAMLEASE SALARY",
+   "party": "Salary Payable"
+  },
+  {
+   "desc_key": "FT - VAISHNAVI AGGREGATES",
+   "party": "Vaishnavi Aggregates - Crs"
+  },
+  {
+   "desc_key": "FT - VASHI INTEGRATED",
+   "party": "Vashi Integrated Solution Limited - Crs"
+  },
+  {
+   "desc_key": "FT - VASHI SOLUTION LTD",
+   "party": "Vashi Integrated Solution Limited - Crs"
+  },
+  {
+   "desc_key": "FT - VRAJ CEMENT",
+   "party": "VRAJ Cement Carrier LLP Maharashtra - Crs"
+  },
+  {
+   "desc_key": "IMPS - DRMENTERPRISE - UBIN - XXXXXXXXXXX0145 - INV",
+   "party": "DRM Enterprise-DRS"
+  },
+  {
+   "desc_key": "NEFT - ABHISHRI LOGISTICS",
+   "party": "Abhishri Logistics and Travels- Crs"
+  },
+  {
+   "desc_key": "NEFT - ACE HIMALYA",
+   "party": "ACE HIMALAYAN FERRO ALLOYS PRIVATE LIMITED - CRS"
+  },
+  {
+   "desc_key": "NEFT - AKRUTI ENTERPRISE",
+   "party": "AKRUTI ENTERPRISE-CRS"
+  },
+  {
+   "desc_key": "NEFT - ALLIANCE ENTERPRISE",
+   "party": "Alliance Enterprises - Crs"
+  },
+  {
+   "desc_key": "NEFT - AMBUJA CEMENTS",
+   "party": "AMBUJA CEMENTS LIMITED -Crs"
+  },
+  {
+   "desc_key": "NEFT - ANDEZATH JOSHI",
+   "party": "Joshi Dharmarajan Andezath - Employee"
+  },
+  {
+   "desc_key": "NEFT - ARYA CS",
+   "party": "Arya CS - Crs"
+  },
+  {
+   "desc_key": "NEFT - ASHVARYA KUMAR VERMA",
+   "party": "Ashvarya Kumar Verma-Employee"
+  },
+  {
+   "desc_key": "NEFT - AVENGERS SECURITY",
+   "party": "AVENGERS SECURITY SERVICES-CR"
+  },
+  {
+   "desc_key": "NEFT - BHARATKUMAR SHANK",
+   "party": "Bharatkumar Shankarlal Patel-Crs"
+  },
+  {
+   "desc_key": "NEFT - BHARTIBEN SATISHBHAI",
+   "party": "BHARTIBEN SATISHBHAI PATEL-CR"
+  },
+  {
+   "desc_key": "NEFT - BHUMAN ENTERPRISE",
+   "party": "BHUMAN ENTERPRISE-Crs"
+  },
+  {
+   "desc_key": "NEFT - BISWAJIT RUI DAS",
+   "party": "BISWAJIT RUI DAS - Crs"
+  },
+  {
+   "desc_key": "NEFT - BN TRADING AND TRA - BN TRADING AND TRANS",
+   "party": "BN TRADING AND TRANSPORT COMPANY-CR"
+  },
+  {
+   "desc_key": "NEFT - CB SURATWALA",
+   "party": "CB SURATWALA AND SONS-CRS"
+  },
+  {
+   "desc_key": "NEFT - CB SURATWALA AND SON",
+   "party": "CB SURATWALA AND SONS-CRS"
+  },
+  {
+   "desc_key": "NEFT - CENLUB SYSTEM",
+   "party": "Cenlub Systems - Crs"
+  },
+  {
+   "desc_key": "NEFT - CJ DARCL LOGISTICS",
+   "party": "CJ DARCL Logistics Limited-Crs"
+  },
+  {
+   "desc_key": "NEFT - COORDINATION GREEN",
+   "party": "CO-ORDINATION GREEN PRODUCTS PRIVATE LIMITED -CR"
+  },
+  {
+   "desc_key": "NEFT - D H SECHERON PVT LTD",
+   "party": "D & H SECHERON INFRASTRUCTURE PVT LTD - CRS"
+  },
+  {
+   "desc_key": "NEFT - D.K. SERVICES",
+   "party": "D.K. SERVICES - Crs"
+  },
+  {
+   "desc_key": "NEFT - DEEP ENTERPRISES",
+   "party": "DEEP ENTERPRISES-CRS"
+  },
+  {
+   "desc_key": "NEFT - DEV SECURITY SERV",
+   "party": "Dev Security Services- Crs"
+  },
+  {
+   "desc_key": "NEFT - DMK LOGISTIC",
+   "party": "Dmk Logistic - Crs"
+  },
+  {
+   "desc_key": "NEFT - DOED JUNG KUEN PHEN",
+   "party": "DOED JUNG KUEN PHEN TRADING HOUSE-CRS"
+  },
+  {
+   "desc_key": "NEFT - DOKANIA PURUSHOTTAM",
+   "party": "Dokania Purushottam - Crs"
+  },
+  {
+   "desc_key": "NEFT - DUKHIRAM RUIDAS",
+   "party": "Dukhiram Ruidas - Crs"
+  },
+  {
+   "desc_key": "NEFT - ETC POOL",
+   "party": "ETC POOL - Crs"
+  },
+  {
+   "desc_key": "NEFT - EXALT DRUK ENVIROKL",
+   "party": "Exalt Druk Enviroklens Pvt Ltd - Crs"
+  },
+  {
+   "desc_key": "NEFT - FIRDOSH EURICH",
+   "party": "FIRDOSH ERUCH ICHHAPORIA-Crs"
+  },
+  {
+   "desc_key": "NEFT - FLEETX TECHNOLOGIES",
+   "party": "FLEETX TECHNOLOGIES PRIVATE LIMITED-Crs"
+  },
+  {
+   "desc_key": "NEFT - FOURTECKH ENVIRO",
+   "party": "Fourteckh Enviro India Pvt Ltd - Crs"
+  },
+  {
+   "desc_key": "NEFT - HARE KRISHNA AUTO",
+   "party": "Hare Krishna Auto Service (COCO Punp)- Crs"
+  },
+  {
+   "desc_key": "NEFT - HARISH LUDHANI",
+   "party": "Harish Ludhani - Employee"
+  },
+  {
+   "desc_key": "NEFT - I V S INDUSTRIES",
+   "party": "I V S Industries - Crs"
+  },
+  {
+   "desc_key": "NEFT - INAMRK EQUIPMENT",
+   "party": "Inmark Equipments - Crs"
+  },
+  {
+   "desc_key": "NEFT - INDIA INTERNATIONAL",
+   "party": "INDIA INTERNATIONAL COMPANY - Crs"
+  },
+  {
+   "desc_key": "NEFT - INFOTECH COMPUTERS",
+   "party": "Info Tech Computers - Crs"
+  },
+  {
+   "desc_key": "NEFT - JAI BHAIRUNATH",
+   "party": "Jai Bhairunath"
+  },
+  {
+   "desc_key": "NEFT - JANTA CEMENT",
+   "party": "JANTA CEMENT INDUSTRIES-Crs"
+  },
+  {
+   "desc_key": "NEFT - JANTA CEMENT INDUSTR - JANTA CEMENT INDUSTRIES - CRS",
+   "party": "JANTA CEMENT INDUSTRIES-Crs"
+  },
+  {
+   "desc_key": "NEFT - JHUMAN BAGDI",
+   "party": "Jhuman Bagdi- Crs"
+  },
+  {
+   "desc_key": "NEFT - KAMAKHYA ENTERPRISE",
+   "party": "Kamakhya Enterprises - Crs"
+  },
+  {
+   "desc_key": "NEFT - KAMAKHYA ENTERPRISES",
+   "party": "Kamakhya Enterprises - Crs"
+  },
+  {
+   "desc_key": "NEFT - KAMAL S PATIL",
+   "party": "KAMAL S PATIL - Crs"
+  },
+  {
+   "desc_key": "NEFT - KAPIL THAKARE",
+   "party": "KAPIL THAKARE - Crs"
+  },
+  {
+   "desc_key": "NEFT - KARISHMA RAMNARESH",
+   "party": "Karishma Ramnaresh Sharma-Crs"
+  },
+  {
+   "desc_key": "NEFT - KARTHIK CRANE INFR - KARTHIK CRANE INFRA SERVICES - CRS",
+   "party": "Karthik Crane & Infra Services- Crs"
+  },
+  {
+   "desc_key": "NEFT - KD ENT",
+   "party": "K D Enterprises-Crs"
+  },
+  {
+   "desc_key": "NEFT - KRISHNA ENTERPRISE",
+   "party": "KRISHNA ENTERPRISES- Crs"
+  },
+  {
+   "desc_key": "NEFT - LAXMI ENGINEERING",
+   "party": "LAXMI ENGINEERING INDUSTRIES - CRS"
+  },
+  {
+   "desc_key": "NEFT - M B ENTERPRISE",
+   "party": "M B ENTERPRISE- Crs"
+  },
+  {
+   "desc_key": "NEFT - MADAN MOHAN SINGH",
+   "party": "MADAN MOHAN SINGH-CRS"
+  },
+  {
+   "desc_key": "NEFT - MAHALAXMI INDUSTRIAL",
+   "party": "Mahalaxmi Industrial & Hardware Store - Crs"
+  },
+  {
+   "desc_key": "NEFT - MIDAS AUTOSOFT",
+   "party": "Midas Autosoft Engineers Pvt Ltd - Crs"
+  },
+  {
+   "desc_key": "NEFT - MSEDCL CRS",
+   "party": "MSEDCL - CRS"
+  },
+  {
+   "desc_key": "NEFT - NANAK AUTO PART",
+   "party": "Nanak Auto Parts-Crs"
+  },
+  {
+   "desc_key": "NEFT - NAVEEN P REDDY",
+   "party": "NAVEEN P REDDY - Crs"
+  },
+  {
+   "desc_key": "NEFT - NEOFINES SOLUTION",
+   "party": "Neofines Solution-CRS"
+  },
+  {
+   "desc_key": "NEFT - NIKHIL ASH",
+   "party": "Nikhil Ash Handlers Pvt Ltd - Crs"
+  },
+  {
+   "desc_key": "NEFT - NSDL - NSDLCF1QS3",
+   "party": "National Securities Depository Limited-Crs"
+  },
+  {
+   "desc_key": "NEFT - OM SAI KRUPA CHAI",
+   "party": "Om Sai Krupa Chai - Crs"
+  },
+  {
+   "desc_key": "NEFT - OMKAR SPARE PARTS",
+   "party": "Omkar Spare Parts & Garage - Crs"
+  },
+  {
+   "desc_key": "NEFT - PARAS SALES CORPORAT",
+   "party": "Paras Sales Corporation -Crs"
+  },
+  {
+   "desc_key": "NEFT - R M ENTERPRISES - CRS",
+   "party": "R M Enterprises- Crs"
+  },
+  {
+   "desc_key": "NEFT - RAMAKANT L DALAL",
+   "party": "Ramakant L Dalal - Crs"
+  },
+  {
+   "desc_key": "NEFT - RASHMI CEMENT LTD",
+   "party": "Rashmi Cement - Crs"
+  },
+  {
+   "desc_key": "NEFT - RATHI ASSOCIATES",
+   "party": "RATHI ASSOCIATES - Crs"
+  },
+  {
+   "desc_key": "NEFT - ROHIT PRASAD",
+   "party": "Rohit Prasad - Employee"
+  },
+  {
+   "desc_key": "NEFT - RUSHIKA ENTERPRISE",
+   "party": "Rushika Enterprise - Crs"
+  },
+  {
+   "desc_key": "NEFT - SAHIL ENTERPRISES",
+   "party": "SAHIL ENTERPRISES - Crs"
+  },
+  {
+   "desc_key": "NEFT - SAIRAJ ENTERPRISES",
+   "party": "Sairaj Enterprises - Crs"
+  },
+  {
+   "desc_key": "NEFT - SAMDUBLING METAL",
+   "party": "Samdrubling Metals Pvt Ltd - Crs"
+  },
+  {
+   "desc_key": "NEFT - SBI FUND TRANSFER",
+   "party": "State Bank of India"
+  },
+  {
+   "desc_key": "NEFT - SHANIDEV ENTERPRISE",
+   "party": "Shanidev Enterprises - Crs"
+  },
+  {
+   "desc_key": "NEFT - SHREE MAHALAXMI TRA - SHREE MAHALAXMI TRADERS",
+   "party": "Shree Mahalaxmi Traders-Crs"
+  },
+  {
+   "desc_key": "NEFT - SHREE PAD CORPORATIO - SHREE PAD CORPORATION",
+   "party": "Shree Pad Corporation-Crs"
+  },
+  {
+   "desc_key": "NEFT - SHREYASHI H VAKHARIA",
+   "party": "SHREYASHI H VAKHARIA - Crs"
+  },
+  {
+   "desc_key": "NEFT - SHRI RAGHAVENDRA ENT - SHRI RAGHAVENDRA ENTERPRISES - CRS",
+   "party": "Shri Raghavendra Enterprises - Crs"
+  },
+  {
+   "desc_key": "NEFT - SREERAMA INDUSTRY",
+   "party": "SREERAMA INDUSTRIES PRIVATE LIMITED-Crs"
+  },
+  {
+   "desc_key": "NEFT - SRIHARI SERVICE STA",
+   "party": "Srihari Service Station- Crs"
+  },
+  {
+   "desc_key": "NEFT - SRL GROUP COMPANY",
+   "party": "SRL Group and Company - Crs"
+  },
+  {
+   "desc_key": "NEFT - SRM LOGISTICS",
+   "party": "Srm Logistics - Crs"
+  },
+  {
+   "desc_key": "NEFT - SSP ENTERPRISES",
+   "party": "SSP Enterprises - Crs"
+  },
+  {
+   "desc_key": "NEFT - STEEL PLUS - CRS",
+   "party": "Steel Plus - Crs"
+  },
+  {
+   "desc_key": "NEFT - SUMANGLA NAIK",
+   "party": "Sumangala Naik - Crs"
+  },
+  {
+   "desc_key": "NEFT - SUNRISE PUMP",
+   "party": "Sunrise Pd Pumps & Systems - Crs"
+  },
+  {
+   "desc_key": "NEFT - TARA SHREE ENTERPRI",
+   "party": "Tara Shree Enterprises"
+  },
+  {
+   "desc_key": "NEFT - TMS ENTERPRISES",
+   "party": "TMS ENTERPRISES - Crs"
+  },
+  {
+   "desc_key": "NEFT - VANDANA SHARMA",
+   "party": "VANDANA SHARMA - Crs"
+  },
+  {
+   "desc_key": "NEFT - VEENA DILIP BOKDE",
+   "party": "Veena Dilip Bokde - Crs"
+  },
+  {
+   "desc_key": "NEFT - VERMA EARTHMOVERS",
+   "party": "Verma Earthmovers - Crs"
+  },
+  {
+   "desc_key": "NEFT - VRR INSTRUMENTS",
+   "party": "V.R.R Instruments - CRS"
+  },
+  {
+   "desc_key": "NEFT - WBSEDCL",
+   "party": "WBSEDCL-CRS"
+  },
+  {
+   "desc_key": "NEFT - WBSEDCL (GALSI)",
+   "party": "WBSEDCL (Galsi) - Crs"
+  },
+  {
+   "desc_key": "NEFT - YAA BABA TAJ",
+   "party": "Yaa Baba Taj Restaurants - CRS"
+  },
+  {
+   "desc_key": "NEFT - YOGYA LOGISTICS",
+   "party": "Yogya Logistics Pvt Ltd-CRS"
+  },
+  {
+   "desc_key": "NEFT CR - ANIL DAS CONSTRUCTIONS PRIVATE LIMITED",
+   "party": "Anil Das Constructions Private Limited-Drs"
+  },
+  {
+   "desc_key": "NEFT CR - BUILDCAST SOLUTIONS PRIVATE LIMITED",
+   "party": "Buildcast Solutions Private Limited - Drs"
+  },
+  {
+   "desc_key": "NEFT CR - CAPACITE INFRAPROJECTS LTD",
+   "party": "Capacite Infraprojects Limited - Drs"
+  },
+  {
+   "desc_key": "NEFT CR - CEMINDIA PROJECTS LIMITED - ULTRAFINEMINERALADMIXTURESPVT",
+   "party": "Cemindia Projects Limited - Drs"
+  },
+  {
+   "desc_key": "NEFT CR - D E C INFRASTRUCTURE AND PROJECTS I",
+   "party": "D.E.C. Infrastructure and Projects (India) PVT LTD-DRS"
+  },
+  {
+   "desc_key": "NEFT CR - GMS INFRATECH",
+   "party": "GMS INFRATECH -Drs"
+  },
+  {
+   "desc_key": "NEFT CR - LANSUM LEISURES AND ENTERTAINMENT L - ULTRAFINEMINERALADMIXTURESPVTLTD",
+   "party": "Lansum Leisures & Entertainment Llp-Drs"
+  },
+  {
+   "desc_key": "NEFT CR - NCC LIMITED",
+   "party": "NCC LIMITED -DRS"
+  },
+  {
+   "desc_key": "NEFT CR - NUVOCO VISTAS CORPORATION LIMITED",
+   "party": "NUVOCO VISTAS CORP. LTD. - Drs"
+  },
+  {
+   "desc_key": "NEFT CR - PSC INDUSTRIES",
+   "party": "PSC Industries - Drs"
+  },
+  {
+   "desc_key": "NEFT CR - SENCO INDIA PROJECTS PRIVATE LIMIT",
+   "party": "Senco India Projects Private Limited"
+  },
+  {
+   "desc_key": "NEFT CR - SRK BUILDWELL PRIVATE LIMITED PROJE",
+   "party": "SRK Buildwell Private Limited-Drs"
+  },
+  {
+   "desc_key": "NEFT CR - VISHWAS BUILD TECH",
+   "party": "Vishwas BuildTech - Drs"
+  },
+  {
+   "desc_key": "NEFT RETURN - CLOSED ACCOUNT NUMBER - JANTA CEMENT INDUSTRIES - CRS",
+   "party": "JANTA CEMENT INDUSTRIES-Crs"
+  },
+  {
+   "desc_key": "NEFT RETURN - INCORRECT ACCOUNT NUMBER - SHREE PAD CORPORATION",
+   "party": "Shree Pad Corporation-Crs"
+  },
+  {
+   "desc_key": "PENALCHRG SS OVERDUEQ1 26 - 27",
+   "party": "Bank Charges"
+  },
+  {
+   "desc_key": "RTGS CR - BUILDCAST SOLUTIONS PRIVATE LIMIT",
+   "party": "Buildcast Solutions Private Limited - Drs"
+  },
+  {
+   "desc_key": "RTGS CR - KLC CONSTRUCTIONS",
+   "party": "KLC Constructions-Drs"
+  },
+  {
+   "desc_key": "RTGS CR - M VENKATA RAO INFRA PROJECTS PRIVAT",
+   "party": "M. Venkata Rao Infra Projects Pvt Ltd - Drs"
+  },
+  {
+   "desc_key": "RTGS CR - MAHESH TRADING CO",
+   "party": "Mahesh Trading Company - Drs"
+  },
+  {
+   "desc_key": "RTGS CR - NEW INDIA CERAMIC ENGINEERS",
+   "party": "New India Ceramic Engineers - Drs"
+  },
+  {
+   "desc_key": "RTGS CR - RAMTEJA CONSTRUCTIONS PRIVATE LIMIT",
+   "party": "Ramteja Constructions Private Limited-Drs"
+  },
+  {
+   "desc_key": "RTGS CR - RDC CONCRETE INDIA LIMITED",
+   "party": "RDC CONCRETE (INDIA) Pvt Ltd -ICD"
+  },
+  {
+   "desc_key": "RTGS DR - AMBUJA - CBX INTERNET",
+   "party": "AMBUJA CEMENTS LIMITED -Crs"
+  },
+  {
+   "desc_key": "RTGS DR - ARCELORMITTAL NIPPO - CBX INTERNET",
+   "party": "Arcelormittal Nippon Steel India Limited - Crs"
+  },
+  {
+   "desc_key": "RTGS DR - FOURTECKH ENVIRO - CBX INTERNET",
+   "party": "Fourteckh Enviro India Pvt Ltd - Crs"
+  },
+  {
+   "desc_key": "RTGS DR - MILONI INTERNATIONAL - CBX INTERNET",
+   "party": "Miloni International - Crs"
+  },
+  {
+   "desc_key": "TPT - BILL 540 N 598 - FUCONS TECHINDIA LLP",
+   "party": "Fucons Techindia LLP - Drs"
+  },
+  {
+   "desc_key": "TPT - BILL NO - R AND S ENTERPRISES",
+   "party": "R & S Enterprises - Drs"
+  },
+  {
+   "desc_key": "TPT - UNIQMIX CONCRETE",
+   "party": "Uniqmix Concrete- Drs"
+  }
+ ],
+ "ratio_sets": {
+  "RDC": [
+   {
+    "effective_from": "2026-10-01T00:00:00",
+    "lines": [
+     {
+      "location": "Aggregate Pachami Trading",
+      "ratio": 0.07,
+      "cf_location": null
+     },
+     {
+      "location": "Aggregate Panagarh Crusher",
+      "ratio": 0.06,
+      "cf_location": null
+     },
+     {
+      "location": "Flyash Business",
+      "ratio": 0.17,
+      "cf_location": null
+     },
+     {
+      "location": "Main Operation",
+      "ratio": 0.47,
+      "cf_location": null
+     },
+     {
+      "location": "Trading Business",
+      "ratio": 0.23,
+      "cf_location": null
+     }
+    ]
+   }
+  ],
+  "IOCL": [
+   {
+    "effective_from": "2026-10-01T00:00:00",
+    "lines": [
+     {
+      "location": "Main",
+      "ratio": 0.29,
+      "cf_location": "Main Operation"
+     },
+     {
+      "location": "Flyash",
+      "ratio": 0.21,
+      "cf_location": "Flyash Business"
+     },
+     {
+      "location": "Aggregate",
+      "ratio": 0.5,
+      "cf_location": "Aggregate Panagarh Crusher"
+     }
+    ]
+   }
+  ],
+  "ETC Pool": [
+   {
+    "effective_from": "2026-10-01T00:00:00",
+    "lines": [
+     {
+      "location": "Main",
+      "ratio": 0.14,
+      "cf_location": "Main Operation"
+     },
+     {
+      "location": "Aggregate",
+      "ratio": 0.86,
+      "cf_location": "Aggregate Pachami Trading"
+     }
+    ]
+   }
+  ]
+ },
+ "plan": {
+  "month": "2026-10",
+  "sections": [
+   {
+    "block_no": 1,
+    "title": "Salaries",
+    "items": [
+     {
+      "label": "Onroll Salaries",
+      "amount_expr": "45"
+     },
+     {
+      "label": "Consultancy",
+      "amount_expr": "30"
+     },
+     {
+      "label": "Teamlease Salaries",
+      "amount_expr": "30"
+     },
+     {
+      "label": "Con. Labour& Security",
+      "amount_expr": "20+3+1.5"
+     }
+    ]
+   },
+   {
+    "block_no": 1,
+    "title": "Auto Debits",
+    "items": [
+     {
+      "label": "Interest & EMI",
+      "amount_expr": "30"
+     },
+     {
+      "label": "PDC Given",
+      "amount_expr": "4"
+     },
+     {
+      "label": "IOCL",
+      "amount_expr": "25"
+     }
+    ]
+   },
+   {
+    "block_no": 1,
+    "title": "Statutory Dues",
+    "items": [
+     {
+      "label": "TDS Payable",
+      "amount_expr": "33"
+     }
+    ]
+   },
+   {
+    "block_no": 1,
+    "title": "Others IMP",
+    "items": [
+     {
+      "label": "Sree Rama",
+      "amount_expr": "25"
+     },
+     {
+      "label": "Spares & Repairs",
+      "amount_expr": "10"
+     },
+     {
+      "label": "Flyash",
+      "amount_expr": "25"
+     },
+     {
+      "label": "Aggregate",
+      "amount_expr": "35"
+     }
+    ]
+   },
+   {
+    "block_no": 1,
+    "title": "",
+    "items": [
+     {
+      "label": "Transporters",
+      "amount_expr": "35"
+     }
+    ]
+   },
+   {
+    "block_no": 1,
+    "title": "Raw Material",
+    "items": [
+     {
+      "label": "Wada, Guj, Galsi, Vizag",
+      "amount_expr": "16+3+5+1"
+     }
+    ]
+   },
+   {
+    "block_no": 1,
+    "title": "Trading",
+    "items": [
+     {
+      "label": "Haryana & Bhutan",
+      "amount_expr": "10+5+10+6"
+     }
+    ]
+   },
+   {
+    "block_no": 1,
+    "title": "Rent & Electricity",
+    "items": [
+     {
+      "label": "Electricity",
+      "amount_expr": "23"
+     },
+     {
+      "label": "Rent",
+      "amount_expr": "18+1"
+     }
+    ]
+   },
+   {
+    "block_no": 2,
+    "title": "Rent & Electricity",
+    "items": []
+   },
+   {
+    "block_no": 2,
+    "title": "Wada",
+    "items": [
+     {
+      "label": "Sairaj Ent",
+      "amount_expr": "3.3"
+     },
+     {
+      "label": "Mangalmurti",
+      "amount_expr": "1.45"
+     }
+    ]
+   },
+   {
+    "block_no": 2,
+    "title": "Vizag",
+    "items": [
+     {
+      "label": "Chettinad",
+      "amount_expr": "2.4"
+     }
+    ]
+   },
+   {
+    "block_no": 2,
+    "title": "Galsi",
+    "items": [
+     {
+      "label": "Electricity Bill",
+      "amount_expr": "1.8"
+     }
+    ]
+   }
+  ]
+ },
+ "skipped_ambiguous_keys": []
+}

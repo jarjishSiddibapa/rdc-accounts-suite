@@ -17,10 +17,14 @@ import { Pagination } from '@/components/Pagination'
 import { SearchBox } from '@/components/SearchBox'
 import { usePagination } from '@/hooks/usePagination'
 import { CreatableCombobox } from '@/components/CreatableCombobox'
+import { ErrorBanner } from '@/components/ErrorBanner'
 
 export interface MappingColumn {
   key: string
   label: string
+  /** Shown in the table but not editable in the add/edit form (a value that
+   * is derived from other columns). */
+  readOnly?: boolean
 }
 
 export type MappingRow = Record<string, string>
@@ -65,6 +69,9 @@ interface MappingTableProps {
    * derived from Location once that Location is mapped, so the same value
    * can't drift out of sync in two places. */
   deriveColumn?: MappingDeriveColumn
+  /** Extra existing values to offer per column, on top of the ones already
+   * present in `rows` (e.g. names that exist in another table). */
+  suggestions?: Record<string, string[]>
 }
 
 /**
@@ -83,6 +90,7 @@ export function MappingTable({
   addLabel = 'Add',
   archive,
   deriveColumn,
+  suggestions,
 }: MappingTableProps) {
   const [search, setSearch] = useState('')
   const [sortKey, setSortKey] = useState<string | null>(null)
@@ -92,6 +100,7 @@ export function MappingTable({
   const [form, setForm] = useState<MappingRow>({})
   const [deleteIndex, setDeleteIndex] = useState<number | null>(null)
   const [busy, setBusy] = useState(false)
+  const [formError, setFormError] = useState<string | null>(null)
   const [view, setView] = useState<'active' | 'archived'>('active')
   const [restoreBusyIndex, setRestoreBusyIndex] = useState<number | null>(null)
 
@@ -120,10 +129,10 @@ export function MappingTable({
       Object.fromEntries(
         columns.map((column) => [
           column.key,
-          rows.map((row) => row[column.key] ?? '').filter(Boolean),
+          [...rows.map((row) => row[column.key] ?? ''), ...(suggestions?.[column.key] ?? [])].filter(Boolean),
         ]),
       ) as Record<string, string[]>,
-    [columns, rows],
+    [columns, rows, suggestions],
   )
   const pagination = usePagination(filtered, 10, `${search}\u0000${sortKey ?? ''}\u0000${sortDir}`)
 
@@ -141,18 +150,21 @@ export function MappingTable({
 
   function openAdd() {
     setForm(Object.fromEntries(columns.map((c) => [c.key, ''])))
+    setFormError(null)
     setModalMode('add')
     setEditIndex(null)
   }
 
   function openEdit(index: number, row: MappingRow) {
     setForm({ ...row })
+    setFormError(null)
     setModalMode('edit')
     setEditIndex(index)
   }
 
   async function handleSubmit() {
     setBusy(true)
+    setFormError(null)
     try {
       let payload = form
       if (deriveColumn) {
@@ -167,6 +179,8 @@ export function MappingTable({
         await onEdit(editIndex, payload)
       }
       setModalMode(null)
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : 'Could not save this row.')
     } finally {
       setBusy(false)
     }
@@ -175,9 +189,12 @@ export function MappingTable({
   async function confirmDelete() {
     if (deleteIndex === null) return
     setBusy(true)
+    setFormError(null)
     try {
       await onDelete(deleteIndex)
       setDeleteIndex(null)
+    } catch (error) {
+      setFormError(error instanceof Error ? error.message : 'Could not remove this row.')
     } finally {
       setBusy(false)
     }
@@ -349,7 +366,7 @@ export function MappingTable({
             void handleSubmit()
           }}
         >
-          {columns.map((c) => {
+          {columns.filter((c) => !c.readOnly).map((c) => {
             const isDerived = deriveColumn?.targetKey === c.key
             const derivedValue = isDerived
               ? deriveColumn?.lookup(form[deriveColumn.sourceKey] ?? '')
@@ -383,6 +400,7 @@ export function MappingTable({
               </label>
             )
           })}
+          {formError && modalMode !== null && <ErrorBanner>{formError}</ErrorBanner>}
           <div className="mt-2 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
             <Button type="button" variant="secondary" onClick={() => setModalMode(null)}>
               Cancel
@@ -396,9 +414,13 @@ export function MappingTable({
 
       <Modal
         open={deleteIndex !== null}
-        onClose={() => setDeleteIndex(null)}
+        onClose={() => {
+          setDeleteIndex(null)
+          setFormError(null)
+        }}
         title={archive ? 'Archive mapping row' : 'Remove mapping row'}
       >
+        {formError && deleteIndex !== null && <ErrorBanner className="mb-4">{formError}</ErrorBanner>}
         <p className="mb-6 text-sm text-ink-dim">
           {archive ? 'Archive this mapping row?' : 'Remove this mapping row?'} It will be hidden from active mapping data
           {archive ? '. You can find it later under "View archived" and restore it.' : ', while its history remains preserved.'}

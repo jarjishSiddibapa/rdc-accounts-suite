@@ -14,6 +14,7 @@ import {
   ChartNoAxesCombined,
   ClipboardCheck,
   Megaphone,
+  Landmark,
   Tags,
 } from 'lucide-react'
 
@@ -115,6 +116,15 @@ export const TOOLS_CATALOG: ToolCatalogEntry[] = [
     icon: Megaphone,
     appKey: 'ultrafine-fse-reminder',
     category: 'Ultrafine customer communication',
+    company: 'Ultrafine',
+  },
+  {
+    to: '/tools/ultrafine-cashflow',
+    title: 'Ultrafine Cashflow Generator',
+    description: 'Turn bank statements into the monthly cashflow: mapped, split by sharing ratios, stored by month.',
+    icon: Landmark,
+    appKey: 'ultrafine-cashflow',
+    category: 'Ultrafine financial reporting',
     company: 'Ultrafine',
   },
   {
