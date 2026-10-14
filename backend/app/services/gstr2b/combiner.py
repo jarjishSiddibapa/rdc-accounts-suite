@@ -36,6 +36,8 @@ from openpyxl.utils import get_column_letter
 
 from app.jobs import JobUserError
 
+from .summary import write_summary_sheet
+
 TARGET_TABS = ["B2B", "B2BA", "B2B-CDNR", "B2B-CDNRA", "IMPG"]
 
 TAB_CFG: dict[str, dict] = {
@@ -298,6 +300,7 @@ def run_combine(
     counts: dict[str, int]                = {t: 0  for t in TARGET_TABS}
     n_files = 0
     unresolved_codes: set[int] = set()
+    file_states: set[str] = set()   # every uploaded file's state, even one with no rows
 
     for original_name, saved_path in pairs:
         fp = Path(saved_path)
@@ -314,6 +317,7 @@ def run_combine(
         log_q.put(("info", f"Processing  {original_name}"))
         log_q.put(("dim", f"  State: {sc} - {state}   Period: {month_year}"))
         n_files += 1
+        file_states.add(state)
 
         for tab in TARGET_TABS:
             try:
@@ -354,11 +358,19 @@ def run_combine(
     wb = Workbook()
     wb.remove(wb.active)
 
+    sheet_columns: dict[str, list[str]] = {}
+    state_names: list[str] = sorted(file_states)
     for tab in TARGET_TABS:
         ws = wb.create_sheet(title=tab)
         out_df = (pd.concat(frames[tab], ignore_index=True) if frames[tab]
                   else pd.DataFrame(columns=["State Code", "State Name", "Month & Year"]))
         _write_sheet(ws, out_df, log_q=log_q)
+        sheet_columns[tab] = list(out_df.columns)
+        if tab in ("B2B", "B2B-CDNR", "IMPG"):
+            state_names.extend(out_df["State Name"].dropna().astype(str).unique())
+
+    write_summary_sheet(wb, state_names, sheet_columns)
+    log_q.put(("info", "Added the state-wise Summary sheet"))
 
     output_path = Path(output_path)
     wb.save(output_path)

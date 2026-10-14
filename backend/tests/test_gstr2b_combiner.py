@@ -152,6 +152,12 @@ class RunCombinePreflightMappingCheckTests(unittest.TestCase):
             self.assertEqual(result["output_path"], str(output_path))
             self.assertTrue(output_path.exists())
 
+            from openpyxl import load_workbook
+            written = load_workbook(output_path)
+            self.assertEqual(written.sheetnames[0], "Summary")
+            # the uploaded file's state gets a Summary row even though it has no data rows
+            self.assertEqual(written["Summary"]["B4"].value, "Maharashtra")
+
 
 if __name__ == "__main__":
     unittest.main()
