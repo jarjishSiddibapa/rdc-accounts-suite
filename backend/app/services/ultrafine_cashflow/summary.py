@@ -53,6 +53,14 @@ class MonthFigures:
     allocations: list[Allocation] = field(default_factory=list)
     earlier_issue_count: int = 0
 
+    def unmapped_lakhs(self) -> tuple[float, float]:
+        """(collected, paid) in lakhs of the lines that have no CF location, so
+        a workbook written with unmapped lines can still show where the money
+        is that the CF rows do not add up."""
+        collected = sum((a.amount for a in self.allocations if a.direction == "C" and not a.cf_location), Decimal(0))
+        paid = sum((a.amount for a in self.allocations if a.direction == "D" and not a.cf_location), Decimal(0))
+        return float(collected / LAKH), float(paid / LAKH)
+
 
 # ── safe arithmetic for planning amounts ────────────────────────────────────
 

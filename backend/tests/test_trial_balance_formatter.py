@@ -231,5 +231,25 @@ class PreflightMappingCheckTests(unittest.TestCase):
                 self.assertFalse(output.exists())
 
 
+    def test_unclassified_ledgers_go_on_to_the_workbook_when_allowed(self):
+        import datetime as dt
+        from unittest.mock import patch
+
+        fake_raw = {
+            "rows": [{"name": "Some Ledger"}],
+            "period_end": dt.date(2026, 6, 30),
+            "sheet_name": "June26",
+            "grand_total_debit": None,
+            "grand_total_credit": None,
+        }
+        with (
+            patch.object(processor, "_read_raw", return_value=fake_raw),
+            patch.object(processor, "_classify_rows", return_value=([], [{"name": "Some Ledger"}])),
+            patch("openpyxl.load_workbook", side_effect=RuntimeError("reached the workbook build")),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "reached the workbook build"):
+                processor.generate_report("raw.xlsx", "unused.xlsx", {}, allow_unmapped=True)
+
+
 if __name__ == "__main__":
     unittest.main()

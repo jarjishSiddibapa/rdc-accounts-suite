@@ -400,6 +400,7 @@ def generate_report(
     output_path: str,
     nature_map: dict[str, dict | str],
     *,
+    allow_unmapped: bool = False,
     progress_cb=None,
     log_cb=None,
 ) -> dict:
@@ -435,7 +436,15 @@ def generate_report(
                 f"({raw['grand_total_credit']:,.2f}). Check the Tally export before relying on this report."
             )
 
-    if needs_review:
+    if needs_review and allow_unmapped:
+        log("warning", "Writing the report anyway - unclassified ledgers use the guessed Debit/Credit nature.")
+        warnings.append(
+            f"{len(needs_review):,} ledger(s) have no saved Debit/Credit nature and use a guess "
+            "(based on their Tally group). Check them before relying on this report: "
+            + ", ".join(item["name"] for item in needs_review[:12])
+            + (" ..." if len(needs_review) > 12 else "")
+        )
+    if needs_review and not allow_unmapped:
         log("warning", "Fix the ledger classifications above and regenerate - report was not written yet.")
         return {
             "needs_mapping_fix": True,
@@ -712,7 +721,8 @@ def generate_report(
         "as_on_date": period_end.isoformat(),
         "row_count": len(rows),
         "warnings": warnings,
-        "needs_review": [],
+        "needs_review": needs_review,
+        "allowed_unmapped": bool(needs_review),
         "reference_adjustments_applied": reference_adjustments_applied,
         "tb_balance": subtotal_total,
     }

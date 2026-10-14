@@ -40,6 +40,7 @@ def _run_process_job(
     output_path: str,
     csv_path: str,
     as_on_date: str | None,
+    allow_unmapped: bool = False,
     progress_cb=None,
 ) -> dict:
     """Durable worker entry point; reloads mappings when execution begins."""
@@ -61,6 +62,7 @@ def _run_process_job(
             mapping,
             as_on_date=as_on_date,
             new_vendors_csv_path=csv_path,
+            allow_unmapped=allow_unmapped,
             progress_cb=progress_cb,
             log_cb=add_log,
         )
@@ -86,6 +88,7 @@ def _run_process_job(
 async def submit_process(
     file: UploadFile = File(...),
     as_on_date: str | None = Form(None),
+    allow_unmapped: bool = Form(False),
     user: User = Depends(get_current_user),
 ):
     suffix = Path(file.filename or "").suffix.lower()
@@ -108,6 +111,7 @@ async def submit_process(
             str(output_path),
             str(csv_path),
             as_on_date or None,
+            allow_unmapped=allow_unmapped,
             owner_id=user.id,
         )
     except Exception:

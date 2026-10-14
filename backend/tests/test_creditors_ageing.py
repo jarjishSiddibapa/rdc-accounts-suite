@@ -114,6 +114,26 @@ class CreditorsAgeingTests(unittest.TestCase):
             self.assertFalse(output_path.exists())
             self.assertFalse(csv_path.exists())
 
+    def test_unmapped_vendors_are_written_anyway_when_allowed(self):
+        mapping = {
+            "VENDOR A": {"name": "Vendor A", "loc": "Goa", "vt": "Expenses", "vst": "Testing", "intercompany": False},
+        }
+        with tempfile.TemporaryDirectory() as temp_dir:
+            input_path = Path(temp_dir) / "raw.xlsx"
+            output_path = Path(temp_dir) / "report.xlsx"
+            csv_path = Path(temp_dir) / "new-vendors.csv"
+            self._write_tally_export(input_path)
+
+            result = processor.generate_report(
+                str(input_path), str(output_path), mapping, as_on_date="2026-08-28",
+                new_vendors_csv_path=str(csv_path), allow_unmapped=True,
+            )
+
+            self.assertFalse(result["needs_mapping_fix"])
+            self.assertEqual(result["new_vendors"], ["Vendor B"])
+            self.assertTrue(output_path.exists())
+            self.assertTrue(csv_path.exists())   # the list of vendors still left to classify
+
     def test_invalid_workbook_has_clear_user_error(self):
         with tempfile.TemporaryDirectory() as temp_dir:
             path = Path(temp_dir) / "invalid.xlsx"

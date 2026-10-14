@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   AlertTriangle,
   CheckCircle2,
+  Download,
   FileSpreadsheet,
   Receipt,
   RefreshCw,
@@ -296,6 +297,7 @@ export default function RdcPayables() {
   const [result, setResult] = useState<ProcessResult | null>(null)
   const [processError, setProcessError] = useState<string | null>(null)
   const [activityLog, setActivityLog] = useState<string[]>([])
+  const autoDownload = useRef(false)   // "Download anyway": save the report as soon as it is written
 
   const [fixForms, setFixForms] = useState<Record<string, { region: string; accounts_incharge: string }>>({})
   const [fixedSites, setFixedSites] = useState<Record<string, boolean>>({})
@@ -327,7 +329,7 @@ export default function RdcPayables() {
       })
   }, [])
 
-  async function handleGenerate() {
+  async function handleGenerate(allowUnmapped = false) {
     if (!file) return
     const [cutoffYear, cutoffMonth] = cutoffPeriod.split('-').map(Number)
     if (!cutoffYear || cutoffMonth < 1 || cutoffMonth > 12) {
@@ -347,6 +349,7 @@ export default function RdcPayables() {
       return
     }
     setOutputFilename(currentFilename)
+    autoDownload.current = allowUnmapped
     setSubmitting(true)
     setProcessError(null)
     setResult(null)
@@ -360,6 +363,7 @@ export default function RdcPayables() {
       formData.append('cutoff_year', String(cutoffYear))
       formData.append('cutoff_month', String(cutoffMonth))
       formData.append('output_filename', currentFilename)
+      if (allowUnmapped) formData.append('allow_unmapped', 'true')
       const res = await postForm<{ job_id: string }>(`${BASE}/process`, formData)
       setJobId(res.job_id)
       // submitting stays true until the background job itself settles
@@ -505,6 +509,8 @@ export default function RdcPayables() {
                 setResult(res ?? null)
                 if (res?.log) setActivityLog(res.log)
                 setSubmitting(false)
+                if (autoDownload.current && res && !res.needs_mapping_fix) handleDownloadReport()
+                autoDownload.current = false
               }}
               onError={(error) => {
                 setProcessError(error)
@@ -563,7 +569,8 @@ export default function RdcPayables() {
                   <p className="text-sm text-ink-dim">
                     Assign a Region for each. Accounts Incharge is filled in automatically once
                     that Region is in Region Incharge - otherwise you can enter one manually.
-                    Nothing is written until every mapping is resolved.
+                    Missing a few? Use Download anyway: the report is written now and those
+                    vendor sites keep a blank Region.
                   </p>
                   <div className="flex flex-col gap-2">
                     {unmappedPagination.pagedItems.map((site) => {
@@ -641,7 +648,15 @@ export default function RdcPayables() {
                     onPageChange={unmappedPagination.setPage}
                     onPageSizeChange={unmappedPagination.setPageSize}
                   />
-                  <div className="flex justify-stretch sm:justify-end">
+                  <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+                    <Button
+                      variant="secondary"
+                      icon={<Download className="h-4 w-4" />}
+                      loading={submitting}
+                      onClick={() => void handleGenerate(true)}
+                    >
+                      Download anyway
+                    </Button>
                     <Button
                       variant="primary"
                       icon={<RefreshCw className="h-4 w-4" />}

@@ -745,6 +745,19 @@ Preserve these UX requirements:
 - excluded POs and similar datasets use readable lists/tables, not pill clouds;
 - all mapping add/edit dialogs and missing-mapping fix panels use the shared
   searchable creatable combobox, showing existing values as the user types;
+- every report that can stop on a missing mapping also offers **Download
+  anyway** next to its "Generate report" button in the fix panel: the same
+  upload is processed again with `allow_unmapped=true` (form field, JSON field
+  or query parameter depending on the endpoint), the report is written with the
+  unmapped values left blank (or flagged), and the browser downloads it as soon
+  as the job finishes. The normal path still stops and lists what to fix. Any
+  new app that blocks on mappings must add the same escape hatch. Apps that
+  honour it: RDC Payables, Trial Balance, Unaccounted Transactions (Unaccounted,
+  Pending MRN, Uninvoiced PO), Unapplied Receipts, Untagged Invoices, Creditors
+  Ageing, GSTR-2B, Trial Balance Formatter and Ultrafine Cashflow (which
+  highlights the lines, adds a Remark column and a "Not mapped" Summary row so
+  totals still tie to the ledgers). The email apps send mail rather than
+  produce a download, so they are not part of this;
 - mapping tables, PO keywords/exclusions, users, and audit logs have usable
   search and pagination; Users and Audit Log perform filtering server-side so
   search remains correct beyond the currently visible page;

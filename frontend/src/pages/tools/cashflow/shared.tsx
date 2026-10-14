@@ -52,6 +52,7 @@ export interface GenerateOutcome {
   new?: number
   duplicate?: number
   earlier_issue_count?: number
+  unmapped_count?: number
 }
 
 export interface JobResponse<T> {

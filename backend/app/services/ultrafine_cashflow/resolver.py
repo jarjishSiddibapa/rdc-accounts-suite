@@ -46,10 +46,20 @@ ISSUE_NO_CF = "no_cf_location"
 ISSUE_NO_RATIO = "no_ratio"
 ISSUE_SPLIT_MISMATCH = "split_mismatch"
 
+# Plain wording of each issue, for people reading a workbook written "anyway".
+ISSUE_TEXT = {
+    ISSUE_NO_PARTY: "Description not mapped to a name",
+    ISSUE_NO_LOCATION: "Name has no location",
+    ISSUE_NO_CF: "Location has no CF location",
+    ISSUE_NO_RATIO: "No sharing ratio in force on this date",
+    ISSUE_SPLIT_MISMATCH: "Typed split does not add up to the bank amount",
+}
+
 
 @dataclass
 class Maps:
     cf_locations: dict[int, CfLocation] = field(default_factory=dict)
+    cf_by_name: dict[str, CfLocation] = field(default_factory=dict)
     locations: dict[int, Location] = field(default_factory=dict)
     parties: dict[int, Party] = field(default_factory=dict)
     aliases: dict[str, int] = field(default_factory=dict)
@@ -65,15 +75,20 @@ class Maps:
         if location_id is None:
             return None
         location = self.locations.get(location_id)
-        if location is None or location.cf_location_id is None:
+        if location is None:
             return None
-        return self.cf_locations.get(location.cf_location_id)
+        if location.cf_location_id is not None:
+            return self.cf_locations.get(location.cf_location_id)
+        # No default set: a location named like a CF location (Main Operation,
+        # Flyash Business, ...) belongs to that CF location.
+        return self.cf_by_name.get(casefold_key(location.name))
 
 
 def load_maps(db: Session) -> Maps:
     active = lambda model: db.query(model).filter(model.is_deleted == False)  # noqa: E712
     maps = Maps()
     maps.cf_locations = {r.id: r for r in active(CfLocation)}
+    maps.cf_by_name = {casefold_key(r.name): r for r in maps.cf_locations.values()}
     maps.locations = {r.id: r for r in active(Location)}
     maps.parties = {r.id: r for r in active(Party)}
     maps.groups = {r.id: r for r in active(SharingGroup)}

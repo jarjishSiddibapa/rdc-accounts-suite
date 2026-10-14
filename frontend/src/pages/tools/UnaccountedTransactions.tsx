@@ -115,6 +115,7 @@ function PeriodDetectionNotice({
 
 interface ReportJobResult {
   needs_mapping_fix: boolean
+  allowed_unmapped?: boolean
   total_rows: number
   input_cols: number
   matched?: number
@@ -215,11 +216,13 @@ function UnmappedSitesFix({
   sites,
   knownLocations,
   onRegenerate,
+  onDownloadAnyway,
   regenerating,
 }: {
   sites: string[]
   knownLocations: string[]
   onRegenerate: () => void
+  onDownloadAnyway: () => void
   regenerating: boolean
 }) {
   const [forms, setForms] = useState<Record<string, string>>({})
@@ -255,8 +258,8 @@ function UnmappedSitesFix({
       </div>
       <p className="text-sm text-ink-dim">
         Pick a Location for each unmapped Supplier Site. Accounts Incharge is filled in
-        automatically from the Location table. Nothing is written until every mapping is
-        resolved.
+        automatically from the Location table. Missing a few? Use Download anyway: the report is
+        written now and those sites keep a blank Location.
       </p>
       {error && <ErrorBanner>{error}</ErrorBanner>}
       <div className="flex flex-col gap-2">
@@ -302,7 +305,15 @@ function UnmappedSitesFix({
         onPageChange={pagination.setPage}
         onPageSizeChange={pagination.setPageSize}
       />
-      <div className="flex justify-stretch sm:justify-end">
+      <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+        <Button
+          variant="secondary"
+          icon={<Download className="h-4 w-4" />}
+          loading={regenerating}
+          onClick={onDownloadAnyway}
+        >
+          Download anyway
+        </Button>
         <Button
           icon={<RefreshCw className="h-4 w-4" />}
           disabled={!allFixed}
@@ -324,9 +335,11 @@ function UnaccountedTab({ knownLocations }: { knownLocations: string[] }) {
   const [jobId, setJobId] = useState<string | null>(null)
   const [result, setResult] = useState<ReportJobResult | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const autoDownload = useRef(false)   // "Download anyway": save the file as soon as it is written
 
-  async function handleRun() {
+  async function handleRun(allowUnmapped = false) {
     if (files.length === 0) return
+    autoDownload.current = allowUnmapped
     setSubmitting(true)
     setError(null)
     setResult(null)
@@ -334,6 +347,7 @@ function UnaccountedTab({ knownLocations }: { knownLocations: string[] }) {
     try {
       const fd = new FormData()
       files.forEach((f) => fd.append('files', f))
+      if (allowUnmapped) fd.append('allow_unmapped', 'true')
       const res = await postForm<{ job_id: string }>(`${BASE}/unaccounted/process`, fd)
       setJobId(res.job_id)
       // submitting stays true until the background job itself settles
@@ -381,6 +395,8 @@ function UnaccountedTab({ knownLocations }: { knownLocations: string[] }) {
           onDone={(r) => {
             setResult(r ?? null)
             setSubmitting(false)
+            if (autoDownload.current && r && !r.needs_mapping_fix) handleDownload()
+            autoDownload.current = false
           }}
           onError={(e) => {
             setError(e)
@@ -399,6 +415,7 @@ function UnaccountedTab({ knownLocations }: { knownLocations: string[] }) {
               knownLocations={knownLocations}
               regenerating={submitting}
               onRegenerate={() => void handleRun()}
+              onDownloadAnyway={() => void handleRun(true)}
             />
           )}
         </div>
@@ -418,6 +435,7 @@ function MrnTab({ knownLocations }: { knownLocations: string[] }) {
   const [jobId, setJobId] = useState<string | null>(null)
   const [result, setResult] = useState<ReportJobResult | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const autoDownload = useRef(false)   // "Download anyway": save the file as soon as it is written
   const detectionRequest = useRef(0)
   const periodPagination = usePagination(periods, 10, file?.name)
 
@@ -453,11 +471,12 @@ function MrnTab({ knownLocations }: { knownLocations: string[] }) {
     }
   }
 
-  async function handleRun() {
+  async function handleRun(allowUnmapped = false) {
     if (!file || detectionStatus !== 'complete') {
       setError('Period detection must complete successfully before generating the Pending MRN report.')
       return
     }
+    autoDownload.current = allowUnmapped
     setSubmitting(true)
     setError(null)
     setResult(null)
@@ -467,6 +486,7 @@ function MrnTab({ knownLocations }: { knownLocations: string[] }) {
       const fd = new FormData()
       fd.append('file', file)
       fd.append('exclude_periods', excludePeriods.join(','))
+      if (allowUnmapped) fd.append('allow_unmapped', 'true')
       const res = await postForm<{ job_id: string }>(`${BASE}/mrn/process`, fd)
       setJobId(res.job_id)
     } catch (err) {
@@ -551,6 +571,8 @@ function MrnTab({ knownLocations }: { knownLocations: string[] }) {
           onDone={(r) => {
             setResult(r ?? null)
             setSubmitting(false)
+            if (autoDownload.current && r && !r.needs_mapping_fix) handleDownload()
+            autoDownload.current = false
           }}
           onError={(e) => {
             setError(e)
@@ -569,6 +591,7 @@ function MrnTab({ knownLocations }: { knownLocations: string[] }) {
               knownLocations={knownLocations}
               regenerating={submitting}
               onRegenerate={() => void handleRun()}
+              onDownloadAnyway={() => void handleRun(true)}
             />
           )}
         </div>
@@ -588,6 +611,7 @@ function PoTab({ knownLocations }: { knownLocations: string[] }) {
   const [jobId, setJobId] = useState<string | null>(null)
   const [result, setResult] = useState<ReportJobResult | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const autoDownload = useRef(false)   // "Download anyway": save the file as soon as it is written
   const detectionRequest = useRef(0)
   const monthPagination = usePagination(months, 10, file?.name)
 
@@ -623,11 +647,12 @@ function PoTab({ knownLocations }: { knownLocations: string[] }) {
     }
   }
 
-  async function handleRun() {
+  async function handleRun(allowUnmapped = false) {
     if (!file || detectionStatus !== 'complete') {
       setError('Period detection must complete successfully before generating the Uninvoiced Expense PO report.')
       return
     }
+    autoDownload.current = allowUnmapped
     setSubmitting(true)
     setError(null)
     setResult(null)
@@ -637,6 +662,7 @@ function PoTab({ knownLocations }: { knownLocations: string[] }) {
       const fd = new FormData()
       fd.append('file', file)
       fd.append('exclude_months', excludeMonths.join(','))
+      if (allowUnmapped) fd.append('allow_unmapped', 'true')
       // keywords/fuzzy_threshold deliberately omitted - backend falls back to
       // the saved PO Keywords mapping (see Mappings tab).
       const res = await postForm<{ job_id: string }>(`${BASE}/po/process`, fd)
@@ -729,6 +755,8 @@ function PoTab({ knownLocations }: { knownLocations: string[] }) {
           onDone={(r) => {
             setResult(r ?? null)
             setSubmitting(false)
+            if (autoDownload.current && r && !r.needs_mapping_fix) handleDownload()
+            autoDownload.current = false
           }}
           onError={(e) => {
             setError(e)
@@ -747,6 +775,7 @@ function PoTab({ knownLocations }: { knownLocations: string[] }) {
               knownLocations={knownLocations}
               regenerating={submitting}
               onRegenerate={() => void handleRun()}
+              onDownloadAnyway={() => void handleRun(true)}
             />
           )}
         </div>

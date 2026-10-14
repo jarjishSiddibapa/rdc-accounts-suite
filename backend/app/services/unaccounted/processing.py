@@ -57,6 +57,19 @@ def _resolve_incharge(loc: str, stored_inc: str, loc_incharge_map: dict) -> str:
     return loc_incharge_map.get(loc, stored_inc) or stored_inc
 
 
+# Sites that carry no location of their own: the row's Location / Incharge is
+# always inferred from its Created By (see process_report). A saved site
+# override for one of these would short-circuit that inference for every row.
+SPECIAL_SITES = {"OFFICE", "HOME", "TDS TAX Authori"}
+
+
+def _effective_site_map(site_overrides: dict) -> dict:
+    """Built-in site table plus saved site overrides, minus any override for a
+    SPECIAL_SITES name so those sites always resolve through Created By."""
+    usable = {k: v for k, v in site_overrides.items() if str(k).strip() not in SPECIAL_SITES}
+    return {**SITE_MAPPING, **usable}
+
+
 def find_data_table(tables: list) -> "pd.DataFrame | None":
     """Return the table whose second row contains DATA_ANCHOR_COL."""
     for df in tables:
@@ -182,7 +195,7 @@ def process_report(input_path: str, log_q) -> tuple:
     site_overrides, creator_map = _load_custom_mappings()
     loc_incharge_map = _load_location_incharge()
     # Effective site mapping: hardcoded base (1131 entries) + JSON overrides
-    eff_site = {**SITE_MAPPING, **site_overrides}
+    eff_site = _effective_site_map(site_overrides)
 
     df["Location"]          = df[COL_MOVE_TO_END].apply(
         lambda s: eff_site.get(str(s).strip(), ("", ""))[0])
@@ -194,7 +207,6 @@ def process_report(input_path: str, log_q) -> tuple:
 
     # For OFFICE / HOME / TDS TAX Authori: first check persistent creator_map,
     # then fall back to a dynamic lookup from this file's already-resolved rows.
-    SPECIAL_SITES  = {"OFFICE", "HOME", "TDS TAX Authori"}
     special_no_loc = (df["Supplier Site"].astype(str).str.strip().isin(SPECIAL_SITES)
                       & (df["Location"] == ""))
 
@@ -323,7 +335,7 @@ def process_report_multi(input_paths: list, log_q) -> tuple:
     # Load custom overrides + persistent creator map from mappings.json
     site_overrides, creator_map = _load_custom_mappings()
     loc_incharge_map = _load_location_incharge()
-    eff_site = {**SITE_MAPPING, **site_overrides}
+    eff_site = _effective_site_map(site_overrides)
 
     df["Location"]          = df[COL_MOVE_TO_END].apply(
         lambda s: eff_site.get(str(s).strip(), ("", ""))[0])
@@ -334,7 +346,6 @@ def process_report_multi(input_paths: list, log_q) -> tuple:
         log_q.put(("info", f"Applied {len(site_overrides)} custom site override(s)"))
 
     # For OFFICE / HOME / TDS TAX Authori: creator-based inference
-    SPECIAL_SITES  = {"OFFICE", "HOME", "TDS TAX Authori"}
     special_no_loc = (df["Supplier Site"].astype(str).str.strip().isin(SPECIAL_SITES)
                       & (df["Location"] == ""))
 

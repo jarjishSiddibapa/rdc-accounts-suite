@@ -219,8 +219,15 @@ def latest_tracker(db: Session = Depends(get_db)):
             "total_pages_scanned": None,
             "rows": [],
         }
+    previous_date, previous_map = monitor.previous_pending(db)
+    previous_by_location = (
+        None if previous_map is None
+        else {item["location"]: previous_map.get(monitor.normalize_key(item["location"])) for item in rows}
+    )
     return {
         "available": True,
+        "previous_date": previous_date.isoformat(),
+        "previous_by_location": previous_by_location,
         "check_id": row.id,
         "trigger": row.trigger,
         "checked_at": to_ist_iso(row.checked_at),
@@ -338,7 +345,7 @@ def test_mail(body: TestMailBody, db: Session = Depends(get_db), user: User = De
             {"location": row.location, "responsible_person": row.responsible_person, "pending": index % 4}
             for index, row in enumerate(db.query(InvoiceBookingTrackerMapping).filter(InvoiceBookingTrackerMapping.is_deleted.is_(False), InvoiceBookingTrackerMapping.is_active.is_(True)).order_by(InvoiceBookingTrackerMapping.sort_order).all(), 1)
         ]
-    subject, html_body = monitor.render_templates(body.subject_template, body.body_template, rows, signature=settings.signature)
+    subject, html_body = monitor.render_templates(body.subject_template, body.body_template, rows, signature=settings.signature, previous=monitor.previous_pending(db))
     try:
         send_mail(from_email=settings.sender_email, app_password=security.decrypt(settings.sender_app_password_encrypted), to_addresses=[user.email], cc_addresses=[], subject=f"[Test] {subject}", html_body=html_body, attachments=[])
     except Exception as exc:  # noqa: BLE001

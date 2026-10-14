@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { AlertTriangle, CheckCircle2, Combine, Download, RefreshCw, RotateCcw, Terminal } from 'lucide-react'
 import { AppShell } from '@/components/AppShell'
 import { GlassCard } from '@/components/GlassCard'
@@ -33,6 +33,7 @@ function logLevelColor(tag: string): string {
 
 interface CombineResult {
   needs_mapping_fix: boolean
+  allowed_unmapped?: boolean
   files: number
   counts: Record<string, number>
   output_path?: string
@@ -47,11 +48,13 @@ function UnresolvedStateCodesFix({
   codes,
   knownStateNames,
   onRegenerate,
+  onDownloadAnyway,
   regenerating,
 }: {
   codes: number[]
   knownStateNames: string[]
   onRegenerate: () => void
+  onDownloadAnyway: () => void
   regenerating: boolean
 }) {
   const [forms, setForms] = useState<Record<number, string>>({})
@@ -86,7 +89,8 @@ function UnresolvedStateCodesFix({
       </div>
       <p className="text-sm text-ink-dim">
         These GST state codes aren't in the State Codes table. Enter the real state name for
-        each, then combine again. Nothing is written until every code is resolved.
+        each, then combine again. Missing some? Use Download anyway: the workbook is written now and
+        those files keep the placeholder "Unknown state" name.
       </p>
       {error && <ErrorBanner>{error}</ErrorBanner>}
       <div className="flex flex-col gap-2">
@@ -125,7 +129,15 @@ function UnresolvedStateCodesFix({
           </div>
         ))}
       </div>
-      <div className="flex justify-stretch sm:justify-end">
+      <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+        <Button
+          variant="secondary"
+          icon={<Download className="h-4 w-4" />}
+          loading={regenerating}
+          onClick={onDownloadAnyway}
+        >
+          Download anyway
+        </Button>
         <Button
           icon={<RefreshCw className="h-4 w-4" />}
           disabled={!allFixed}
@@ -229,6 +241,7 @@ export default function Gstr2bCombinator() {
   const [result, setResult] = useState<CombineResult | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [knownStateNames, setKnownStateNames] = useState<string[]>([])
+  const autoDownload = useRef(false)   // "Download anyway": save the workbook as soon as it is written
 
   const active = jobId !== null && result === null && !error
 
@@ -240,8 +253,9 @@ export default function Gstr2bCombinator() {
       })
   }, [])
 
-  async function handleCombine() {
+  async function handleCombine(allowUnmapped = false) {
     if (files.length === 0) return
+    autoDownload.current = allowUnmapped
     setSubmitting(true)
     setError(null)
     setResult(null)
@@ -249,6 +263,7 @@ export default function Gstr2bCombinator() {
     try {
       const formData = new FormData()
       files.forEach((file) => formData.append('files', file))
+      if (allowUnmapped) formData.append('allow_unmapped', 'true')
       const res = await postForm<{ job_id: string }>(`${BASE}/combine`, formData)
       setJobId(res.job_id)
     } catch (err) {
@@ -258,11 +273,11 @@ export default function Gstr2bCombinator() {
     }
   }
 
-  function handleDownload() {
+  function handleDownload(source?: CombineResult | null) {
     if (!jobId) return
     const a = document.createElement('a')
     a.href = apiUrl(`${BASE}/download/${jobId}`)
-    a.download = result?.download_filename || 'combined_gstr_2b_file.xlsx'
+    a.download = (source ?? result)?.download_filename || 'combined_gstr_2b_file.xlsx'
     document.body.appendChild(a)
     a.click()
     a.remove()
@@ -314,7 +329,7 @@ export default function Gstr2bCombinator() {
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <h3 className="font-display text-lg font-semibold text-ink">Combine progress</h3>
               {result && !result.needs_mapping_fix && (
-                <Button icon={<Download className="h-4 w-4" />} onClick={handleDownload}>
+                <Button icon={<Download className="h-4 w-4" />} onClick={() => handleDownload()}>
                   Save / download report
                 </Button>
               )}
@@ -323,7 +338,11 @@ export default function Gstr2bCombinator() {
             <ProgressPanel
               jobId={jobId}
               poller={pollCombineJob}
-              onDone={(next) => setResult(next ?? null)}
+              onDone={(next) => {
+                setResult(next ?? null)
+                if (autoDownload.current && next && !next.needs_mapping_fix) handleDownload(next)
+                autoDownload.current = false
+              }}
               onError={(message) => setError(message)}
               onCancel={() => post(`${BASE}/jobs/${jobId}/cancel`)}
             />
@@ -355,6 +374,7 @@ export default function Gstr2bCombinator() {
                 knownStateNames={knownStateNames}
                 regenerating={submitting}
                 onRegenerate={() => void handleCombine()}
+                onDownloadAnyway={() => void handleCombine(true)}
               />
             )}
 

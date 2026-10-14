@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   AlertTriangle,
   CheckCircle2,
+  Download,
   FileSpreadsheet,
   RefreshCw,
   Tags,
@@ -265,11 +266,13 @@ function ValidationWarnings({
   warnings,
   suggestions,
   onRegenerate,
+  onDownloadAnyway,
   regenerating,
 }: {
   warnings: ValidationWarning[]
   suggestions: Record<string, string[]>
   onRegenerate: () => void
+  onDownloadAnyway: () => void
   regenerating: boolean
 }) {
   const [fixed, setFixed] = useState<Record<string, boolean>>({})
@@ -287,8 +290,8 @@ function ValidationWarnings({
         </h4>
       </div>
       <p className="text-sm text-ink-dim">
-        Fix each unmapped value below, then generate the report. Nothing is written until
-        every mapping is resolved.
+        Fix each unmapped value below, then generate the report. Missing a few? Use Download
+        anyway: the report is written now and those values stay blank.
       </p>
       {warnings.map((warning) => (
         <WarningCategoryFix
@@ -300,7 +303,15 @@ function ValidationWarnings({
           onFixed={(key) => setFixed((prev) => ({ ...prev, [key]: true }))}
         />
       ))}
-      <div className="flex justify-stretch sm:justify-end">
+      <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+        <Button
+          variant="secondary"
+          icon={<Download className="h-4 w-4" />}
+          loading={regenerating}
+          onClick={onDownloadAnyway}
+        >
+          Download anyway
+        </Button>
         <Button
           icon={<RefreshCw className="h-4 w-4" />}
           disabled={!allFixed}
@@ -426,6 +437,7 @@ export default function UntaggedInvoicesReport() {
   const [result, setResult] = useState<ProcessResult | null>(null)
   const [processError, setProcessError] = useState<string | null>(null)
   const [activityLog, setActivityLog] = useState<[string, string][]>([])
+  const autoDownload = useRef(false)   // "Download anyway": save the report as soon as it is written
 
   const [activeMappingTab, setActiveMappingTab] = useState(0)
   const [mappingSuggestions, setMappingSuggestions] = useState<Record<string, string[]>>({})
@@ -452,8 +464,9 @@ export default function UntaggedInvoicesReport() {
     setFile(files[0] ?? null)
   }
 
-  async function handleProcess() {
+  async function handleProcess(allowUnmapped = false) {
     if (!file) return
+    autoDownload.current = allowUnmapped
     setSubmitting(true)
     setProcessError(null)
     setResult(null)
@@ -463,6 +476,7 @@ export default function UntaggedInvoicesReport() {
       const fd = new FormData()
       fd.append('file', file)
       if (asOnDate) fd.append('as_on_date', asOnDate)
+      if (allowUnmapped) fd.append('allow_unmapped', 'true')
       const res = await postForm<{ job_id: string }>(`${BASE}/process`, fd)
       setJobId(res.job_id)
     } catch (err) {
@@ -545,6 +559,8 @@ export default function UntaggedInvoicesReport() {
                 setResult(res ?? null)
                 if (res?.log) setActivityLog(res.log)
                 setSubmitting(false)
+                if (autoDownload.current && res && !res.needs_mapping_fix) handleDownloadReport()
+                autoDownload.current = false
               }}
               onError={(error) => {
                 setProcessError(error)
@@ -592,6 +608,7 @@ export default function UntaggedInvoicesReport() {
                 suggestions={mappingSuggestions}
                 regenerating={submitting}
                 onRegenerate={() => void handleProcess()}
+                onDownloadAnyway={() => void handleProcess(true)}
               />
             </div>
           )}

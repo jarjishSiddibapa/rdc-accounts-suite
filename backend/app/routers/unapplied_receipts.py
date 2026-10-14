@@ -152,8 +152,8 @@ def _cpu_phase_write_report(df_main, df_advance, output_path, as_on_date, df_uni
 # ── /process job pipeline ───────────────────────────────────────────────────
 
 def _run_process_job(input_path: str, ageing_path: str, output_path: str,
-                      as_on_date_str: Optional[str], progress_cb=None,
-                      cancel_event=None) -> dict:
+                      as_on_date_str: Optional[str], allow_unmapped: bool = False,
+                      progress_cb=None, cancel_event=None) -> dict:
     """Runs in the background job pool (a plain thread, not tied to any
     request) — opens its own short-lived DB session via SessionLocal()
     rather than reusing a request-scoped one, since by the time this runs
@@ -189,7 +189,9 @@ def _run_process_job(input_path: str, ageing_path: str, output_path: str,
         )
         log_q.messages.extend(cpu_log_messages)
 
-        if validation_warnings:
+        if validation_warnings and allow_unmapped:
+            log_q.put(("warn", "Writing the report anyway - unmapped values stay blank."))
+        if validation_warnings and not allow_unmapped:
             log_q.put(("warn", "Fix the mappings above and regenerate - report was not written yet."))
             return {
                 "needs_mapping_fix": True,
@@ -221,6 +223,7 @@ def _run_process_job(input_path: str, ageing_path: str, output_path: str,
 
     return {
         "needs_mapping_fix": False,
+        "allowed_unmapped": bool(validation_warnings),
         "output_path": str(output_path),
         "download_filename": filename,
         "as_on_date": as_on_date.isoformat(),
@@ -228,7 +231,7 @@ def _run_process_job(input_path: str, ageing_path: str, output_path: str,
         "unidentified_removed_count": unidentified_removed_count,
         "main_row_count": len(df_main),
         "advance_row_count": len(df_advance),
-        "validation_warnings": [],
+        "validation_warnings": validation_warnings,
         "oracle_ok": erp_ok,
         "log": log_q.messages,
     }
@@ -239,6 +242,7 @@ async def submit_process(
     file: UploadFile = File(...),
     ageing_file: UploadFile = File(...),
     as_on_date: Optional[str] = Form(None),
+    allow_unmapped: bool = Form(False),
     user: User = Depends(get_current_user),
 ):
     """Real signature behind this: processor.process_report(input_path,
@@ -264,6 +268,7 @@ async def submit_process(
         str(ageing_path),
         str(output_path),
         as_on_date,
+        allow_unmapped=allow_unmapped,
         owner_id=user.id,
     )
     return {"job_id": job_id}

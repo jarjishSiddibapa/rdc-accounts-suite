@@ -24,17 +24,18 @@ def file_name_for(month: str) -> str:
     return datetime.strptime(month, "%Y-%m").strftime("UF_Cashflow_%b_%y.xlsx")
 
 
-def generate_month(db: Session, month: str, user_id: int | None) -> dict:
+def generate_month(db: Session, month: str, user_id: int | None, allow_unmapped: bool = False) -> dict:
     """Write the workbook, replacing the month's stored copy. Does not write
     anything when a transaction is still unmapped - the caller gets what has
-    to be fixed instead. Caller commits."""
+    to be fixed instead - unless `allow_unmapped` says to write it anyway, in
+    which case the unmapped lines are flagged in the workbook. Caller commits."""
     maps = load_maps(db)
     figures = month_figures(db, month, maps)
     if not figures.allocations:
         return {"month": month, "status": "no_data"}
 
     issues = [row for row in figures.allocations if row.issues]
-    if issues:
+    if issues and not allow_unmapped:
         return {
             "month": month, "status": "needs_mapping_fix",
             "issue_count": len(issues), "unmapped": unmapped_summary(figures.allocations, maps),
@@ -63,7 +64,7 @@ def generate_month(db: Session, month: str, user_id: int | None) -> dict:
     db.flush()
     return {
         "month": month, "status": "generated", "version": row.version, "file_name": row.file_name,
-        "earlier_issue_count": figures.earlier_issue_count, **stats,
+        "earlier_issue_count": figures.earlier_issue_count, "unmapped_count": len(issues), **stats,
     }
 
 

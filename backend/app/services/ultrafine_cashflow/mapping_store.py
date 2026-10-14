@@ -329,7 +329,11 @@ def list_parties(db: Session) -> list[dict]:
     alias_counts: dict[int, int] = {}
     for alias in _all(db, DescriptionAlias):
         alias_counts[alias.party_id] = alias_counts.get(alias.party_id, 0) + 1
-    default_cf = {l.id: cf.get(l.cf_location_id, "") for l in _all(db, Location)}
+    cf_by_name = {name.casefold(): name for name in cf.values()}
+    default_cf = {
+        l.id: cf.get(l.cf_location_id) or cf_by_name.get(l.name.casefold(), "")
+        for l in _all(db, Location)
+    }
     return [
         {
             "id": p.id, "name": p.name, "location": locations.get(p.location_id, ""),
@@ -362,20 +366,46 @@ def archive_party(db: Session, row_id: int) -> None:
     _archive(db, Party, row_id, "Party")
 
 
-def get_or_create_party(db: Session, name: str, location: str | None = None) -> Party:
+def _cf_known(db: Session, party: Party) -> bool:
+    """True when the party's CF location is already settled: its own, its
+    location's default, or the CF location carrying the location's name."""
+    if party.cf_location_id is not None:
+        return True
+    location = db.get(Location, party.location_id) if party.location_id else None
+    if location is None:
+        return False
+    return location.cf_location_id is not None or find_named(db, CfLocation, location.name) is not None
+
+
+def get_or_create_party(db: Session, name: str, location: str | None = None,
+                        cf_location: str | None = None, require_placement: bool = False) -> Party:
     """Party for the fix-up panel: reuse an existing one, else create it
-    (with `location` if given). An existing party's location is only filled
-    in when it has none - the fix panel never overwrites a mapping."""
+    (with `location` and `cf_location` if given). An existing party's location
+    and CF location are only filled in when it has none - the fix panel never
+    overwrites a mapping."""
     name = require_name(name, "Party name")
     row = find_named(db, Party, name)
     location_id = _resolve(db, Location, location, "Location") if location else None
+    cf_id = _resolve(db, CfLocation, cf_location, "CF location") if cf_location else None
+    if require_placement:
+        # The fix panel: a name that is new, or has no location yet, needs its
+        # location and CF location together; a fully known name needs neither.
+        if row is None or (row.location_id is None and row.sharing_group_id is None):
+            if location_id is None or cf_id is None:
+                raise MappingError(f"'{name}' is a new name - choose its location and CF location.")
+        elif row.sharing_group_id is None and not _cf_known(db, row) and cf_id is None:
+            raise MappingError(f"'{row.name}' has no CF location - choose one.")
     if row is None:
-        row = Party(name=name, location_id=location_id)
+        row = Party(name=name, location_id=location_id, cf_location_id=cf_id)
         db.add(row)
     else:
         row.is_deleted = False
         if row.location_id is None and row.sharing_group_id is None and location_id is not None:
             row.location_id = location_id
+            if row.cf_location_id is None and cf_id is not None:
+                row.cf_location_id = cf_id
+        elif require_placement and row.sharing_group_id is None and row.cf_location_id is None                 and not _cf_known(db, row) and cf_id is not None:
+            row.cf_location_id = cf_id
     db.flush()
     return row
 

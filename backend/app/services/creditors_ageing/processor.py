@@ -315,6 +315,7 @@ def _build_workbook(
     *,
     as_on_date=None,
     template_path=TEMPLATE_PATH,
+    allow_unmapped: bool = False,
     progress_cb=None,
     log_cb=None,
 ):
@@ -411,6 +412,10 @@ def _build_workbook(
             name: new_vendor_info[name.upper()]["loc"]
             for name in new_vendors
         }
+    if new_vendors and allow_unmapped:
+        log("warning", "Writing the workbook anyway - unclassified vendors get their guessed location "
+                       "and a blank type.")
+    if new_vendors and not allow_unmapped:
         log("warning", "Fix the vendor mappings above and regenerate - the workbook was not written yet.")
         return None, {
             "needs_mapping_fix": True,
@@ -717,6 +722,7 @@ def generate_report(
     *,
     as_on_date=None,
     new_vendors_csv_path: str | None = None,
+    allow_unmapped: bool = False,
     progress_cb=None,
     log_cb=None,
 ) -> dict:
@@ -724,6 +730,7 @@ def generate_report(
         input_path,
         mapping,
         as_on_date=as_on_date,
+        allow_unmapped=allow_unmapped,
         progress_cb=progress_cb,
         log_cb=log_cb,
     )

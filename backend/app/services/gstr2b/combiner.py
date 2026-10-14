@@ -263,6 +263,7 @@ def run_combine(
     output_path: Path | str,
     state_codes: dict[int, str],
     log_q,          # object with .put((tag: str, message: str)) -> None
+    allow_unresolved: bool = False,
 ) -> dict:
     """
     Combine the given GSTR-2B .xlsx files into a single workbook.
@@ -336,7 +337,10 @@ def run_combine(
             "- see the log above for why each file was skipped."
         )
 
-    if unresolved_codes:
+    if unresolved_codes and allow_unresolved:
+        log_q.put(("warn", "Writing the combined workbook anyway - those files keep the placeholder "
+                           "\"Unknown state\" name."))
+    if unresolved_codes and not allow_unresolved:
         log_q.put(("warn", "Fix the state code mappings above and regenerate - "
                             "the combined workbook was not written yet."))
         return {
@@ -365,5 +369,6 @@ def run_combine(
         "files": n_files,
         "counts": counts,
         "output_path": str(output_path),
-        "unresolved_state_codes": [],
+        "allowed_unmapped": bool(unresolved_codes),
+        "unresolved_state_codes": sorted(unresolved_codes),
     }

@@ -101,6 +101,7 @@ def _prune_stash(db: Session) -> None:
 class ProcessRequest(BaseModel):
     token: str
     account_codes: list[str] = Field(default_factory=list)
+    allow_unmapped: bool = False
 
 
 class MappingFixRequest(BaseModel):
@@ -191,6 +192,7 @@ async def parse_accounts(
 def _run_process_job(input_path: str, columns: list, rows: list,
                       pivot_accounts: list, output_path: str,
                       download_filename: str,
+                      allow_unmapped: bool = False,
                       progress_cb=None) -> dict:
     """Runs in the background job pool — mirrors the desktop app's
     _worker() in main.py, including how the "Mapping Not Found" /
@@ -235,7 +237,8 @@ def _run_process_job(input_path: str, columns: list, rows: list,
         if missing_account_ho:
             add_log("WARN", f"Unmapped account HO codes: {format_indian_number(len(missing_account_ho))}")
 
-        if missing_codes or missing_account_ho:
+        has_unmapped = bool(missing_codes or missing_account_ho)
+        if has_unmapped and not allow_unmapped:
             add_log("WARN", "Fix the mappings above and regenerate - report was not written yet.")
             return {
                 "needs_mapping_fix": True,
@@ -244,6 +247,8 @@ def _run_process_job(input_path: str, columns: list, rows: list,
                 "raw_row_count": raw_row_count,
                 "log": log,
             }
+        if has_unmapped:
+            add_log("WARN", "Writing the report anyway - unmapped values stay blank.")
 
         matched_count = int((df["Region"] != "").sum())
         unmatched_count = len(df) - matched_count
@@ -268,10 +273,11 @@ def _run_process_job(input_path: str, columns: list, rows: list,
 
     return {
         "needs_mapping_fix": False,
+        "allowed_unmapped": has_unmapped,
         "output_path": str(output_path),
         "download_filename": download_filename,
-        "missing_codes": [],
-        "missing_account_ho": [],
+        "missing_codes": sorted(missing_codes, key=lambda c: (len(c), c)),
+        "missing_account_ho": sorted(missing_account_ho, key=lambda c: (len(c), c)),
         "row_count": len(df),
         "raw_row_count": raw_row_count,
         "matched_count": matched_count,
@@ -286,6 +292,7 @@ def _run_process_job_from_stash(
     pivot_accounts: list,
     output_path: str,
     download_filename: str,
+    allow_unmapped: bool = False,
     progress_cb=None,
 ) -> dict:
     """Worker entry point that rehydrates the durable parsed-row scratch file."""
@@ -298,6 +305,7 @@ def _run_process_job_from_stash(
         pivot_accounts,
         output_path,
         download_filename,
+        allow_unmapped=allow_unmapped,
         progress_cb=progress_cb,
     )
 
@@ -342,6 +350,7 @@ def submit_process(
         pivot_accounts,
         str(output_path),
         entry.download_filename,
+        allow_unmapped=body.allow_unmapped,
         owner_id=user.id,
     )
 

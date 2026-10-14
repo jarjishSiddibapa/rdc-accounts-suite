@@ -611,5 +611,64 @@ class InvoiceBookingTrackerLatestTests(unittest.TestCase):
         self.assertEqual(result["rows"], valid_rows)
 
 
+class PriorWorkingDayColumnTests(unittest.TestCase):
+    def test_three_working_days_back_skips_sundays(self):
+        cases = {
+            date(2026, 10, 14): date(2026, 10, 10),  # Wed -> Sat
+            date(2026, 10, 12): date(2026, 10, 8),   # Mon -> Thu
+            date(2026, 10, 13): date(2026, 10, 9),   # Tue -> Fri
+            date(2026, 10, 15): date(2026, 10, 12),  # Thu -> Mon
+            date(2026, 10, 16): date(2026, 10, 13),  # Fri -> Tue
+            date(2026, 10, 17): date(2026, 10, 14),  # Sat -> Wed
+            date(2026, 10, 18): date(2026, 10, 15),  # Sun -> Thu
+        }
+        for sent_on, expected in cases.items():
+            result = monitor.prior_working_day(sent_on)
+            self.assertEqual(result, expected, sent_on)
+            self.assertNotEqual(result.weekday(), 6)
+
+    def test_table_has_the_extra_column_and_na_for_missing_data(self):
+        rows = [
+            {"location": "GOA", "responsible_person": "Rakesh", "pending": 5},
+            {"location": "WADA", "responsible_person": "Vishal", "pending": 1},
+        ]
+        prior = (date(2026, 10, 10), {"goa": 0})
+        html_out = monitor._table_html(rows, date(2026, 10, 14), prior)
+        self.assertIn("Total Pending 3 days ago (10-10-2026)", html_out)
+        self.assertIn("colspan='4'", html_out)
+        self.assertEqual(html_out.count("N/A"), 1)  # WADA had no figure that day
+        self.assertNotIn("3 days ago", monitor._table_html(rows, date(2026, 10, 14)))
+
+    def test_whole_column_is_na_when_no_check_was_stored_that_day(self):
+        rows = [{"location": "GOA", "responsible_person": "Rakesh", "pending": 5}]
+        out = monitor._table_html(rows, date(2026, 10, 14), (date(2026, 10, 10), None))
+        self.assertEqual(out.count("N/A"), 2)  # the row and the grand total
+
+    def test_previous_pending_uses_last_complete_check_of_that_ist_day(self):
+        engine = create_engine("sqlite:///:memory:")
+        InvoiceBookingTrackerCheck.__table__.create(engine)
+        db = sessionmaker(bind=engine)()
+        try:
+            def rows(n):
+                return json.dumps([{"location": "Goa", "responsible_person": "R", "pending": n, "records_scanned": 1, "pages_scanned": 1}])
+            # 10-Oct IST day = 09-Oct 18:30 UTC .. 10-Oct 18:30 UTC
+            db.add_all([
+                InvoiceBookingTrackerCheck(id=1, trigger="manual", status="success", result_json=rows(1), checked_at=datetime(2026, 10, 9, 18, 0)),    # 9-Oct IST
+                InvoiceBookingTrackerCheck(id=2, trigger="manual", status="success", result_json=rows(4), checked_at=datetime(2026, 10, 10, 3, 0)),    # 10-Oct 08:30 IST
+                InvoiceBookingTrackerCheck(id=3, trigger="scheduled", status="success", result_json=rows(6), checked_at=datetime(2026, 10, 10, 9, 0)),  # 10-Oct 14:30 IST (last of day)
+                InvoiceBookingTrackerCheck(id=4, trigger="manual", status="error", result_json=None, checked_at=datetime(2026, 10, 10, 12, 0)),
+                InvoiceBookingTrackerCheck(id=5, trigger="manual", status="success", result_json=rows(9), checked_at=datetime(2026, 10, 10, 19, 0)),   # 11-Oct IST
+            ])
+            db.commit()
+            target, values = monitor.previous_pending(db, date(2026, 10, 14))
+            self.assertEqual(target, date(2026, 10, 10))
+            self.assertEqual(values, {"goa": 6})
+            _, none_values = monitor.previous_pending(db, date(2026, 10, 20))  # 3 days back = 16-Oct
+            self.assertIsNone(none_values)
+        finally:
+            db.close()
+            engine.dispose()
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -798,13 +798,7 @@
    "sharing_group": null
   },
   {
-   "name": "Rdc Concrete (India) Pvt Ltd",
-   "location": null,
-   "cf_location": null,
-   "sharing_group": "RDC"
-  },
-  {
-   "name": "RDC CONCRETE (INDIA) Pvt Ltd -ICD",
+   "name": "RDC Concrete (India) Pvt Ltd",
    "location": null,
    "cf_location": null,
    "sharing_group": "RDC"
@@ -1099,7 +1093,7 @@
   },
   {
    "desc_key": "CHQ DEP - TRANSFER OW 1 - MUMBAI CLEARIN: RDC CONCRETE (INDIA) :HDFC BANK LTD",
-   "party": "Rdc Concrete (India) Pvt Ltd"
+   "party": "RDC Concrete (India) Pvt Ltd"
   },
   {
    "desc_key": "CR - CHQ - AMT - 6 - RTGS/FT CR - RAGHAVA HIGHRISE PROJECTS",
@@ -1203,11 +1197,11 @@
   },
   {
    "desc_key": "FT - RDC CONCRETE INDIA LIMITED",
-   "party": "Rdc Concrete (India) Pvt Ltd"
+   "party": "RDC Concrete (India) Pvt Ltd"
   },
   {
    "desc_key": "FT - RDC ICD HDFC CC",
-   "party": "RDC CONCRETE (INDIA) Pvt Ltd -ICD"
+   "party": "RDC Concrete (India) Pvt Ltd"
   },
   {
    "desc_key": "FT - SAI INDUSTRIES",
@@ -1723,7 +1717,7 @@
   },
   {
    "desc_key": "RTGS CR - RDC CONCRETE INDIA LIMITED",
-   "party": "RDC CONCRETE (INDIA) Pvt Ltd -ICD"
+   "party": "RDC Concrete (India) Pvt Ltd"
   },
   {
    "desc_key": "RTGS DR - AMBUJA - CBX INTERNET",

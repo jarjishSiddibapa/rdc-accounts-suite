@@ -184,6 +184,7 @@ def _job_unaccounted(
     paths: list,
     output_path: str,
     download_name: str,
+    allow_unmapped: bool = False,
     progress_cb=None,
 ) -> dict:
     if progress_cb:
@@ -198,13 +199,15 @@ def _job_unaccounted(
         )
         if unmapped:
             log_messages.append(("warn", f"Unmapped supplier sites: {len(unmapped)}"))
-            return {
-                "needs_mapping_fix": True,
-                "total_rows": total_rows,
-                "input_cols": input_cols,
-                "unmapped_sites": unmapped,
-                "log": log_messages,
-            }
+            if not allow_unmapped:
+                return {
+                    "needs_mapping_fix": True,
+                    "total_rows": total_rows,
+                    "input_cols": input_cols,
+                    "unmapped_sites": unmapped,
+                    "log": log_messages,
+                }
+            log_messages.append(("warn", "Writing the report anyway - unmapped sites keep a blank Location."))
         run_cpu_phase(_cpu_phase_write_unaccounted, df, output_path, progress_cb=progress_cb)
     finally:
         for path in paths:
@@ -213,11 +216,12 @@ def _job_unaccounted(
         progress_cb(0.95, "Report ready")
     return {
         "needs_mapping_fix": False,
+        "allowed_unmapped": bool(unmapped),
         "total_rows": total_rows,
         "input_cols": input_cols,
         "matched": matched,
         "unmatched": total_rows - matched,
-        "unmapped_sites": [],
+        "unmapped_sites": unmapped,
         "output_path": output_path,
         "download_name": download_name,
         "log": log_messages,
@@ -229,6 +233,7 @@ def _job_mrn(
     exclude_periods: set,
     output_path: str,
     download_name: str,
+    allow_unmapped: bool = False,
     progress_cb=None,
 ) -> dict:
     if progress_cb:
@@ -244,13 +249,15 @@ def _job_mrn(
         )
         if unmapped:
             log_messages.append(("warn", f"Unmapped supplier sites: {len(unmapped)}"))
-            return {
-                "needs_mapping_fix": True,
-                "total_rows": total_rows,
-                "input_cols": input_cols,
-                "unmapped_sites": unmapped,
-                "log": log_messages,
-            }
+            if not allow_unmapped:
+                return {
+                    "needs_mapping_fix": True,
+                    "total_rows": total_rows,
+                    "input_cols": input_cols,
+                    "unmapped_sites": unmapped,
+                    "log": log_messages,
+                }
+            log_messages.append(("warn", "Writing the report anyway - unmapped sites keep a blank Location."))
         run_cpu_phase(_cpu_phase_write_mrn, df, output_path, progress_cb=progress_cb)
     finally:
         Path(path).unlink(missing_ok=True)
@@ -258,11 +265,12 @@ def _job_mrn(
         progress_cb(0.95, "Report ready")
     return {
         "needs_mapping_fix": False,
+        "allowed_unmapped": bool(unmapped),
         "total_rows": total_rows,
         "input_cols": input_cols,
         "matched": matched,
         "unmatched": total_rows - matched,
-        "unmapped_sites": [],
+        "unmapped_sites": unmapped,
         "output_path": output_path,
         "download_name": download_name,
         "log": log_messages,
@@ -276,6 +284,7 @@ def _job_po(
     fuzzy_threshold: float,
     output_path: str,
     download_name: str,
+    allow_unmapped: bool = False,
     progress_cb=None,
 ) -> dict:
     if progress_cb:
@@ -291,13 +300,15 @@ def _job_po(
         )
         if unmapped:
             log_messages.append(("warn", f"Unmapped supplier sites: {len(unmapped)}"))
-            return {
-                "needs_mapping_fix": True,
-                "total_rows": total_rows,
-                "input_cols": input_cols,
-                "unmapped_sites": unmapped,
-                "log": log_messages,
-            }
+            if not allow_unmapped:
+                return {
+                    "needs_mapping_fix": True,
+                    "total_rows": total_rows,
+                    "input_cols": input_cols,
+                    "unmapped_sites": unmapped,
+                    "log": log_messages,
+                }
+            log_messages.append(("warn", "Writing the report anyway - unmapped sites are listed on their own sheet."))
         run_cpu_phase(
             _cpu_phase_write_po, main_df, moved_df, unmapped_df, output_path, progress_cb=progress_cb,
         )
@@ -307,11 +318,12 @@ def _job_po(
         progress_cb(0.95, "Report ready")
     return {
         "needs_mapping_fix": False,
+        "allowed_unmapped": bool(unmapped),
         "total_rows": total_rows,
         "input_cols": input_cols,
         "matched": matched,
         "unmatched": total_rows - matched,
-        "unmapped_sites": [],
+        "unmapped_sites": unmapped,
         "output_path": output_path,
         "download_name": download_name,
         "log": log_messages,
@@ -323,6 +335,7 @@ def _job_po(
 @router.post("/unaccounted/process")
 async def process_unaccounted(
     files: list[UploadFile] = File(...),
+    allow_unmapped: bool = Form(False),
     user=Depends(get_current_user),
 ):
     paths = [str(await _save_upload(f)) for f in files]
@@ -334,6 +347,7 @@ async def process_unaccounted(
         paths,
         output_path,
         f"{stem}_Unaccounted_Transactions.xlsx",
+        allow_unmapped=allow_unmapped,
         owner_id=user.id,
     )
     return {"job_id": job_id}
@@ -343,6 +357,7 @@ async def process_unaccounted(
 async def process_mrn(
     file: UploadFile = File(...),
     exclude_periods: str = Form(""),
+    allow_unmapped: bool = Form(False),
     user=Depends(get_current_user),
 ):
     path = str(await _save_upload(file))
@@ -368,6 +383,7 @@ async def process_mrn(
         excluded,
         output_path,
         f"{stem}_Pending_MRN.xlsx",
+        allow_unmapped=allow_unmapped,
         owner_id=user.id,
     )
     return {"job_id": job_id}
@@ -379,6 +395,7 @@ async def process_po(
     exclude_months: str = Form(""),
     keywords: str = Form(""),
     fuzzy_threshold: Optional[float] = Form(None),
+    allow_unmapped: bool = Form(False),
     user=Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -410,6 +427,7 @@ async def process_po(
         threshold,
         output_path,
         f"{stem}_Uninvoiced_Expense_PO.xlsx",
+        allow_unmapped=allow_unmapped,
         owner_id=user.id,
     )
     return {"job_id": job_id}

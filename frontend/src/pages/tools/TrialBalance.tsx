@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   AlertTriangle,
   CheckCircle2,
+  Download,
   FileSpreadsheet,
   ListChecks,
   RefreshCw,
@@ -77,12 +78,14 @@ function MissingCodesFix({
   knownLocationNames,
   knownRegions,
   onRegenerate,
+  onDownloadAnyway,
   regenerating,
 }: {
   codes: string[]
   knownLocationNames: string[]
   knownRegions: string[]
   onRegenerate: () => void
+  onDownloadAnyway: () => void
   regenerating: boolean
 }) {
   const [forms, setForms] = useState<Record<string, { location_name: string; region: string }>>({})
@@ -121,7 +124,8 @@ function MissingCodesFix({
       <p className="text-sm text-ink-dim">
         These Location Codes had no Location Name / Region mapped. Enter both for each, then
         generate the report. Accounts Incharge is filled in automatically from the Region
-        Incharge table. Nothing is written until every mapping is resolved.
+        Incharge table. Missing a few? Use Download anyway: the report is written now and those
+        codes stay blank.
       </p>
       {error && <ErrorBanner>{error}</ErrorBanner>}
       <div className="flex flex-col gap-2">
@@ -193,7 +197,15 @@ function MissingCodesFix({
         onPageChange={pagination.setPage}
         onPageSizeChange={pagination.setPageSize}
       />
-      <div className="flex justify-stretch sm:justify-end">
+      <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+        <Button
+          variant="secondary"
+          icon={<Download className="h-4 w-4" />}
+          loading={regenerating}
+          onClick={onDownloadAnyway}
+        >
+          Download anyway
+        </Button>
         <Button
           variant="primary"
           icon={<RefreshCw className="h-4 w-4" />}
@@ -214,11 +226,13 @@ function MissingAccountHoFix({
   codes,
   knownHoPersons,
   onRegenerate,
+  onDownloadAnyway,
   regenerating,
 }: {
   codes: string[]
   knownHoPersons: string[]
   onRegenerate: () => void
+  onDownloadAnyway: () => void
   regenerating: boolean
 }) {
   const [forms, setForms] = useState<Record<string, string>>({})
@@ -254,7 +268,8 @@ function MissingAccountHoFix({
       </div>
       <p className="text-sm text-ink-dim">
         These Account Codes had no Head Office Assigned Person mapped. Enter a name for each,
-        then generate the report. Nothing is written until every mapping is resolved.
+        then generate the report. Missing a few? Use Download anyway: the report is written now
+        and those accounts keep a blank Head Office person.
       </p>
       {error && <ErrorBanner>{error}</ErrorBanner>}
       <div className="flex flex-col gap-2">
@@ -302,7 +317,15 @@ function MissingAccountHoFix({
         onPageChange={pagination.setPage}
         onPageSizeChange={pagination.setPageSize}
       />
-      <div className="flex justify-stretch sm:justify-end">
+      <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+        <Button
+          variant="secondary"
+          icon={<Download className="h-4 w-4" />}
+          loading={regenerating}
+          onClick={onDownloadAnyway}
+        >
+          Download anyway
+        </Button>
         <Button
           variant="primary"
           icon={<RefreshCw className="h-4 w-4" />}
@@ -454,6 +477,7 @@ export default function TrialBalance() {
   const [uploadError, setUploadError] = useState<string | null>(null)
 
   const [token, setToken] = useState<string | null>(null)
+  const autoDownload = useRef(false)   // "Download anyway": save the report as soon as it is written
   const [rawRowCount, setRawRowCount] = useState(0)
   const [accounts, setAccounts] = useState<AccountOption[]>([])
   const [selected, setSelected] = useState<Record<string, boolean>>({})
@@ -541,8 +565,9 @@ export default function TrialBalance() {
     setSelected({})
   }
 
-  async function handleProcess() {
+  async function handleProcess(allowUnmapped = false) {
     if (!token) return
+    autoDownload.current = allowUnmapped
     setSubmitting(true)
     setProcessError(null)
     setResult(null)
@@ -555,6 +580,7 @@ export default function TrialBalance() {
       const res = await post<{ job_id: string }>(`${BASE}/process`, {
         token,
         account_codes: accountCodes,
+        allow_unmapped: allowUnmapped,
       })
       setJobId(res.job_id)
       // submitting stays true until the background job itself settles
@@ -704,6 +730,8 @@ export default function TrialBalance() {
                 setResult(res ?? null)
                 if (res?.log) setActivityLog(res.log)
                 setSubmitting(false)
+                if (autoDownload.current && res && !res.needs_mapping_fix) handleDownloadReport()
+                autoDownload.current = false
               }}
               onError={(error) => {
                 setProcessError(error)
@@ -752,6 +780,7 @@ export default function TrialBalance() {
                   knownRegions={knownRegions}
                   regenerating={submitting}
                   onRegenerate={() => void handleProcess()}
+                  onDownloadAnyway={() => void handleProcess(true)}
                 />
               )}
 
@@ -761,6 +790,7 @@ export default function TrialBalance() {
                   knownHoPersons={knownHoPersons}
                   regenerating={submitting}
                   onRegenerate={() => void handleProcess()}
+                  onDownloadAnyway={() => void handleProcess(true)}
                 />
               )}
             </div>

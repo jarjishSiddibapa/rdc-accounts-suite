@@ -125,6 +125,19 @@ class RunCombinePreflightMappingCheckTests(unittest.TestCase):
         self.assertNotIn("output_path", result)
         self.assertFalse(output_path.exists())
 
+    def test_unresolved_state_codes_are_written_anyway_when_allowed(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / "092026_27ABCDE1234F1Z5_GSTR2B_28092026.xlsx"
+            Workbook().save(src)
+            output_path = Path(tmp) / "combined.xlsx"
+
+            result = run_combine([(src.name, str(src))], output_path, {}, _LogQueue(), allow_unresolved=True)
+
+            self.assertFalse(result["needs_mapping_fix"])
+            self.assertEqual(result["unresolved_state_codes"], [27])
+            self.assertTrue(result["allowed_unmapped"])
+            self.assertTrue(output_path.exists())
+
     def test_writes_the_workbook_when_every_state_code_is_known(self):
         with tempfile.TemporaryDirectory() as tmp:
             src = Path(tmp) / "092026_27ABCDE1234F1Z5_GSTR2B_28092026.xlsx"

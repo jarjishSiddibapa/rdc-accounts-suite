@@ -21,7 +21,7 @@ shared FastAPI backend:
 
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -78,7 +78,8 @@ class _LogQueue:
 
 # ── /combine job pipeline ──────────────────────────────────────────────────
 
-def _run_combine_job(file_pairs: list[tuple[str, str]], output_path: str, progress_cb=None) -> dict:
+def _run_combine_job(file_pairs: list[tuple[str, str]], output_path: str,
+                     allow_unmapped: bool = False, progress_cb=None) -> dict:
     """Runs in the background job pool (a plain thread, not tied to any
     request). Opens its own short-lived DB session via SessionLocal() rather
     than reusing a FastAPI-injected one: by the time this function actually
@@ -96,7 +97,8 @@ def _run_combine_job(file_pairs: list[tuple[str, str]], output_path: str, progre
         db.close()
 
     try:
-        result = combiner.run_combine(file_pairs, output_path, state_codes, log_q)
+        result = combiner.run_combine(file_pairs, output_path, state_codes, log_q,
+                                      allow_unresolved=allow_unmapped)
     finally:
         for _, path in file_pairs:
             Path(path).unlink(missing_ok=True)
@@ -112,6 +114,7 @@ def _run_combine_job(file_pairs: list[tuple[str, str]], output_path: str, progre
 @router.post("/combine")
 async def submit_combine(
     files: list[UploadFile] = File(...),
+    allow_unmapped: bool = Form(False),
     user: User = Depends(get_current_user),
 ):
     if not files:
@@ -131,6 +134,7 @@ async def submit_combine(
         _run_combine_job,
         file_pairs,
         str(output_path),
+        allow_unmapped=allow_unmapped,
         owner_id=user.id,
     )
     return {"job_id": job_id}

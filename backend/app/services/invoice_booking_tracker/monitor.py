@@ -23,7 +23,7 @@ from app.models import (
     InvoiceBookingTrackerNotification,
     InvoiceBookingTrackerSettings,
 )
-from app.regional import now_ist
+from app.regional import IST, now_ist
 from app.services.mailer_shared import send_mail
 
 logger = logging.getLogger(__name__)
@@ -155,34 +155,104 @@ def _business_date(value: date | None = None) -> str:
     return f"{current.day}{suffix} {current.strftime('%B %Y')}"
 
 
-def _table_html(rows: list[dict[str, Any]], on_date: date | None = None) -> str:
+PRIOR_WORKING_DAYS = 3
+PRIOR_COLUMN_LABEL = "Total Pending 3 days ago"
+
+
+def prior_working_day(from_date: date, days: int = PRIOR_WORKING_DAYS) -> date:
+    """The date `days` working days (Monday-Saturday) before `from_date`;
+    Sundays are never counted. From a Wednesday, 3 days back is Saturday."""
+    current = from_date
+    remaining = days
+    while remaining:
+        current -= timedelta(days=1)
+        if current.weekday() != 6:
+            remaining -= 1
+    return current
+
+
+def previous_pending(db: Session, on_date: date | None = None) -> tuple[date, dict[str, int] | None]:
+    """(date, {location key: pending}) from the last complete successful check
+    made on the working day 3 days before `on_date` (IST). The map is None when
+    no check was stored that day, so callers can show N/A rather than guess."""
+    target = prior_working_day(on_date or now_ist().date())
+    day_start = datetime.combine(target, datetime.min.time(), tzinfo=IST)
+    start_utc = day_start.astimezone(UTC).replace(tzinfo=None)
+    end_utc = (day_start + timedelta(days=1)).astimezone(UTC).replace(tzinfo=None)
+    candidates = (
+        db.query(InvoiceBookingTrackerCheck)
+        .filter(
+            InvoiceBookingTrackerCheck.is_deleted.is_(False),
+            InvoiceBookingTrackerCheck.status == "success",
+            InvoiceBookingTrackerCheck.result_json.isnot(None),
+            InvoiceBookingTrackerCheck.checked_at >= start_utc,
+            InvoiceBookingTrackerCheck.checked_at < end_utc,
+        )
+        .order_by(InvoiceBookingTrackerCheck.checked_at.desc(), InvoiceBookingTrackerCheck.id.desc())
+    )
+    for candidate in candidates:
+        try:
+            parsed = json.loads(candidate.result_json or "")
+        except (TypeError, ValueError):
+            continue
+        if isinstance(parsed, list) and parsed and all(
+            isinstance(r, dict) and isinstance(r.get("pending"), int) and isinstance(r.get("location"), str)
+            for r in parsed
+        ):
+            return target, {normalize_key(r["location"]): r["pending"] for r in parsed}
+    return target, None
+
+
+def _prior_for(row: dict[str, Any], previous: tuple[date, dict[str, int] | None] | None) -> int | None:
+    if previous is None or previous[1] is None:
+        return None
+    return previous[1].get(normalize_key(str(row["location"])))
+
+
+def _table_html(rows: list[dict[str, Any]], on_date: date | None = None, previous: tuple[date, dict[str, int] | None] | None = None) -> str:
     """Reproduce the original, proven manual tracker's exact look: a salmon
     title banner, white header row, black grid lines, "-" for zero, and a
     peach grand-total row - the same palette as the Excel workbook used to
     use. No explicit font-family is set so it inherits the mail client's
-    default serif font, matching the reference exactly."""
+    default serif font, matching the reference exactly.
+
+    With `previous` (see previous_pending) a "Total Pending 3 days ago (date)"
+    column is added; "N/A" marks a location/day with no stored check."""
     current = on_date or now_ist().date()
     header_date = current.strftime("%d-%m-%Y")
     title = f"UF PENDING INVOICE BOOKING TRACKER AS ON {header_date}"
+    cell = "padding:6px 10px;border:1px solid #000000;text-align:center;color:#000000"
+
+    def prior_cell(row: dict[str, Any]) -> str:
+        value = _prior_for(row, previous)
+        return f"<td style='{cell}'>{'N/A' if value is None else (value or '-')}</td>"
+
     body = "".join(
         "<tr>"
         f"<td style='padding:6px 10px;border:1px solid #000000;color:#203864'>{html.escape(str(row['location']))}</td>"
         f"<td style='padding:6px 10px;border:1px solid #000000;color:#203864'>{html.escape(str(row['responsible_person']))}</td>"
-        f"<td style='padding:6px 10px;border:1px solid #000000;text-align:center;color:#000000'>{row['pending'] or '-'}</td>"
-        "</tr>"
+        f"<td style='{cell}'>{row['pending'] or '-'}</td>"
+        + (prior_cell(row) if previous is not None else "")
+        + "</tr>"
         for row in rows
     )
     total = sum(int(row["pending"]) for row in rows)
+    columns = 4 if previous is not None else 3
+    prior_header = prior_total = ""
+    if previous is not None:
+        prior_header = f"<th style='padding:6px 10px;border:1px solid #000000;text-align:center'>{PRIOR_COLUMN_LABEL} ({previous[0].strftime('%d-%m-%Y')})</th>"
+        prior_sum = "N/A" if previous[1] is None else sum(_prior_for(row, previous) or 0 for row in rows)
+        prior_total = f"<td style='padding:6px 10px;border:1px solid #000000;text-align:center'>{prior_sum}</td>"
     return (
         "<table style='border-collapse:collapse;font-size:13px'>"
-        f"<tr><td colspan='3' style='padding:10px;border:1px solid #c98a5e;background:#F4B183;color:#000000;font-weight:bold;text-align:center'>{html.escape(title)}</td></tr>"
+        f"<tr><td colspan='{columns}' style='padding:10px;border:1px solid #c98a5e;background:#F4B183;color:#000000;font-weight:bold;text-align:center'>{html.escape(title)}</td></tr>"
         "<tr style='background:#ffffff'>"
         "<th style='padding:6px 10px;border:1px solid #000000;text-align:left'>Locations</th>"
         "<th style='padding:6px 10px;border:1px solid #000000;text-align:left'>Responsible Person</th>"
         "<th style='padding:6px 10px;border:1px solid #000000;text-align:center'>Total Pending</th>"
-        f"</tr>{body}"
+        f"{prior_header}</tr>{body}"
         "<tr style='background:#FBE5D6;font-weight:bold'><td colspan='2' style='padding:6px 10px;border:1px solid #000000;text-align:center'>Grand Total</td>"
-        f"<td style='padding:6px 10px;border:1px solid #000000;text-align:center'>{total}</td></tr>"
+        f"<td style='padding:6px 10px;border:1px solid #000000;text-align:center'>{total}</td>{prior_total}</tr>"
         "</table>"
     )
 
@@ -199,12 +269,12 @@ def _signature_html(signature: str | None) -> str:
     )
 
 
-def render_templates(subject_template: str, body_template: str, rows: list[dict[str, Any]], on_date: date | None = None, signature: str | None = None) -> tuple[str, str]:
+def render_templates(subject_template: str, body_template: str, rows: list[dict[str, Any]], on_date: date | None = None, signature: str | None = None, previous: tuple[date, dict[str, int] | None] | None = None) -> tuple[str, str]:
     values = {
         "date": _business_date(on_date),
         "total_pending": str(sum(int(row["pending"]) for row in rows)),
         "location_count": str(len(rows)),
-        "tracker_table": _table_html(rows, on_date),
+        "tracker_table": _table_html(rows, on_date, previous),
     }
     subject = subject_template.format_map({**values, "tracker_table": ""})
     marker = "__TRACKER_TABLE__"
@@ -736,7 +806,8 @@ def run_check_job(trigger: str = "scheduled", progress_cb=None) -> dict[str, Any
                 today = now_ist().date()
                 key = f"scheduled:{today.isoformat()}"
                 notification = db.query(InvoiceBookingTrackerNotification).filter_by(notification_key=key).first()
-                subject, body = render_templates(settings.subject_template, settings.body_template, rows, today, settings.signature)
+                previous = previous_pending(db, today)
+                subject, body = render_templates(settings.subject_template, settings.body_template, rows, today, settings.signature, previous)
                 filename = f"Ultrafine Pending Invoice Booking Tracker as on {today.strftime('%d.%m.%Y')}.xlsx"
                 if notification is None:
                     notification = InvoiceBookingTrackerNotification(notification_key=key, check_id=check.id, subject=subject, body=body, to_recipients=settings.mail_to or "[]", cc_recipients=settings.mail_cc or "[]", result_json=json.dumps(rows, ensure_ascii=False), attachment_filename=filename, status="pending")

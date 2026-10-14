@@ -20,7 +20,7 @@ from openpyxl.utils import get_column_letter
 
 from app.services.xlsx_formula_cache import cache_formula_values, inject_cached_values
 
-from .resolver import Allocation, Maps
+from .resolver import ISSUE_TEXT, Allocation, Maps
 from .summary import MonthFigures, evaluate_amount, is_plain_number
 
 _HEADER_FILL = PatternFill("solid", fgColor="1F3A5F")
@@ -28,6 +28,7 @@ _HEADER_FONT = Font(bold=True, color="FFFFFF")
 _TITLE_FONT = Font(bold=True, size=12)
 _BOLD = Font(bold=True)
 _SUBTOTAL_FILL = PatternFill("solid", fgColor="E8EEF6")
+_UNMAPPED_FILL = PatternFill("solid", fgColor="FFF1D6")
 _THIN = Side(style="thin", color="BBBBBB")
 _BOX = Border(left=_THIN, right=_THIN, top=_THIN, bottom=_THIN)
 _DATETIME_FORMAT = "dd/mm/yyyy hh:mm:ss"
@@ -55,6 +56,9 @@ def _write_ledger(ws, rows: list[Allocation], payments: bool) -> tuple[int, str]
         if payments
         else ["Date", "Description", "Name", "Amount", "Tally Location", "CF Location"]
     )
+    flagged = any(a.issues for a in rows)   # written "anyway": say what is missing, line by line
+    if flagged:
+        headers.append("Remark")
     for offset, header in enumerate(headers):
         ws.cell(row=3, column=2 + offset, value=header)
     _style_header(ws, 3, 2, 1 + len(headers))
@@ -64,8 +68,12 @@ def _write_ledger(ws, rows: list[Allocation], payments: bool) -> tuple[int, str]
         values = [alloc.txn_dt, alloc.description, alloc.name, float(alloc.amount)]
         values += [alloc.reference_no, alloc.location, alloc.cf_location] if payments \
             else [alloc.location, alloc.cf_location]
+        if flagged:
+            values.append("; ".join(ISSUE_TEXT.get(code, code) for code in alloc.issues))
         for offset, value in enumerate(values):
-            ws.cell(row=row_number, column=2 + offset, value=value)
+            cell = ws.cell(row=row_number, column=2 + offset, value=value)
+            if alloc.issues:
+                cell.fill = _UNMAPPED_FILL
         ws.cell(row=row_number, column=2).number_format = _DATETIME_FORMAT
         ws.cell(row=row_number, column=5).number_format = _MONEY
     last = max(row_number, 4)
@@ -74,6 +82,8 @@ def _write_ledger(ws, rows: list[Allocation], payments: bool) -> tuple[int, str]
     ws["E2"].number_format = _MONEY
     for column, width in zip("BCDEFGH", (20, 70, 42, 16, 22, 26, 28)):
         ws.column_dimensions[column].width = width
+    if flagged:
+        ws.column_dimensions[get_column_letter(1 + len(headers))].width = 36
     ws.freeze_panes = "B4"
     ws.auto_filter.ref = f"B3:{get_column_letter(1 + len(headers))}{last}"
     return last, "H" if payments else "G"
@@ -208,12 +218,34 @@ def _write_summary(ws, figures: MonthFigures, plan: list[dict], as_of: datetime,
         else:
             leaf_rows.append(row)
 
+    # Lines without a CF location belong to no row above. Show them on a row of
+    # their own so the Summary still adds up to the Payments / Receipts sheets.
+    unmapped_collected, unmapped_paid = figures.unmapped_lakhs()
+    if unmapped_collected or unmapped_paid:
+        row += 1
+        ws.cell(row=row, column=3, value="Not mapped")
+        ws.cell(row=row, column=4, value="Needs a CF location - see the Remark column")
+        ws.cell(row=row, column=5, value=0)
+        ws[f"F{row}"] = f'=SUMIF({receipts[0]},"",{receipts[1]})/100000'
+        ws[f"I{row}"] = f'=SUMIF({payments[0]},"",{payments[1]})/100000'
+        ws[f"K{row}"] = f"=E{row}+G{row}-I{row}-J{row}"
+        values[f"F{row}"], values[f"I{row}"] = unmapped_collected, unmapped_paid
+        values[f"K{row}"] = -unmapped_paid
+        for col in range(2, 12):
+            cell = ws.cell(row=row, column=col)
+            cell.border, cell.fill = _BOX, _UNMAPPED_FILL
+            if col >= 5:
+                cell.number_format = _LAKH
+        leaf_rows.append(row)
+
     row += 2
     total_row = row
     ws.cell(row=row, column=3, value="Total").font = _BOLD
     for col_letter, attr in (("E", "opening"), ("F", "collection"), ("G", "payable"), ("H", "reserve"),
                              ("I", "paid"), ("J", "statutory"), ("K", "closing")):
         total = sum((getattr(r, attr) or 0.0) for r in rows)
+        total += {"collection": unmapped_collected, "paid": unmapped_paid,
+                  "closing": -unmapped_paid}.get(attr, 0.0)
         refs = [f"{col_letter}{r}" for r in sorted(leaf_rows + subtotal_rows)]
         cell = ws[f"{col_letter}{row}"]
         cell.value = f"=SUM({','.join(refs)})" if refs else 0

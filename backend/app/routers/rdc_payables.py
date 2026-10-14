@@ -136,6 +136,7 @@ class TxnTypeOverrideBody(BaseModel):
 def _run_process_job(input_path: str, output_path: str,
                       cutoff_year: int, cutoff_month: int,
                       output_filename: str | None = None,
+                      allow_unmapped: bool = False,
                       progress_cb=None) -> dict:
     """Runs in the background job pool (a plain thread, not tied to any
     request) — mirrors the desktop app's _worker() in main.py and Flask
@@ -204,6 +205,7 @@ def _run_process_job(input_path: str, output_path: str,
                 missing_codes = unmapped_df["Vendor Site Code"].dropna().unique().tolist()
         if missing_codes:
             add_log("WARN", f"Unmapped site codes: {format_indian_number(len(missing_codes))}")
+        if missing_codes and not allow_unmapped:
             add_log("WARN", "Fix the mappings above and regenerate - report was not written yet.")
             return {
                 "needs_mapping_fix": True,
@@ -211,6 +213,8 @@ def _run_process_job(input_path: str, output_path: str,
                 "raw_row_count": raw_row_count,
                 "log": log,
             }
+        if missing_codes:
+            add_log("WARN", "Writing the report anyway - rows for unmapped site codes keep a blank Region.")
 
         matched_count = int((df["Region"] != "").sum()) if "Region" in df.columns else 0
         unmatched_count = len(df) - matched_count
@@ -243,9 +247,10 @@ def _run_process_job(input_path: str, output_path: str,
         progress_cb(1.0, "Report ready")
     return {
         "needs_mapping_fix": False,
+        "allowed_unmapped": bool(missing_codes),
         "output_path": str(output_path),
         "download_filename": filename,
-        "unmapped_vendor_sites": [],
+        "unmapped_vendor_sites": missing_codes,
         "row_count": len(df),
         "raw_row_count": raw_row_count,
         "matched_count": matched_count,
@@ -263,6 +268,7 @@ async def submit_process(
     cutoff_year: int = Form(...),
     cutoff_month: int = Form(...),
     output_filename: str | None = Form(None),
+    allow_unmapped: bool = Form(False),
     user: User = Depends(get_current_user),
 ):
     """Real signature behind this: processor.parse_html_report(file_path)
@@ -292,6 +298,7 @@ async def submit_process(
         cutoff_year,
         cutoff_month,
         download_filename,
+        allow_unmapped=allow_unmapped,
         owner_id=user.id,
     )
     return {"job_id": job_id}

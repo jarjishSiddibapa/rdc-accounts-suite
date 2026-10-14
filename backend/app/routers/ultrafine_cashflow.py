@@ -135,12 +135,13 @@ def _job_ingest(paths: list[str], names: list[str], user_id: int,
         db.close()
 
 
-def _job_generate(month: str, user_id: int, progress_cb=None, cancel_event=None) -> dict:
+def _job_generate(month: str, user_id: int, allow_unmapped: bool = False,
+                  progress_cb=None, cancel_event=None) -> dict:
     db = SessionLocal()
     try:
         if progress_cb:
             progress_cb(0.2, f"Building the {month} cashflow...")
-        result = generate_month(db, month, user_id)
+        result = generate_month(db, month, user_id, allow_unmapped=allow_unmapped)
         db.commit()
         return result
     finally:
@@ -160,8 +161,11 @@ async def upload_statements(files: list[UploadFile] = File(...), user: User = De
 
 
 @router.post("/months/{month}/generate")
-def generate(month: str, user: User = Depends(get_current_user)):
-    return {"job_id": submit_job(_job_generate, _month(month), user.id, owner_id=user.id)}
+def generate(month: str, allow_unmapped: bool = False, user: User = Depends(get_current_user)):
+    """`allow_unmapped=true` writes the workbook even though some lines are not
+    mapped yet; those lines are highlighted and flagged inside it."""
+    return {"job_id": submit_job(_job_generate, _month(month), user.id,
+                                 allow_unmapped=allow_unmapped, owner_id=user.id)}
 
 
 @router.get("/jobs/{job_id}")
@@ -522,6 +526,7 @@ class ResolveKeyIn(BaseModel):
     desc_key: str
     party: str
     location: Optional[str] = None
+    cf_location: Optional[str] = None
 
 
 @router.get("/mappings/cf-locations")
@@ -637,7 +642,8 @@ def resolve_key(body: ResolveKeyIn, db: Session = Depends(get_db), user: User = 
     """Fix-up panel: point a description key at a party, creating the party
     (with its location) when it is new."""
     def apply(db_):
-        party = store.get_or_create_party(db_, body.party, body.location)
+        party = store.get_or_create_party(db_, body.party, body.location, body.cf_location,
+                                          require_placement=True)
         return store.save_alias(db_, None, body.desc_key, party.name)
     return _commit(db, apply)
 

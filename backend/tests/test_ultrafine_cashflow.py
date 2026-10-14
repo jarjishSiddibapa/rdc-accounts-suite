@@ -195,6 +195,15 @@ class ResolverTests(unittest.TestCase):
         self.assertEqual((rows[0].name, rows[0].location, rows[0].cf_location, rows[0].issues),
                          ("Vendor One - Crs", "Gujarat", "Main Operation", []))
 
+    def test_location_named_like_a_cf_location_falls_back_to_it(self):
+        store.save_location(self.db, None, "Capex", None)       # no default CF location set
+        store.save_cf_location(self.db, None, {"name": "Capex"})
+        store.save_party(self.db, None, "Plant Builder - Crs", "Capex", None, None)
+        store.save_alias(self.db, None, "NEFT - Plant Builder", "Plant Builder - Crs")
+        self.db.commit()
+        rows = self._month([_line(1, 10, 0, "D", 500, "NEFT - Plant Builder")])
+        self.assertEqual((rows[0].location, rows[0].cf_location, rows[0].issues), ("Capex", "Capex", []))
+
     def test_unknown_description_is_reported_not_guessed(self):
         rows = self._month([_line(1, 10, 0, "D", 500, "Someone New")])
         self.assertEqual(rows[0].issues, [resolver.ISSUE_NO_PARTY])
@@ -292,6 +301,27 @@ class MappingStoreTests(unittest.TestCase):
         with self.assertRaises(store.MappingError):
             store.archive_party(self.db, store.find_named(self.db, Party, "Vendor One - Crs").id)
 
+    def test_fix_panel_saves_the_cf_location_for_a_new_name_but_never_overwrites(self):
+        created = store.get_or_create_party(self.db, "Fresh Vendor", "Wada", "Flyash Business")
+        self.assertEqual((created.location_id is not None, created.cf_location_id is not None), (True, True))
+        existing = store.find_named(self.db, Party, "Vendor One - Crs")
+        kept_cf = existing.cf_location_id
+        store.get_or_create_party(self.db, "Vendor One - Crs", "Wada", "Flyash Business")
+        self.assertEqual(existing.cf_location_id, kept_cf)
+        with self.assertRaises(store.MappingError):
+            store.get_or_create_party(self.db, "Another", "Wada", "No Such CF")
+
+    def test_fix_panel_rules_new_names_need_both_known_names_need_neither(self):
+        with self.assertRaises(store.MappingError):
+            store.get_or_create_party(self.db, "Brand New Co", "Wada", None, require_placement=True)
+        with self.assertRaises(store.MappingError):
+            store.get_or_create_party(self.db, "Brand New Co", None, "Flyash Business", require_placement=True)
+        made = store.get_or_create_party(self.db, "Brand New Co", "Wada", "Flyash Business", require_placement=True)
+        self.assertIsNotNone(made.cf_location_id)
+        # a known, complete name needs nothing and is left exactly as it is
+        known = store.get_or_create_party(self.db, "Vendor One - Crs", None, None, require_placement=True)
+        self.assertEqual(known.id, store.find_named(self.db, Party, "Vendor One - Crs").id)
+
     def test_ratio_sets_must_total_one_hundred_percent(self):
         with self.assertRaises(store.MappingError) as ctx:
             store.save_ratio_set(self.db, None, "RDC", "2026-09-01T00:00",
@@ -367,6 +397,32 @@ class SummaryAndWorkbookTests(unittest.TestCase):
         self.assertEqual(result["status"], "needs_mapping_fix")
         self.assertEqual(result["unmapped"]["no_party"][0]["desc_key"], "MYSTERY PAYEE")
         self.assertIsNone(generate.STORAGE_DIR and next(iter(generate.STORAGE_DIR.glob("**/*.xlsx")), None))
+
+    def test_unmapped_lines_can_be_written_anyway_and_are_flagged(self):
+        self._upload([
+            _line(2, 10, 0, "C", 1_000_000, "CHQ DEP - RDC CONCRETE"),
+            _line(3, 10, 0, "D", 200_000, "NEFT - Vendor One"),
+            _line(4, 10, 0, "D", 500_000, "Mystery payee"),
+        ])
+        blocked = generate.generate_month(self.db, "2026-09", None)
+        self.assertEqual(blocked["status"], "needs_mapping_fix")
+
+        result = generate.generate_month(self.db, "2026-09", None, allow_unmapped=True)
+        self.db.commit()
+        self.assertEqual((result["status"], result["unmapped_count"]), ("generated", 1))
+        path = generate.STORAGE_DIR / "2026-09" / "UF_Cashflow_Sep_26.xlsx"
+        values = load_workbook(path, data_only=True)
+        payments, summary_sheet = values["Payments"], values["Summary"]
+        headers = [c.value for c in payments[3]]
+        self.assertEqual(headers[-1], "Remark")
+        flagged = [r for r in payments.iter_rows(min_row=4) if r[-1].value]
+        self.assertEqual(len(flagged), 1)
+        self.assertFalse(flagged[0][3].value)   # no name is left blank, never invented
+        rows = {summary_sheet.cell(r, 3).value: r for r in range(3, 14)}
+        # the unmapped 5.00 lakh gets its own row, so the Summary total still ties to the sheets
+        self.assertAlmostEqual(summary_sheet.cell(rows["Not mapped"], 9).value, 5.0)
+        self.assertAlmostEqual(summary_sheet.cell(rows["Total"], 9).value, 7.0)   # 2.00 + 5.00 paid
+        self.assertEqual(payments["E2"].value, 700_000)
 
     def test_workbook_has_live_formulas_cached_values_and_every_line(self):
         section = PlanSection(month="2026-09", block_no=1, title="Salaries", sort_order=0)
@@ -505,7 +561,8 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(unmapped["no_party"][0]["desc_key"], "MYSTERY PAYEE")
 
         # Fix it through the fix-up endpoint, regenerate, and fetch the stored workbook.
-        r.resolve_key(r.ResolveKeyIn(desc_key="Mystery payee", party="Mystery Co", location="Wada"),
+        r.resolve_key(r.ResolveKeyIn(desc_key="Mystery payee", party="Mystery Co", location="Wada",
+                                  cf_location="Main Operation"),
                       db=db, user=None)
         outcome = r._job_generate("2026-09", 1)
         self.assertEqual((outcome["status"], outcome["version"]), ("generated", 1))

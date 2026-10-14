@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   CheckCircle2,
   Download,
@@ -45,6 +45,7 @@ interface MissingLedger {
 
 interface ReportResult {
   needs_mapping_fix: boolean
+  allowed_unmapped?: boolean
   output_path?: string
   download_filename?: string
   sheet_name?: string
@@ -178,11 +179,13 @@ function MissingLedgerReview({
   rows,
   onSaved,
   onRegenerate,
+  onDownloadAnyway,
   regenerating,
 }: {
   rows: MissingLedger[]
   onSaved: () => Promise<void>
   onRegenerate: () => void
+  onDownloadAnyway: () => void
   regenerating: boolean
 }) {
   const [drafts, setDrafts] = useState<Record<string, MissingLedger>>({})
@@ -223,7 +226,7 @@ function MissingLedgerReview({
         <TriangleAlert className="mt-0.5 h-5 w-5 shrink-0 text-amber-500" />
         <div>
           <h3 className="font-display text-lg font-semibold text-ink">Review new ledger classifications</h3>
-          <p className="mt-1 text-sm leading-6 text-ink-dim">Nothing is written until every ledger below has a saved nature. Save the correct nature and row treatment for each, then generate the report.</p>
+          <p className="mt-1 text-sm leading-6 text-ink-dim">Save the correct nature and row treatment for each ledger below, then generate the report. Missing some? Use Download anyway: the report is written now using the guessed nature, and the ledgers are listed in a warning.</p>
         </div>
       </div>
       {error && <ErrorBanner className="mt-4">{error}</ErrorBanner>}
@@ -284,7 +287,15 @@ function MissingLedgerReview({
         onPageChange={pagination.setPage}
         onPageSizeChange={pagination.setPageSize}
       />
-      <div className="mt-4 flex justify-stretch sm:justify-end">
+      <div className="mt-4 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+        <Button
+          variant="secondary"
+          icon={<Download className="h-4 w-4" />}
+          loading={regenerating}
+          onClick={onDownloadAnyway}
+        >
+          Download anyway
+        </Button>
         <Button
           icon={<RefreshCw className="h-4 w-4" />}
           disabled={!allSaved}
@@ -302,6 +313,7 @@ export default function TrialBalanceFormatter() {
   const [activeTab, setActiveTab] = useState<'generate' | 'mappings'>('generate')
   const [file, setFile] = useState<File | null>(null)
   const [submitting, setSubmitting] = useState(false)
+  const autoDownload = useRef(false)   // "Download anyway": save the workbook as soon as it is written
   const [jobId, setJobId] = useState<string | null>(null)
   const [result, setResult] = useState<ReportResult | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -341,8 +353,9 @@ export default function TrialBalanceFormatter() {
     void loadMappings()
   }, [loadMappings])
 
-  async function generate() {
+  async function generate(allowUnmapped = false) {
     if (!file) return
+    autoDownload.current = allowUnmapped
     setSubmitting(true)
     setError(null)
     setResult(null)
@@ -350,6 +363,7 @@ export default function TrialBalanceFormatter() {
     try {
       const form = new FormData()
       form.append('file', file)
+      if (allowUnmapped) form.append('allow_unmapped', 'true')
       const response = await postForm<{ job_id: string }>(`${BASE}/process`, form)
       setJobId(response.job_id)
     } catch (err) {
@@ -366,11 +380,11 @@ export default function TrialBalanceFormatter() {
     setError(null)
   }
 
-  function downloadReport() {
+  function downloadReport(source?: ReportResult | null) {
     if (!jobId) return
     const anchor = document.createElement('a')
     anchor.href = apiUrl(`${BASE}/download/${jobId}`)
-    anchor.download = result?.download_filename ?? 'Ultrafine Trial Balance.xlsx'
+    anchor.download = (source ?? result)?.download_filename ?? 'Ultrafine Trial Balance.xlsx'
     document.body.appendChild(anchor)
     anchor.click()
     anchor.remove()
@@ -423,13 +437,17 @@ export default function TrialBalanceFormatter() {
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <h3 className="font-display text-lg font-semibold text-ink">Formatting progress</h3>
                   {result && !result.needs_mapping_fix && (
-                    <Button icon={<Download className="h-4 w-4" />} onClick={downloadReport}>Save / download workbook</Button>
+                    <Button icon={<Download className="h-4 w-4" />} onClick={() => downloadReport()}>Save / download workbook</Button>
                   )}
                 </div>
                 <ProgressPanel
                   jobId={jobId}
                   poller={pollJob}
-                  onDone={(next) => setResult(next ?? null)}
+                  onDone={(next) => {
+                    setResult(next ?? null)
+                    if (autoDownload.current && next && !next.needs_mapping_fix) downloadReport(next)
+                    autoDownload.current = false
+                  }}
                   onError={setError}
                   onCancel={() => post(`${BASE}/jobs/${jobId}/cancel`)}
                 />
@@ -461,6 +479,7 @@ export default function TrialBalanceFormatter() {
                         rows={result.needs_review}
                         onSaved={loadMappings}
                         onRegenerate={() => void generate()}
+                        onDownloadAnyway={() => void generate(true)}
                         regenerating={submitting}
                       />
                     ) : (

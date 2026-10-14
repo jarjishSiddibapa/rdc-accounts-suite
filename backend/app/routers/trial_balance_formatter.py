@@ -3,7 +3,7 @@
 from pathlib import Path
 import uuid
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -32,7 +32,8 @@ class NatureBody(BaseModel):
     is_subgroup: bool = False
 
 
-def _run_process_job(input_path: str, output_path: str, progress_cb=None) -> dict:
+def _run_process_job(input_path: str, output_path: str, allow_unmapped: bool = False,
+                     progress_cb=None) -> dict:
     """Durable worker entry point; reloads the nature mapping when execution begins."""
     log: list[tuple[str, str]] = []
 
@@ -50,6 +51,7 @@ def _run_process_job(input_path: str, output_path: str, progress_cb=None) -> dic
             input_path,
             output_path,
             nature_map,
+            allow_unmapped=allow_unmapped,
             progress_cb=progress_cb,
             log_cb=add_log,
         )
@@ -69,6 +71,7 @@ def _run_process_job(input_path: str, output_path: str, progress_cb=None) -> dic
 @router.post("/process")
 async def submit_process(
     file: UploadFile = File(...),
+    allow_unmapped: bool = Form(False),
     user: User = Depends(get_current_user),
 ):
     suffix = Path(file.filename or "").suffix.lower()
@@ -83,6 +86,7 @@ async def submit_process(
             _run_process_job,
             str(input_path),
             str(output_path),
+            allow_unmapped=allow_unmapped,
             owner_id=user.id,
         )
     except Exception:

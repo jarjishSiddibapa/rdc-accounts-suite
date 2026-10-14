@@ -62,6 +62,7 @@ class _LogQueue:
 # ── /process job pipeline ───────────────────────────────────────────────────
 
 def _run_process_job(input_path: str, output_path: str, as_on_date_str: Optional[str],
+                      allow_unmapped: bool = False,
                       progress_cb=None, cancel_event=None) -> dict:
     """Runs in a dedicated app.worker process (not tied to any request) -
     opens its own short-lived DB session since the request that queued the
@@ -99,6 +100,9 @@ def _run_process_job(input_path: str, output_path: str, as_on_date_str: Optional
         if validation_warnings:
             for warning in validation_warnings:
                 log_q.put(("warn", f"{warning['category']}: {len(warning['items'])} unmapped value(s)"))
+        if validation_warnings and allow_unmapped:
+            log_q.put(("warn", "Writing the report anyway - unmapped values stay blank."))
+        if validation_warnings and not allow_unmapped:
             log_q.put(("warn", "Fix the mappings above and regenerate - report was not written yet."))
             return {
                 "needs_mapping_fix": True,
@@ -131,6 +135,7 @@ def _run_process_job(input_path: str, output_path: str, as_on_date_str: Optional
 
     return {
         "needs_mapping_fix": False,
+        "allowed_unmapped": bool(validation_warnings),
         "output_path": str(output_path),
         "download_filename": filename,
         "as_on_date": as_on_date.isoformat(),
@@ -139,7 +144,7 @@ def _run_process_job(input_path: str, output_path: str, as_on_date_str: Optional
         "untagged_summary_row_count": int(len(df_untagged_summary)),
         "below_1k_ageing_row_count": int(len(df_below_1k_ageing)),
         "below_1k_summary_row_count": int(len(df_below_1k_summary)),
-        "validation_warnings": [],
+        "validation_warnings": validation_warnings,
         "log": log_q.messages,
     }
 
@@ -148,6 +153,7 @@ def _run_process_job(input_path: str, output_path: str, as_on_date_str: Optional
 async def submit_process(
     file: UploadFile = File(...),
     as_on_date: Optional[str] = Form(None),
+    allow_unmapped: bool = Form(False),
     user: User = Depends(get_current_user),
 ):
     if as_on_date:
@@ -164,6 +170,7 @@ async def submit_process(
         str(input_path),
         str(output_path),
         as_on_date,
+        allow_unmapped=allow_unmapped,
         owner_id=user.id,
     )
     return {"job_id": job_id}

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   CheckCircle2,
   Download,
@@ -36,6 +36,7 @@ const MAPPING_COLUMNS: MappingColumn[] = [
 
 interface ReportResult {
   needs_mapping_fix: boolean
+  allowed_unmapped?: boolean
   output_path?: string
   download_filename: string
   new_vendors_csv_path?: string | null
@@ -179,6 +180,7 @@ function NewVendorClassification({
   jobId,
   onMappingsChanged,
   onRegenerate,
+  onDownloadAnyway,
   regenerating,
 }: {
   result: ReportResult
@@ -186,6 +188,7 @@ function NewVendorClassification({
   jobId: string
   onMappingsChanged: () => Promise<void>
   onRegenerate: () => Promise<void>
+  onDownloadAnyway: () => Promise<void>
   regenerating: boolean
 }) {
   const [drafts, setDrafts] = useState<Record<string, ClassificationDraft>>({})
@@ -244,8 +247,9 @@ function NewVendorClassification({
           <div>
             <h3 className="font-display text-lg font-semibold text-ink">Classify new vendors</h3>
             <p className="mt-1 text-sm leading-6 text-ink-dim">
-              Nothing is written until every vendor below is classified. Save each mapping, then
-              generate the report using the same uploaded file.
+              Save a classification for each vendor below, then regenerate with the same uploaded file.
+              Missing some? Use Download anyway: the workbook is written now and those vendors keep
+              their guessed location with a blank type.
             </p>
           </div>
         </div>
@@ -348,7 +352,15 @@ function NewVendorClassification({
         />
       </div>
 
-      <div className="mt-4 flex justify-end">
+      <div className="mt-4 flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+        <Button
+          variant="secondary"
+          icon={<Download className="h-4 w-4" />}
+          loading={regenerating}
+          onClick={() => void onDownloadAnyway()}
+        >
+          Download anyway
+        </Button>
         <Button
           icon={<RotateCcw className="h-4 w-4" />}
           loading={regenerating}
@@ -367,6 +379,7 @@ export default function CreditorsAgeing() {
   const [file, setFile] = useState<File | null>(null)
   const [asOnDate, setAsOnDate] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const autoDownload = useRef(false)   // "Download anyway": save the workbook as soon as it is written
   const [jobId, setJobId] = useState<string | null>(null)
   const [result, setResult] = useState<ReportResult | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -405,8 +418,9 @@ export default function CreditorsAgeing() {
     void loadMappings()
   }, [loadMappings])
 
-  async function generate() {
+  async function generate(allowUnmapped = false) {
     if (!file) return
+    autoDownload.current = allowUnmapped
     setSubmitting(true)
     setError(null)
     setResult(null)
@@ -415,6 +429,7 @@ export default function CreditorsAgeing() {
       const form = new FormData()
       form.append('file', file)
       if (asOnDate) form.append('as_on_date', asOnDate)
+      if (allowUnmapped) form.append('allow_unmapped', 'true')
       const response = await postForm<{ job_id: string }>(`${BASE}/process`, form)
       setJobId(response.job_id)
     } catch (err) {
@@ -424,11 +439,11 @@ export default function CreditorsAgeing() {
     }
   }
 
-  function downloadReport() {
+  function downloadReport(source?: ReportResult | null) {
     if (!jobId) return
     const anchor = document.createElement('a')
     anchor.href = apiUrl(`${BASE}/download/${jobId}`)
-    anchor.download = result?.download_filename ?? 'Ultrafine Creditors Ageing.xlsx'
+    anchor.download = (source ?? result)?.download_filename ?? 'Ultrafine Creditors Ageing.xlsx'
     document.body.appendChild(anchor)
     anchor.click()
     anchor.remove()
@@ -510,13 +525,17 @@ export default function CreditorsAgeing() {
                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                   <h3 className="font-display text-lg font-semibold text-ink">Report progress</h3>
                   {result && !result.needs_mapping_fix && (
-                    <Button icon={<Download className="h-4 w-4" />} onClick={downloadReport}>Save / download workbook</Button>
+                    <Button icon={<Download className="h-4 w-4" />} onClick={() => downloadReport()}>Save / download workbook</Button>
                   )}
                 </div>
                 <ProgressPanel
                   jobId={jobId}
                   poller={pollJob}
-                  onDone={(next) => setResult(next ?? null)}
+                  onDone={(next) => {
+                    setResult(next ?? null)
+                    if (autoDownload.current && next && !next.needs_mapping_fix) downloadReport(next)
+                    autoDownload.current = false
+                  }}
                   onError={setError}
                   onCancel={() => post(`${BASE}/jobs/${jobId}/cancel`)}
                 />
@@ -552,7 +571,8 @@ export default function CreditorsAgeing() {
                         mappings={mappings}
                         jobId={jobId}
                         onMappingsChanged={loadMappings}
-                        onRegenerate={generate}
+                        onRegenerate={() => generate()}
+                        onDownloadAnyway={() => generate(true)}
                         regenerating={submitting}
                       />
                     ) : (
