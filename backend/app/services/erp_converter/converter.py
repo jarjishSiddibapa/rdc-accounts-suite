@@ -17,6 +17,8 @@ from pathlib import Path
 
 from .errors import ConversionError
 from .html_table_parser import HtmlReportParser
+from app.jobs import JobUserError
+from app.services import tabular_input
 from .xlsx_writer import DirectXlsxWriterError, OpenpyxlXlsxWriter, XlsxWriter
 from .io_retry import with_retry
 
@@ -35,6 +37,15 @@ def _read_head(path):
 
 def detect_kind(path):
     head = with_retry(lambda: _read_head(path), path, "read")
+    if head.startswith(XLSX_ZIP_SIGNATURE) or not head.lstrip().startswith(b"<"):
+        try:
+            sniffed = tabular_input.detect_format(path)
+        except JobUserError as exc:
+            raise ConversionError(str(exc)) from exc
+        if sniffed == "xlsb":
+            return "xlsb"
+        if sniffed == "csv" and b"<" not in head:
+            return "csv"
     if head.startswith(XLSX_ZIP_SIGNATURE):
         return "xlsx"
     if head.startswith(XLS_OLE_SIGNATURE):
@@ -53,6 +64,11 @@ def convert_file(input_path, output_path, progress_cb=None):
         _passthrough_xlsx(input_path, output_path, progress_cb)
     elif kind == "xls-binary":
         _convert_binary_xls(input_path, output_path, progress_cb)
+    elif kind in ("xlsb", "csv"):
+        _report(progress_cb, 0.1, f"Converting {kind.upper()} to .xlsx")
+        converted = tabular_input.to_xlsx(input_path, Path(output_path).parent)
+        shutil.move(str(converted), output_path)
+        _report(progress_cb, 1.0, "Done")
     else:
         raise ConversionError(f"Unrecognized file format: {input_path}")
     return kind

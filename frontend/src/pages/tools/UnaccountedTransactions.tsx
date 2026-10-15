@@ -41,6 +41,7 @@ import {
   getIndianMonthInputValue,
 } from '@/lib/regional'
 import { cn } from '@/utils/cn'
+import { EXCEL_ACCEPT } from '@/lib/fileTypes'
 
 const BASE = '/tools/unaccounted'
 
@@ -373,7 +374,7 @@ function UnaccountedTab({ knownLocations }: { knownLocations: string[] }) {
     <div className="flex flex-col gap-5">
       <FileDropzone
         multiple
-        accept=".xls,.xlsx,.htm,.html"
+        accept={EXCEL_ACCEPT}
         label="Drag & drop weekly export files here, or click to browse"
         hint="Multiple weekly exports are merged automatically"
         files={files}
@@ -508,7 +509,7 @@ function MrnTab({ knownLocations }: { knownLocations: string[] }) {
   return (
     <div className="flex flex-col gap-5">
       <FileDropzone
-        accept=".xls,.xlsx,.htm,.html"
+        accept={EXCEL_ACCEPT}
         label="Drag & drop the MRN export here, or click to browse"
         files={file ? [file] : []}
         onFilesSelected={(f) => void handleFileSelected(f)}
@@ -686,7 +687,7 @@ function PoTab({ knownLocations }: { knownLocations: string[] }) {
   return (
     <div className="flex flex-col gap-5">
       <FileDropzone
-        accept=".xls,.xlsx,.htm,.html"
+        accept={EXCEL_ACCEPT}
         label="Drag & drop the PO export here, or click to browse"
         files={file ? [file] : []}
         onFilesSelected={(f) => void handleFileSelected(f)}
@@ -1355,7 +1356,7 @@ function MailTab({
           </span>
           <FileDropzone
             multiple
-            accept=".xls,.xlsx,.htm,.html"
+            accept={EXCEL_ACCEPT}
             label="Drag & drop weekly export files, or click to browse"
             hint="Multiple weekly exports are merged automatically"
             files={uaFiles}
@@ -1371,7 +1372,7 @@ function MailTab({
             <FileText className="h-4 w-4 text-accent" /> Pending MRN
           </span>
           <FileDropzone
-            accept=".xls,.xlsx,.htm,.html"
+            accept={EXCEL_ACCEPT}
             label="Drag & drop the MRN export, or click to browse"
             files={mrnFile ? [mrnFile] : []}
             onFilesSelected={(f) => void handleMrnFileSelected(f)}
@@ -1421,7 +1422,7 @@ function MailTab({
             <FileText className="h-4 w-4 text-accent" /> Uninvoiced Expense PO
           </span>
           <FileDropzone
-            accept=".xls,.xlsx,.htm,.html"
+            accept={EXCEL_ACCEPT}
             label="Drag & drop the PO export, or click to browse"
             files={poFile ? [poFile] : []}
             onFilesSelected={(f) => void handlePoFileSelected(f)}

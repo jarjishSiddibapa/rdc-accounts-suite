@@ -23,6 +23,7 @@ import { usePagination } from '@/hooks/usePagination'
 import { ApiError, apiUrl, del, get, post, postForm, put } from '@/lib/api'
 import { formatIndianNumber } from '@/lib/regional'
 import { cn } from '@/utils/cn'
+import { EXCEL_ACCEPT } from '@/lib/fileTypes'
 
 const BASE = '/tools/unapplied-receipts'
 
@@ -543,7 +544,7 @@ export default function UnappliedReceipts() {
             <div className="flex flex-col gap-2">
               <span className="text-sm font-medium text-ink-dim">Unapplied Receipts Register export</span>
               <FileDropzone
-                accept=".xls,.xlsx,.xlsb,.htm,.html"
+                accept={EXCEL_ACCEPT}
                 label="Drag & drop the register export here, or click to browse"
                 files={mainFile ? [mainFile] : []}
                 onFilesSelected={handleMainFileSelected}
@@ -553,7 +554,7 @@ export default function UnappliedReceipts() {
             <div className="flex flex-col gap-2">
               <span className="text-sm font-medium text-ink-dim">Ageing export</span>
               <FileDropzone
-                accept=".xls,.xlsx,.xlsb,.htm,.html"
+                accept={EXCEL_ACCEPT}
                 label="Drag & drop the ageing export here, or click to browse"
                 files={ageingFile ? [ageingFile] : []}
                 onFilesSelected={handleAgeingFileSelected}

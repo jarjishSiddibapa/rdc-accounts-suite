@@ -23,6 +23,7 @@ import { usePagination } from '@/hooks/usePagination'
 import { ApiError, apiUrl, del, get, post, postForm, put } from '@/lib/api'
 import { formatIndianNumber } from '@/lib/regional'
 import { cn } from '@/utils/cn'
+import { EXCEL_ACCEPT } from '@/lib/fileTypes'
 
 const BASE = '/tools/untagged-invoices-report'
 
@@ -526,7 +527,7 @@ export default function UntaggedInvoicesReport() {
           <div className="flex flex-col gap-2">
             <span className="text-sm font-medium text-ink-dim">Aging export</span>
             <FileDropzone
-              accept=".xlsx"
+              accept={EXCEL_ACCEPT}
               label="Drag & drop the Aging export here, or click to browse"
               files={file ? [file] : []}
               onFilesSelected={handleFileSelected}

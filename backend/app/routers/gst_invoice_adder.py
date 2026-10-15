@@ -32,6 +32,7 @@ from app.config import (
 )
 from app.jobs import JobUserError, cancel_job, run_cpu_phase, submit_job, get_job
 from app.permissions import require_app_access
+from app.services import tabular_input
 from app.services.gst_invoice_adder import processor
 from app.uploads import save_upload
 
@@ -83,13 +84,12 @@ def _cpu_phase_write_output(input_path: str, output_path: str, df, inv_no_col_pd
     router's real _LogQueue, which isn't picklable) - its messages are
     merged into the outer log after this call returns."""
     log_q = _CollectingLogQueue()
-    ext = input_path.rsplit(".", 1)[-1].lower()
-    if ext == "xlsb":
+    if tabular_input.detect_format(input_path) == "xlsb":
         total, found, blank = processor.build_gst_report_pure_python(
             df, inv_no_col_pd, inv_date_col_pd, gst_map, output_path, log_q,
         )
     else:
-        header_row_1based = processor.SKIP_ROWS + 1
+        header_row_1based = processor.detect_header_index(input_path) + 1
         total, found, blank = processor.insert_gst_column(
             wb_path=input_path, output_path=output_path,
             gst_map=gst_map, header_row=header_row_1based, log_q=log_q,
@@ -117,9 +117,13 @@ def _job_enrich(input_path: str, output_path: str, download_name: str,
     connection pool - stays on this thread exactly as before, since it's
     I/O-bound and gains nothing from a separate process."""
     log_q = _LogQueue()
+    original_input = input_path
     try:
         if progress_cb:
             progress_cb(0.02, "Reading input file...")
+        # .xlsx and .xlsb are handled natively; .xls / .csv / ERP-HTML become an equivalent .xlsx first
+        if tabular_input.detect_format(input_path) not in ("xlsx", "xlsb"):
+            input_path = str(tabular_input.to_xlsx(input_path, Path(input_path).parent, log_q))
         df, inv_no_col_pd, inv_date_col_pd, pairs_unique = run_cpu_phase(
             _cpu_phase_read_and_extract, input_path,
         )
@@ -162,6 +166,7 @@ def _job_enrich(input_path: str, output_path: str, download_name: str,
             progress_cb(1.0, "Done")
     finally:
         Path(input_path).unlink(missing_ok=True)
+        Path(original_input).unlink(missing_ok=True)
 
     return {
         "total": total,

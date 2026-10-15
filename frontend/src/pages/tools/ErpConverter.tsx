@@ -21,6 +21,7 @@ import { Pagination } from '@/components/Pagination'
 import { usePagination } from '@/hooks/usePagination'
 import { ApiError, apiUrl, get, post, postBlob, postForm } from '@/lib/api'
 import { formatIndianNumber, formatIndianTime } from '@/lib/regional'
+import { EXCEL_ACCEPT } from '@/lib/fileTypes'
 
 interface ConvertJobEntry {
   filename: string
@@ -194,9 +195,9 @@ export default function ErpConverter() {
 
           <FileDropzone
             multiple
-            accept=".xls,.xlsx,.htm,.html"
+            accept={EXCEL_ACCEPT}
             label="Drag & drop ERP export files here, or click to browse"
-            hint="Supports .xls, .xlsx, .htm, and .html files, including multiple files at once"
+            hint="Supports .xls, .xlsx, .xlsb, .csv, .htm, and .html files, including multiple files at once"
             files={files}
             onFilesSelected={addFiles}
             onRemove={(index) => setFiles((previous) => previous.filter((_, current) => current !== index))}
@@ -213,7 +214,7 @@ export default function ErpConverter() {
               ref={folderInputRef}
               type="file"
               multiple
-              accept=".xls,.xlsx,.htm,.html"
+              accept={EXCEL_ACCEPT}
               {...({ webkitdirectory: '', directory: '' } as InputHTMLAttributes<HTMLInputElement>)}
               className="hidden"
               onChange={(event) => {

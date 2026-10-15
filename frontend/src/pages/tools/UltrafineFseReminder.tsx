@@ -26,6 +26,7 @@ import { DatePicker } from '@/components/TemporalPicker'
 import { usePagination } from '@/hooks/usePagination'
 import { ApiError, apiUrl, del, get, post, postForm, put } from '@/lib/api'
 import { formatIndianDate, formatIndianNumber, getIndianDateInputValue } from '@/lib/regional'
+import { EXCEL_WORKBOOK_ACCEPT } from '@/lib/fileTypes'
 
 const BASE = '/tools/ultrafine-fse-reminder'
 
@@ -598,7 +599,7 @@ export default function UltrafineFseReminder() {
               </a>
             </div>
             <FileDropzone
-              accept=".xls,.xlsx"
+              accept={EXCEL_WORKBOOK_ACCEPT}
               label="Drag & drop the tracker workbook here, or click to browse"
               hint="Must contain a 'Coll vs Target' sheet with FSE, Party's Name, Target, Received, and Short Fall columns"
               files={file ? [file] : []}

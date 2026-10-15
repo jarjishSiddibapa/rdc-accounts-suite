@@ -59,7 +59,11 @@ export function FileDropzone({
           acceptedExtensions.length <= 1
             ? acceptedExtensions[0]
             : `${acceptedExtensions.slice(0, -1).join(', ')} or ${acceptedExtensions[acceptedExtensions.length - 1]}`
-        setFileTypeError(`Please upload a ${extensionList} file.`)
+        setFileTypeError(
+          acceptedExtensions.length > 4
+            ? `"${rejectedFile.name}" is not a supported file type. Please upload one of: ${extensionList}.`
+            : `Please upload a ${extensionList} file.`,
+        )
         return
       }
       setFileTypeError(null)

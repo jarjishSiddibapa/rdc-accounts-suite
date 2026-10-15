@@ -35,6 +35,7 @@ from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 from app.jobs import JobUserError
+from app.services import tabular_input
 
 from .summary import write_summary_sheet
 
@@ -157,7 +158,8 @@ def _coerce_currency_columns(df: pd.DataFrame) -> pd.DataFrame:
 def _read_tab(fp: Path, tab: str) -> pd.DataFrame:
     """Read one tab from a GSTR-2B file, returning clean data rows only."""
     cfg  = TAB_CFG[tab]
-    raw  = pd.read_excel(fp, sheet_name=tab, header=None, dtype=str)
+    raw  = tabular_input.read_grid(fp, sheet=tab)
+    raw  = raw.map(lambda v: v if v is None or (isinstance(v, float) and np.isnan(v)) else str(v))
     cols = _build_col_names(raw, cfg["header_rows"])
     ds   = cfg["data_start"]
     if ds >= len(raw):
@@ -307,19 +309,38 @@ def run_combine(
         try:
             month_year, sc = _parse_filename(Path(original_name))
         except Exception as exc:
-            log_q.put(("warn", f"Skipped {original_name}  (cannot parse: {exc})"))
+            log_q.put(("warn", f"Skipped {original_name}  (the file name must look like "
+                               f"MMYYYY_SSGSTIN_GSTR2B_DDMMYYYY, e.g. 082026_27ABCDE1234F1Z5_GSTR2B_14092026 - {exc})"))
             continue
 
         state = state_codes.get(sc, f"Unknown state ({sc})")
         if sc not in state_codes:
             unresolved_codes.add(sc)
             log_q.put(("warn", f"  State code {sc} has no mapping - using \"{state}\" as a placeholder"))
+        try:
+            kind = tabular_input.detect_format(fp)
+            if kind not in ("xlsx", "xls", "xlsb"):
+                raise JobUserError(
+                    f"'{original_name}' is not a GSTR-2B workbook (it is a {kind.upper()} file). "
+                    "Upload the .xlsx you download from the GST portal (.xls / .xlsb / .xlsm also work)."
+                )
+            available = set(tabular_input.sheet_names(str(fp)))
+        except JobUserError as exc:
+            log_q.put(("error", f"Skipped {original_name}  ({exc})"))
+            continue
+        if not (available & set(TARGET_TABS)):
+            log_q.put(("error", f"Skipped {original_name}  (none of the GSTR-2B sheets {', '.join(TARGET_TABS)} "
+                                f"were found; the file has: {', '.join(sorted(available)) or 'no sheets'})"))
+            continue
         log_q.put(("info", f"Processing  {original_name}"))
         log_q.put(("dim", f"  State: {sc} - {state}   Period: {month_year}"))
         n_files += 1
         file_states.add(state)
 
         for tab in TARGET_TABS:
+            if tab not in available:
+                log_q.put(("dim", f"  [{tab}]  (sheet not in this file)"))
+                continue
             try:
                 df = _read_tab(fp, tab)
                 if not df.empty:

@@ -14,7 +14,16 @@ from pathlib import Path
 import pandas as pd
 from openpyxl import Workbook
 
+from app.jobs import JobUserError
 from app.services.gstr2b.combiner import _dedupe_uploads, _write_sheet, run_combine
+
+
+def _gstr_workbook(path):
+    """Smallest file that still counts as a GSTR-2B export: it has the B2B sheet."""
+    wb = Workbook()
+    wb.active.title = "B2B"
+    wb.active["A1"] = "Goods and Services Tax - GSTR-2B"
+    wb.save(path)
 
 
 class _LogQueue:
@@ -113,7 +122,7 @@ class RunCombinePreflightMappingCheckTests(unittest.TestCase):
     def test_returns_early_without_writing_when_a_state_code_is_unresolved(self):
         with tempfile.TemporaryDirectory() as tmp:
             src = Path(tmp) / "092026_27ABCDE1234F1Z5_GSTR2B_28092026.xlsx"
-            Workbook().save(src)  # blank workbook: every tab read fails/empties, harmless here
+            _gstr_workbook(src)
             output_path = Path(tmp) / "combined.xlsx"
             log_q = _LogQueue()
 
@@ -128,7 +137,7 @@ class RunCombinePreflightMappingCheckTests(unittest.TestCase):
     def test_unresolved_state_codes_are_written_anyway_when_allowed(self):
         with tempfile.TemporaryDirectory() as tmp:
             src = Path(tmp) / "092026_27ABCDE1234F1Z5_GSTR2B_28092026.xlsx"
-            Workbook().save(src)
+            _gstr_workbook(src)
             output_path = Path(tmp) / "combined.xlsx"
 
             result = run_combine([(src.name, str(src))], output_path, {}, _LogQueue(), allow_unresolved=True)
@@ -141,7 +150,7 @@ class RunCombinePreflightMappingCheckTests(unittest.TestCase):
     def test_writes_the_workbook_when_every_state_code_is_known(self):
         with tempfile.TemporaryDirectory() as tmp:
             src = Path(tmp) / "092026_27ABCDE1234F1Z5_GSTR2B_28092026.xlsx"
-            Workbook().save(src)
+            _gstr_workbook(src)
             output_path = Path(tmp) / "combined.xlsx"
             log_q = _LogQueue()
 
@@ -157,6 +166,53 @@ class RunCombinePreflightMappingCheckTests(unittest.TestCase):
             self.assertEqual(written.sheetnames[0], "Summary")
             # the uploaded file's state gets a Summary row even though it has no data rows
             self.assertEqual(written["Summary"]["B4"].value, "Maharashtra")
+
+
+class RunCombineBadInputTests(unittest.TestCase):
+    def _run(self, name, writer):
+        with tempfile.TemporaryDirectory() as tmp:
+            src = Path(tmp) / name
+            writer(src)
+            log_q = _LogQueue()
+            try:
+                run_combine([(src.name, str(src))], Path(tmp) / "combined.xlsx", {27: "Maharashtra"}, log_q)
+            except JobUserError as exc:
+                return str(exc), log_q.messages
+            return None, log_q.messages
+
+    def test_damaged_file_is_skipped_with_the_reason(self):
+        _, messages = self._run("092026_27ABCDE1234F1Z5_GSTR2B_28092026.xlsx",
+                                lambda p: p.write_bytes(b"PK truncated"))
+        self.assertTrue(any(tag == "error" and "looks damaged" in m for tag, m in messages))
+
+    def test_workbook_without_gstr_sheets_is_rejected_naming_its_sheets(self):
+        def other(p):
+            wb = Workbook()
+            wb.active.title = "Sales"
+            wb.save(p)
+        error, messages = self._run("092026_27ABCDE1234F1Z5_GSTR2B_28092026.xlsx", other)
+        self.assertIsNotNone(error)
+        self.assertTrue(any("none of the GSTR-2B sheets" in m and "Sales" in m for _, m in messages))
+
+    def test_csv_is_not_a_gstr_workbook(self):
+        _, messages = self._run("092026_27ABCDE1234F1Z5_GSTR2B_28092026.xlsx",
+                                lambda p: p.write_text("a,b\n1,2\n"))
+        self.assertTrue(any("not a GSTR-2B workbook" in m for _, m in messages))
+
+    def test_badly_named_file_explains_the_expected_name(self):
+        _, messages = self._run("my gst file.xlsx", _gstr_workbook)
+        self.assertTrue(any("MMYYYY_SSGSTIN_GSTR2B_DDMMYYYY" in m for _, m in messages))
+
+    def test_other_excel_flavours_are_accepted(self):
+        import shutil
+        fixtures = Path(__file__).parent / "fixtures"
+        for ext in ("xls", "xlsb"):
+            with tempfile.TemporaryDirectory() as tmp:
+                src = Path(tmp) / f"092026_27ABCDE1234F1Z5_GSTR2B_28092026.{ext}"
+                shutil.copyfile(fixtures / f"gstr_sample.{ext}", src)
+                result = run_combine([(src.name, str(src))], Path(tmp) / "c.xlsx", {27: "Maharashtra"}, _LogQueue())
+                self.assertFalse(result["needs_mapping_fix"])
+                self.assertEqual(result["files"], 1)
 
 
 if __name__ == "__main__":

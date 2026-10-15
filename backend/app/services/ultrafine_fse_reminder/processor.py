@@ -23,6 +23,7 @@ import pandas as pd
 from email_validator import EmailNotValidError, validate_email
 
 from app.jobs import JobUserError
+from app.services import tabular_input
 
 logger = logging.getLogger(__name__)
 
@@ -166,9 +167,12 @@ def read_coll_vs_target(path: str) -> dict:
     rows (subtotal/"X Total" rows and the trailing junk below "Grand Total"
     are excluded - see detect_columns/module docstring)."""
     import openpyxl
+    from pathlib import Path as _Path
 
+    # any Excel flavour: .xls / .xlsb are turned into an equivalent .xlsx first
+    converted = tabular_input.to_xlsx(path, _Path(path).parent)
     try:
-        wb = openpyxl.load_workbook(path, data_only=True)
+        wb = openpyxl.load_workbook(converted, data_only=True)
     except zipfile.BadZipFile as exc:
         logger.warning("FSE reminder upload is not a valid Excel file: %s", exc)
         raise JobUserError(

@@ -1,6 +1,7 @@
 """Ultrafine Trial Balance Formatter report and ledger-nature mapping routes."""
 
 from pathlib import Path
+from types import SimpleNamespace
 import uuid
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
@@ -15,6 +16,7 @@ from app.jobs import JobUserError, cancel_job, get_job, submit_job
 from app.models import User
 from app.permissions import require_app_access
 from app.services.trial_balance_formatter import mapping_store, processor
+from app.services import tabular_input
 from app.uploads import save_upload
 
 router = APIRouter(
@@ -46,9 +48,12 @@ def _run_process_job(input_path: str, output_path: str, allow_unmapped: bool = F
     finally:
         db.close()
 
+    converted = None
     try:
+        source = tabular_input.to_xlsx(input_path, SCRATCH_DIR, SimpleNamespace(put=lambda item: add_log(*item)))
+        converted = source if str(source) != str(input_path) else None
         result = processor.generate_report(
-            input_path,
+            str(source),
             output_path,
             nature_map,
             allow_unmapped=allow_unmapped,
@@ -63,6 +68,8 @@ def _run_process_job(input_path: str, output_path: str, allow_unmapped: bool = F
         raise
     finally:
         Path(input_path).unlink(missing_ok=True)
+        if converted is not None:
+            converted.unlink(missing_ok=True)
 
     result["log"] = log
     return result
@@ -74,9 +81,6 @@ async def submit_process(
     allow_unmapped: bool = Form(False),
     user: User = Depends(get_current_user),
 ):
-    suffix = Path(file.filename or "").suffix.lower()
-    if suffix not in {".xlsx", ".xlsm"}:
-        raise HTTPException(status_code=400, detail="Upload the raw Tally trial balance export (.xlsx or .xlsm).")
 
     input_path = await save_upload(file, SCRATCH_DIR)
     token = str(uuid.uuid4())

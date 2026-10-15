@@ -31,6 +31,7 @@ import {
   type MonthRow,
   type Unmapped,
 } from "./shared";
+import { EXCEL_ACCEPT } from '@/lib/fileTypes'
 
 interface UploadFileResult {
   file: string;
@@ -447,7 +448,7 @@ export function UploadPanel({
               Upload bank statements
             </h2>
             <p className="mt-1 text-sm leading-6 text-ink-dim">
-              Upload one or more statements (.csv, .xls, .xlsx). Lines already
+              Upload one or more statements (Excel of any kind - .xlsx, .xlsb, .xls - or .csv). Lines already
               stored are skipped, so overlapping statements are safe. Every
               month that receives new lines is regenerated once all of its lines
               are mapped.
@@ -457,7 +458,7 @@ export function UploadPanel({
 
         <FileDropzone
           multiple
-          accept=".csv,.xls,.xlsx"
+          accept={EXCEL_ACCEPT}
           label="Drag & drop bank statements here, or click to browse"
           files={files}
           onFilesSelected={(selected) =>

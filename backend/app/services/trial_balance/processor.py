@@ -84,6 +84,7 @@ def _read_report_text(file_path):
     UTF-8 read then raises UnicodeDecodeError on any curly quote or accented
     character. Fall back rather than crashing the whole run.
     """
+    tabular_input.require_html_report(file_path, "The Trial Balance report")
     try:
         with open(file_path, "r", encoding="utf-8") as fh:
             return fh.read()

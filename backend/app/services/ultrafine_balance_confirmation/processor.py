@@ -41,6 +41,7 @@ from email_validator import EmailNotValidError, validate_email
 
 from . import mail_builder
 from app.jobs import JobUserError
+from app.services import tabular_input
 from app.services.mailer_shared import read_attachment_bytes
 
 logger = logging.getLogger(__name__)
@@ -82,24 +83,9 @@ def _ensure_unique_names(df: pd.DataFrame, label: str) -> None:
 
 
 def _read_excel(file_path: str) -> pd.DataFrame:
-    try:
-        return pd.read_excel(file_path, engine="openpyxl")
-    except zipfile.BadZipFile as exc:
-        logger.warning("Balance confirmation upload is not a valid Excel file: %s", exc)
-        raise JobUserError(
-            "This doesn't look like a valid Excel file - please check you uploaded the right file."
-        ) from exc
-    except (ValueError, KeyError) as exc:
-        logger.warning("Balance confirmation upload has an unreadable sheet/column layout: %s", exc)
-        raise JobUserError(
-            "Could not read the balance workbook - please check its sheet and column layout match the template."
-        ) from exc
-    except Exception as exc:
-        logger.warning("Balance confirmation upload failed to open: %s", exc)
-        raise JobUserError(
-            "Could not open the uploaded file as an Excel workbook. Please check it isn't corrupted "
-            "and try again."
-        ) from exc
+    """The balance workbook as a table - any Excel flavour or CSV; the header
+    row is the one holding 'Customer Name'."""
+    return tabular_input.read_table(file_path, "Customer Name")
 
 
 def read_input_excel(file_path: str) -> pd.DataFrame:
@@ -110,7 +96,10 @@ def read_input_excel(file_path: str) -> pd.DataFrame:
     df = _rename_aliases(_read_excel(file_path), INPUT_ALIASES)
     missing = [column for column in REQUIRED_COLUMNS if column not in df.columns]
     if missing:
-        raise JobUserError(f"Missing columns in Input file: {', '.join(missing)}")
+        found = ", ".join(str(c) for c in df.columns if str(c).strip() and not str(c).startswith("Unnamed"))
+        raise JobUserError(
+            f"Missing columns in the balance file: {', '.join(missing)}. "
+            f"Columns found in it: {found or '(none)'}. Please use the template's column names.")
     for column in OPTIONAL_COLUMNS:
         if column not in df.columns:
             df[column] = ""

@@ -5,6 +5,7 @@ import os
 import pandas as pd
 
 from app.jobs import JobUserError
+from app.services import tabular_input
 from app.regional import format_indian_number, today_ist
 
 import re
@@ -19,34 +20,12 @@ from .site_mapping import SITE_MAPPING
 from .mappings import _load_custom_mappings, _upsert_creator_mapping, _load_location_incharge
 
 
-def _read_export_tables(path: str) -> list:
-    """Read an ERP export file into pandas.read_html's list-of-tables shape.
-
-    The ERP always exports these reports as HTML tables saved with an .xls
-    extension. If a file is opened in Excel and re-saved (or downloaded via a
-    different "Export to Excel" button), it becomes a genuine binary .xlsx
-    (zip) file with a completely different, unsupported layout - read_html
-    can't parse it at all, and pandas' own error ("No tables found matching
-    regex '.+'") gives the user no clue why. Detect that case up front and
-    fail with an actionable message instead.
-    """
-    with open(path, "rb") as fh:
-        head = fh.read(4)
-    if head[:2] == b"PK":
-        raise JobUserError(
-            f"'{os.path.basename(path)}' is a real Excel file (.xlsx), not the "
-            "original ERP export. Please re-download this report directly from "
-            "the ERP (do not open and re-save it in Excel first) and upload that "
-            "file instead."
-        )
-    try:
-        return pd.read_html(path, flavor="lxml")
-    except ValueError as exc:
-        raise JobUserError(
-            f"'{os.path.basename(path)}' doesn't look like a valid ERP export - "
-            "no data table could be found in it. Please re-download this report "
-            "directly from the ERP and try again."
-        ) from exc
+def _read_export_tables(path: str, anchor: str | None = None, anchor_row: int = 0) -> list:
+    """Read an ERP report into pandas.read_html's list-of-tables shape. The
+    ERP's own HTML-as-.xls export is read as before; the same report saved as
+    .xlsx / .xlsb / .xls / .csv works too, as long as it still holds the
+    report's header (`anchor`)."""
+    return tabular_input.read_report_tables(path, anchor, anchor_row)
 
 
 def _resolve_incharge(loc: str, stored_inc: str, loc_incharge_map: dict) -> str:
@@ -68,6 +47,14 @@ def _effective_site_map(site_overrides: dict) -> dict:
     SPECIAL_SITES name so those sites always resolve through Created By."""
     usable = {k: v for k, v in site_overrides.items() if str(k).strip() not in SPECIAL_SITES}
     return {**SITE_MAPPING, **usable}
+
+
+def _table_not_found(path: str, label: str, anchor: str) -> JobUserError:
+    return JobUserError(
+        f"'{tabular_input._name(path)}' is not the {label} report: no table with a '{anchor}' column "
+        "was found in it. Please upload the report exactly as exported from the ERP (.xls, .xlsx, "
+        ".xlsb or .csv all work, but its columns must be unchanged)."
+    )
 
 
 def find_data_table(tables: list) -> "pd.DataFrame | None":
@@ -130,12 +117,10 @@ def merge_xls_files(paths: list, log_q) -> "pd.DataFrame":
     merged_parts = []
     for idx, path in enumerate(paths):
         log_q.put(("info", f"Reading file {idx + 1}/{len(paths)}: {os.path.basename(path)} …"))
-        tables = _read_export_tables(path)
+        tables = _read_export_tables(path, DATA_ANCHOR_COL, 1)
         raw = find_data_table(tables)
         if raw is None:
-            raise JobUserError(
-                f"Could not locate data table in {os.path.basename(path)}"
-            )
+            raise _table_not_found(path, "Unaccounted Transactions", DATA_ANCHOR_COL)
         if idx == 0:
             merged_parts.append(raw)
         else:
@@ -154,13 +139,11 @@ def merge_xls_files(paths: list, log_q) -> "pd.DataFrame":
 def process_report(input_path: str, log_q) -> tuple:
     """Read, clean, and return (df, total_rows, input_cols, matched)."""
     log_q.put(("info", "Reading file …"))
-    tables = _read_export_tables(input_path)
+    tables = _read_export_tables(input_path, DATA_ANCHOR_COL, 1)
 
     raw = find_data_table(tables)
     if raw is None:
-        raise JobUserError(
-            f"Could not locate data table in {os.path.basename(input_path)}"
-        )
+        raise _table_not_found(input_path, "Unaccounted Transactions", DATA_ANCHOR_COL)
 
     # ── Extract Period Name from B12 (e.g. "Jun-26") ──────────────────────────
     period = _extract_period_name(tables) or today_ist().strftime("%b-%y")
@@ -296,10 +279,10 @@ def process_report_multi(input_paths: list, log_q) -> tuple:
     mini_dfs = []
     for idx, path in enumerate(input_paths):
         log_q.put(("info", f"Reading file {idx + 1}/{len(input_paths)}: {os.path.basename(path)} …"))
-        tables = _read_export_tables(path)
+        tables = _read_export_tables(path, DATA_ANCHOR_COL, 1)
         raw = find_data_table(tables)
         if raw is None:
-            raise JobUserError(f"Could not locate data table in {os.path.basename(path)}")
+            raise _table_not_found(path, "Unaccounted Transactions", DATA_ANCHOR_COL)
 
         period = _extract_period_name(tables) or today_ist().strftime("%b-%y")
 
@@ -445,7 +428,7 @@ def find_po_data_table(tables: list) -> "pd.DataFrame | None":
 def detect_po_periods(input_path: str) -> list:
     """Return sorted unique Month values (Mon-YY) from the PO file."""
     try:
-        tables = pd.read_html(input_path, flavor="lxml")
+        tables = _read_export_tables(input_path, PO_ANCHOR_COL, 0)
         raw    = find_po_data_table(tables)
         if raw is None:
             return []
@@ -491,7 +474,7 @@ def detect_po_periods(input_path: str) -> list:
 def detect_po_numbers(input_path: str) -> list:
     """Return sorted unique PO numbers from the file (as strings)."""
     try:
-        tables = pd.read_html(input_path, flavor="lxml")
+        tables = _read_export_tables(input_path, PO_ANCHOR_COL, 0)
         raw    = find_po_data_table(tables)
         if raw is None:
             return []
@@ -531,11 +514,10 @@ def process_po_report(
       - main_df     : everything else
     """
     log_q.put(("info", "Reading Uninvoiced Expense PO file …"))
-    tables = _read_export_tables(input_path)
+    tables = _read_export_tables(input_path, PO_ANCHOR_COL, 0)
     raw    = find_po_data_table(tables)
     if raw is None:
-        raise JobUserError(
-            f"Could not locate PO data table in {os.path.basename(input_path)}")
+        raise _table_not_found(input_path, "Uninvoiced Expense PO", PO_ANCHOR_COL)
 
     headers    = [str(v).strip() for v in raw.iloc[0].values]
     df         = raw.iloc[1:].copy()
@@ -679,7 +661,7 @@ def find_mrn_data_table(tables: list) -> "pd.DataFrame | None":
 def detect_mrn_periods(input_path: str) -> list:
     """Return chronologically-sorted unique accounting periods from an MRN XLS file."""
     try:
-        tables = pd.read_html(input_path, flavor="lxml")
+        tables = _read_export_tables(input_path, MRN_ANCHOR_COL, 0)
         raw    = find_mrn_data_table(tables)
         if raw is None:
             return []
@@ -706,11 +688,10 @@ def detect_mrn_periods(input_path: str) -> list:
 def process_mrn_report(input_path: str, exclude_periods: set, log_q) -> tuple:
     """Read Pending MRN XLS, add Location + Accounts Incharge, filter periods."""
     log_q.put(("info", "Reading MRN file …"))
-    tables = _read_export_tables(input_path)
+    tables = _read_export_tables(input_path, MRN_ANCHOR_COL, 0)
     raw    = find_mrn_data_table(tables)
     if raw is None:
-        raise JobUserError(
-            f"Could not locate MRN data table in {os.path.basename(input_path)}")
+        raise _table_not_found(input_path, "Pending MRN", MRN_ANCHOR_COL)
 
     # Row 0 = column headers (MRN has no merged-title first row unlike Report 1)
     headers    = [str(v).strip() for v in raw.iloc[0].values]

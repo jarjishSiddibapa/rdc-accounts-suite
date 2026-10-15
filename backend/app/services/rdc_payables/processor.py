@@ -2,6 +2,8 @@ import re
 import io
 import math
 import os
+
+from app.services import tabular_input
 import atexit
 from datetime import datetime
 from calendar import monthrange
@@ -308,6 +310,7 @@ def _read_report_text(file_path):
     a strict UTF-8 read then raises UnicodeDecodeError on any curly quote or
     accented character. Fall back rather than crashing the whole run.
     """
+    tabular_input.require_html_report(file_path, "The RDC Payables report")
     try:
         with open(file_path, "r", encoding="utf-8") as fh:
             return fh.read()

@@ -22,6 +22,7 @@ import { usePagination } from '@/hooks/usePagination'
 import { ApiError, apiUrl, del, get, post, postForm, put } from '@/lib/api'
 import { formatIndianNumber } from '@/lib/regional'
 import { cn } from '@/utils/cn'
+import { EXCEL_ACCEPT } from '@/lib/fileTypes'
 
 const BASE = '/tools/trial-balance-formatter'
 
@@ -417,7 +418,7 @@ export default function TrialBalanceFormatter() {
               <div className="flex flex-col gap-2">
                 <span className="text-sm font-medium text-ink-dim">Raw Tally trial balance</span>
                 <FileDropzone
-                  accept=".xlsx,.xlsm"
+                  accept={EXCEL_ACCEPT}
                   label="Drag and drop the raw trial balance here, or click to browse"
                   hint="The reporting period and ledger hierarchy are read directly from the workbook"
                   files={file ? [file] : []}

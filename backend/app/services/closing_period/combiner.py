@@ -24,6 +24,7 @@ from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
 from app.jobs import JobUserError
+from app.services import tabular_input
 from app.services.xlsx_formula_cache import inject_cached_values
 
 ALLOWED_SUBINV = {"MOD-RM", "NMOD-RM", "STORES"}
@@ -82,6 +83,11 @@ def _cell_text(cell) -> str:
 def _parse_file(original_filename: str, saved_path: str, log_q) -> tuple[list[dict], str]:
     """Parse one uploaded file. ``original_filename`` (not the uuid-prefixed
     on-disk name) is used for the "File Name" column and log messages."""
+    try:
+        tabular_input.require_html_report(saved_path, "The Closing Period report")
+    except JobUserError as exc:
+        log_q.put(("error", f"{original_filename} - skipped: {exc}"))
+        return [], ""
     with open(saved_path, "r", encoding="utf-8", errors="ignore") as fh:
         payload = fh.read()
     try:

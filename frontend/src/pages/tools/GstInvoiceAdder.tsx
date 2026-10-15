@@ -8,6 +8,7 @@ import { FileDropzone } from '@/components/FileDropzone'
 import { ProgressPanel, type JobState, type JobStatus } from '@/components/ProgressPanel'
 import { ApiError, apiUrl, get, post, postForm } from '@/lib/api'
 import { formatIndianNumber } from '@/lib/regional'
+import { EXCEL_ACCEPT } from '@/lib/fileTypes'
 
 const BASE = '/tools/gst-invoice-adder'
 
@@ -107,9 +108,9 @@ export default function GstInvoiceAdder() {
           </div>
 
           <FileDropzone
-            accept=".xlsx,.xlsb,.xls"
+            accept={EXCEL_ACCEPT}
             label="Drag & drop the Receivable Aging Report here, or click to browse"
-            hint="Supports .xlsx, .xlsb, and .xls"
+            hint="Supports .xlsx, .xlsb, .xls, and .csv"
             files={file ? [file] : []}
             onFilesSelected={(incoming) => setFile(incoming[0] ?? null)}
             onRemove={() => setFile(null)}

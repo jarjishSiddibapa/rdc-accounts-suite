@@ -1036,7 +1036,7 @@ def execute_job(job_id: str, worker_id: str) -> None:
     except JobCancelled:
         _finish_job(job_id, worker_id, status="cancelled", phase="Cancelled")
     except JobUserError as exc:
-        _finish_job(job_id, worker_id, status="error", error=str(exc)[:500])
+        _finish_job(job_id, worker_id, status="error", error=str(exc)[:1500])
     except Exception:  # noqa: BLE001 - worker boundary must persist a safe error
         logger.exception("Background job %s failed", job_id)
         _finish_job(

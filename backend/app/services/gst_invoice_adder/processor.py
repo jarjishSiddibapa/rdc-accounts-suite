@@ -275,11 +275,25 @@ def _extract_pairs_vectorized(df, inv_no_col, inv_date_col) -> list:
 
 # ── Read input file for key extraction (verbatim logic) ──────────────────────
 
+def detect_header_index(input_path: str) -> int:
+    """0-based row of the header (the one holding both the invoice-number and
+    invoice-date columns); the export's usual position when not found."""
+    grid = tabular_input.read_grid(input_path, nrows=40)
+    found = tabular_input.find_header_row(grid, (COL_INV_NO, COL_INV_DATE), search_range=40)
+    return SKIP_ROWS if found is None else found
+
+
 def read_data_df(input_path: str):
-    ext = input_path.rsplit(".", 1)[-1].lower()
-    engine = "pyxlsb" if ext == "xlsb" else "openpyxl"
-    df = pd.read_excel(input_path, skiprows=SKIP_ROWS,
-                        engine=engine, dtype=object, header=0)
+    """The aging report as a table. .xlsx and .xlsb are read directly (any
+    other format is converted to .xlsx by the caller first)."""
+    kind = tabular_input.detect_format(input_path)
+    engine = "pyxlsb" if kind == "xlsb" else "openpyxl"
+    header_index = detect_header_index(input_path)
+    try:
+        df = pd.read_excel(input_path, skiprows=header_index,
+                           engine=engine, dtype=object, header=0)
+    except Exception as exc:  # noqa: BLE001
+        raise tabular_input._excel_error(exc, input_path, kind) from exc
     df = df.dropna(how="all").reset_index(drop=True)
     if "Customer Name" in df.columns:
         df = df[~df["Customer Name"].astype(str)
@@ -295,7 +309,12 @@ def read_data_df(input_path: str):
         if col is None
     ]
     if missing_cols:
-        raise JobUserError(f"Could not find these expected columns: {', '.join(missing_cols)}.")
+        found = ", ".join(str(c) for c in df.columns if str(c).strip() and not str(c).startswith("Unnamed"))
+        raise JobUserError(
+            f"The file is missing required column(s): {', '.join(missing_cols)}. "
+            f"Columns found in it: {found or '(none)'}. "
+            "Please upload the RDC Receivable Aging report exactly as exported from the ERP."
+        )
 
     return df, inv_no_col, inv_date_col
 
@@ -850,8 +869,7 @@ def process_report(input_path: str, output_path: str, oracle_cfg: OracleConfig,
     ok_cnt = sum(1 for v in gst_map.values() if v)
     log_q.put(("info", f"{ok_cnt}/{len(gst_map)} keys returned a GST number"))
 
-    ext = input_path.rsplit(".", 1)[-1].lower()
-    if ext == "xlsb":
+    if tabular_input.detect_format(input_path) == "xlsb":
         if progress_cb:
             progress_cb(0.92, "Building enriched output (pure Python)...")
         total, found, blank = build_gst_report_pure_python(
@@ -861,7 +879,7 @@ def process_report(input_path: str, output_path: str, oracle_cfg: OracleConfig,
     else:
         if progress_cb:
             progress_cb(0.94, "Inserting GST Invoice Number column...")
-        header_row_1based = SKIP_ROWS + 1
+        header_row_1based = detect_header_index(input_path) + 1
         total, found, blank = insert_gst_column(
             wb_path=input_path, output_path=output_path,
             gst_map=gst_map, header_row=header_row_1based, log_q=log_q,

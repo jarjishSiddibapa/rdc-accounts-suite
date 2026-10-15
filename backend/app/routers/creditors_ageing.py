@@ -2,6 +2,7 @@
 
 from datetime import date
 from pathlib import Path
+from types import SimpleNamespace
 import uuid
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
@@ -16,6 +17,7 @@ from app.jobs import JobUserError, cancel_job, get_job, submit_job
 from app.models import User
 from app.permissions import require_app_access
 from app.services.creditors_ageing import mapping_store, processor
+from app.services import tabular_input
 from app.uploads import save_upload
 
 router = APIRouter(
@@ -55,9 +57,12 @@ def _run_process_job(
     finally:
         db.close()
 
+    converted = None
     try:
+        source = tabular_input.to_xlsx(input_path, SCRATCH_DIR, SimpleNamespace(put=lambda item: add_log(*item)))
+        converted = source if str(source) != str(input_path) else None
         result = processor.generate_report(
-            input_path,
+            str(source),
             output_path,
             mapping,
             as_on_date=as_on_date,
@@ -76,6 +81,8 @@ def _run_process_job(
         raise
     finally:
         Path(input_path).unlink(missing_ok=True)
+        if converted is not None:
+            converted.unlink(missing_ok=True)
 
     result["download_filename"] = result.pop("default_name")
     result["log"] = log
@@ -91,9 +98,6 @@ async def submit_process(
     allow_unmapped: bool = Form(False),
     user: User = Depends(get_current_user),
 ):
-    suffix = Path(file.filename or "").suffix.lower()
-    if suffix not in {".xlsx", ".xlsm"}:
-        raise HTTPException(status_code=400, detail="Upload a Tally Excel workbook (.xlsx or .xlsm).")
     if as_on_date:
         try:
             date.fromisoformat(as_on_date)

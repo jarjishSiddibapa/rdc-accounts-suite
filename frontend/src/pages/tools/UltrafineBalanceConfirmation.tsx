@@ -32,6 +32,7 @@ import { usePagination } from '@/hooks/usePagination'
 import { ApiError, apiUrl, get, post, postForm, put, del } from '@/lib/api'
 import { formatIndianNumber, getIndianDateInputValue } from '@/lib/regional'
 import { cn } from '@/utils/cn'
+import { EXCEL_ACCEPT } from '@/lib/fileTypes'
 
 const BASE = '/tools/ultrafine-balance-confirmation'
 
@@ -721,7 +722,7 @@ export default function UltrafineBalanceConfirmation() {
                 </a>
               </div>
               <FileDropzone
-                accept=".xls,.xlsx"
+                accept={EXCEL_ACCEPT}
                 label="Drag & drop the balance workbook here, or click to browse"
                 hint="Customer Name and Net O/s are required; To/CC Email IDs are optional"
                 files={workbook ? [workbook] : []}

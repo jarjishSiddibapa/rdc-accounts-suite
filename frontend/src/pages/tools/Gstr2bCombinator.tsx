@@ -12,6 +12,7 @@ import { LoadingNotice } from '@/components/LoadingNotice'
 import { ApiError, apiUrl, del, get, post, postForm, put } from '@/lib/api'
 import { formatIndianNumber } from '@/lib/regional'
 import { cn } from '@/utils/cn'
+import { EXCEL_WORKBOOK_ACCEPT } from '@/lib/fileTypes'
 
 const BASE = '/tools/gstr2b'
 
@@ -306,9 +307,9 @@ export default function Gstr2bCombinator() {
 
           <FileDropzone
             multiple
-            accept=".xlsx"
-            label="Drag & drop GSTR-2B .xlsx files here, or click to browse"
-            hint="Supports .xlsx exports named like 042026_06AACCU5797P1ZF_GSTR2B_20052026.xlsx"
+            accept={EXCEL_WORKBOOK_ACCEPT}
+            label="Drag & drop GSTR-2B workbooks here, or click to browse"
+            hint="Supports .xlsx (also .xlsm, .xlsb, .xls) exports named like 042026_06AACCU5797P1ZF_GSTR2B_20052026.xlsx"
             files={files}
             onFilesSelected={(incoming) => setFiles((previous) => [...previous, ...incoming])}
             onRemove={(index) => setFiles((previous) => previous.filter((_, current) => current !== index))}

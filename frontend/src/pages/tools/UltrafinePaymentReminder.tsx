@@ -27,6 +27,7 @@ import { usePagination } from '@/hooks/usePagination'
 import { ApiError, apiUrl, del, get, post, postForm, put } from '@/lib/api'
 import { formatIndianDate, formatIndianNumber, getIndianDateInputValue } from '@/lib/regional'
 import { cn } from '@/utils/cn'
+import { EXCEL_ACCEPT } from '@/lib/fileTypes'
 
 const BASE = '/tools/ultrafine-payment-reminder'
 
@@ -614,7 +615,7 @@ export default function UltrafinePaymentReminder() {
                 </a>
               </div>
               <FileDropzone
-                accept=".xls,.xlsx"
+                accept={EXCEL_ACCEPT}
                 label="Drag & drop the data workbook here, or click to browse"
                 hint="Customer Name, Overdue, Net O/s, and the aging bucket columns"
                 files={dataFile ? [dataFile] : []}
@@ -625,7 +626,7 @@ export default function UltrafinePaymentReminder() {
             <div className="flex flex-col gap-2">
               <span className="text-sm font-medium text-ink-dim">Emails file (optional)</span>
               <FileDropzone
-                accept=".xls,.xlsx"
+                accept={EXCEL_ACCEPT}
                 label="Drag & drop the emails workbook here, or click to browse"
                 hint="Customers missing here fall back to the saved mapping below"
                 files={emailsFile ? [emailsFile] : []}

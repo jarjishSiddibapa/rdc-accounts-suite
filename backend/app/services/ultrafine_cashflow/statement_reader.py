@@ -20,6 +20,7 @@ from pathlib import Path
 import pandas as pd
 
 from app.jobs import JobUserError
+from app.services import tabular_input
 
 _DATETIME_FORMATS = (
     "%d-%m-%Y %H:%M:%S", "%d-%m-%Y %H:%M", "%d/%m/%Y %H:%M:%S", "%d/%m/%Y %H:%M",
@@ -144,22 +145,10 @@ def _to_date(value) -> date | None:
 
 
 def _read_rows(path: Path) -> list[list]:
-    suffix = path.suffix.lower()
-    if suffix == ".csv":
-        for encoding in ("utf-8-sig", "cp1252"):
-            try:
-                with path.open("r", encoding=encoding, newline="") as handle:
-                    return [list(row) for row in csv.reader(handle)]
-            except UnicodeDecodeError:
-                continue
-        raise JobUserError(f"Could not read '{path.name}' - the file encoding is not supported.")
-    if suffix in {".xls", ".xlsx", ".xlsm"}:
-        try:
-            frame = pd.read_excel(path, header=None, dtype=object)
-        except Exception as exc:  # noqa: BLE001 - surfaced as a friendly message
-            raise JobUserError(f"Could not open '{path.name}' as an Excel statement: {exc}") from exc
-        return frame.where(frame.notna(), None).values.tolist()
-    raise JobUserError("Upload a bank statement as .csv, .xls or .xlsx.")
+    """The statement as rows - any Excel flavour, CSV/TSV or an HTML export;
+    the real type is detected from the file's content."""
+    grid = tabular_input.read_grid(path)
+    return grid.where(grid.notna(), None).values.tolist()
 
 
 def _find_header_row(rows: list[list]) -> tuple[int, dict[str, int]]:

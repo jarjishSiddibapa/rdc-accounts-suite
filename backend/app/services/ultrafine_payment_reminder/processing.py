@@ -28,6 +28,7 @@ import pandas as pd
 from email_validator import EmailNotValidError, validate_email
 
 from app.jobs import JobUserError
+from app.services import tabular_input
 from app.services.mailer_shared import read_attachment_bytes
 
 # ── Excel readers (verbatim from excel_reader.py) ──────────────────────────
@@ -50,14 +51,16 @@ EMAILS_REQUIRED_COLUMNS = ["Customer Name", "To Email IDs", "CC Email IDs"]
 def read_data_excel(file_path: str) -> pd.DataFrame:
     """Reads the financial/aging data excel. Raises ValueError with the same
     wording as the desktop app on missing columns or duplicate customers."""
-    df = pd.read_excel(file_path, engine="openpyxl")
+    df = tabular_input.read_table(file_path, "Customer Name")
     df.columns = [normalize_header(c) for c in df.columns]
 
     missing = [c for c in DATA_REQUIRED_COLUMNS if c not in df.columns]
     if missing:
+        found = ", ".join(str(c) for c in df.columns if str(c).strip() and not str(c).startswith("Unnamed"))
         raise JobUserError(
-            f"Missing columns in Data File: {', '.join(missing)}\n"
-            "Please ensure the file format matches strict requirements."
+            f"Missing columns in the Data File: {', '.join(missing)}. "
+            f"Columns found in it: {found or '(none)'}. "
+            "Please ensure the file format matches the template."
         )
 
     if not df["Customer Name"].is_unique:
@@ -73,12 +76,15 @@ def read_data_excel(file_path: str) -> pd.DataFrame:
 
 def read_emails_excel(file_path: str) -> pd.DataFrame:
     """Reads the emails mapping excel."""
-    df = pd.read_excel(file_path, engine="openpyxl")
+    df = tabular_input.read_table(file_path, "Customer Name")
     df.columns = [normalize_header(c) for c in df.columns]
 
     missing = [c for c in EMAILS_REQUIRED_COLUMNS if c not in df.columns]
     if missing:
-        raise JobUserError(f"Missing required columns in Emails File: {', '.join(missing)}")
+        found = ", ".join(str(c) for c in df.columns if str(c).strip() and not str(c).startswith("Unnamed"))
+        raise JobUserError(
+            f"Missing required columns in the Emails File: {', '.join(missing)}. "
+            f"Columns found in it: {found or '(none)'}.")
 
     df["To Email IDs"] = df["To Email IDs"].fillna("").astype(str).str.strip()
     if "CC Email IDs" not in df.columns:
