@@ -2,9 +2,12 @@ import { useState, type InputHTMLAttributes } from 'react'
 import { Eye, EyeOff, LockKeyhole } from 'lucide-react'
 import { cn } from '@/utils/cn'
 
-type PasswordInputProps = Omit<InputHTMLAttributes<HTMLInputElement>, 'type'>
+type PasswordInputProps = Omit<InputHTMLAttributes<HTMLInputElement>, 'type'> & {
+  /** Called when the eye is clicked to show the text (e.g. to fetch a saved value). */
+  onReveal?: () => void | Promise<void>
+}
 
-export function PasswordInput({ className, disabled, ...props }: PasswordInputProps) {
+export function PasswordInput({ className, disabled, onReveal, ...props }: PasswordInputProps) {
   const [visible, setVisible] = useState(false)
 
   return (
@@ -22,7 +25,10 @@ export function PasswordInput({ className, disabled, ...props }: PasswordInputPr
       <button
         type="button"
         disabled={disabled}
-        onClick={() => setVisible((current) => !current)}
+        onClick={() => {
+          if (!visible) void onReveal?.()
+          setVisible((current) => !current)
+        }}
         aria-label={visible ? 'Hide password' : 'Show password'}
         aria-pressed={visible}
         className="absolute top-1/2 right-0 grid h-11 w-11 -translate-y-1/2 place-items-center rounded-xl text-ink-faint transition hover:bg-bg-soft hover:text-ink disabled:pointer-events-none"

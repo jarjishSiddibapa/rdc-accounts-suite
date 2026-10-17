@@ -9,9 +9,9 @@ from sqlalchemy.orm import sessionmaker
 
 from app import auth
 from app.database import Base
-from app.models import User
+from app.models import EmailSettings, User
 from app.routers import settings_routes
-from app.routers.settings_routes import ChangePasswordBody
+from app.routers.settings_routes import ChangePasswordBody, EmailSettingsBody
 
 OLD = "Old-Passw0rd!x"
 NEW = "New-Passw0rd!y"
@@ -69,6 +69,52 @@ class ChangePasswordTests(unittest.TestCase):
     def test_empty_current_password_is_rejected_by_validation(self):
         with self.assertRaises(ValidationError):
             ChangePasswordBody(current_password="", new_password=NEW)
+
+
+class RevealAppPasswordTests(unittest.TestCase):
+    def setUp(self):
+        engine = create_engine("sqlite://")
+        Base.metadata.create_all(engine, tables=[User.__table__, EmailSettings.__table__])
+        self.db = sessionmaker(bind=engine, expire_on_commit=False)()
+        self.user = User(email="a@rdc.in", password_hash=auth.hash_password(OLD), role="user")
+        self.db.add(self.user)
+        self.db.commit()
+        patcher = patch.object(settings_routes, "auth_limiter", SimpleNamespace(enforce=lambda *a, **k: None))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_returns_own_saved_app_password(self):
+        settings_routes.put_email_settings(
+            EmailSettingsBody(sender_email="a@rdc.in", app_password="abcd efgh ijkl mnop"), self.db, self.user,
+        )
+        result = settings_routes.reveal_email_app_password(self.db, self.user)
+        self.assertEqual(result, {"app_password": "abcd efgh ijkl mnop"})
+
+    def test_404_when_nothing_saved(self):
+        with self.assertRaises(HTTPException) as caught:
+            settings_routes.reveal_email_app_password(self.db, self.user)
+        self.assertEqual(caught.exception.status_code, 404)
+
+
+class RevealSecretHelperTests(unittest.TestCase):
+    def setUp(self):
+        patcher = patch("app.secret_reveal.auth_limiter", SimpleNamespace(enforce=lambda *a, **k: None))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_round_trips_an_encrypted_value(self):
+        from app import security
+        from app.secret_reveal import reveal_secret
+        self.assertEqual(reveal_secret(security.encrypt("s3cret"), user_id=1, scope="t"), {"value": "s3cret"})
+
+    def test_missing_value_is_404_and_garbage_is_500(self):
+        from app.secret_reveal import reveal_secret
+        with self.assertRaises(HTTPException) as missing:
+            reveal_secret(None, user_id=1, scope="t")
+        self.assertEqual(missing.exception.status_code, 404)
+        with self.assertRaises(HTTPException) as bad:
+            reveal_secret("not-a-valid-token", user_id=1, scope="t")
+        self.assertEqual(bad.exception.status_code, 500)
 
 
 if __name__ == "__main__":

@@ -82,6 +82,19 @@ export default function Settings() {
     }
   }
 
+  async function revealSavedAppPassword() {
+    if (!configured || appPassword) return
+    try {
+      const data = await get<{ app_password: string }>('/settings/email/password')
+      setAppPassword(data.app_password)
+    } catch (err) {
+      setSaveMessage({
+        ok: false,
+        text: err instanceof ApiError ? err.message : 'Could not load the saved app password.',
+      })
+    }
+  }
+
   async function handleProfileSave() {
     setProfileSaving(true)
     setProfileMessage(null)
@@ -357,13 +370,14 @@ export default function Settings() {
             <PasswordInput
               value={appPassword}
               onChange={(e) => setAppPassword(e.target.value)}
+              onReveal={revealSavedAppPassword}
               disabled={loading}
               autoComplete="new-password"
-              placeholder={configured ? 'Saved - type a new one only to replace it' : 'App password'}
+              placeholder={configured ? 'Saved - click the eye to view it, or type a new one to replace it' : 'App password'}
             />
             {configured && (
               <span className="text-xs text-ink-faint">
-                The saved password is stored encrypted and is never shown again. Leave this blank to keep it.
+                The saved password is stored encrypted. Click the eye to view it; leave this blank to keep it.
               </span>
             )}
           </label>

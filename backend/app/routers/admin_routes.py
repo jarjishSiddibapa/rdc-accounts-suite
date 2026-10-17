@@ -16,6 +16,7 @@ from app.permissions import (
     APP_COMPANIES, APP_KEYS, APP_LABELS, REPORT_RECIPIENT_APP_KEYS, parse_allowed_apps,
 )
 from app.regional import to_ist_iso
+from app.secret_reveal import reveal_secret
 from app.services.mailer_shared import (
     get_report_recipient_defaults,
     set_report_recipient_defaults,
@@ -374,6 +375,16 @@ def get_system_email(db: Session = Depends(get_db)):
     emails) - distinct from each user's personal report-sending identity."""
     settings = system_mailer.get_system_email_settings(db)
     return {"sender_email": settings["sender_email"], "configured": settings["configured"]}
+
+
+@router.get("/system-email/password")
+def reveal_system_email_password(
+    db: Session = Depends(get_db),
+    admin: User = Depends(auth.require_admin),
+):
+    row = db.query(SystemEmailSettings).filter(SystemEmailSettings.id == 1).first()
+    revealed = reveal_secret(row.app_password_encrypted if row else None, user_id=admin.id, scope="system-email")
+    return {"app_password": revealed["value"]}
 
 
 @router.put("/system-email", dependencies=[Depends(auth.require_admin)])

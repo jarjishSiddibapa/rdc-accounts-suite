@@ -12,6 +12,7 @@ from app import auth, security
 from app.database import get_db
 from app.models import EmailSettings, User
 from app.rate_limit import auth_limiter
+from app.secret_reveal import reveal_secret
 from app.services.mailer_shared import test_smtp_connection
 from app.validation import MAX_PASSWORD_BYTES, normalize_email, normalize_optional_name, validate_password
 
@@ -131,6 +132,23 @@ def get_email_settings(
         EmailSettings.is_deleted == False,  # noqa: E712
     ).first()
     return _serialize(settings)
+
+
+@router.get("/email/password")
+def reveal_email_app_password(
+    db: Session = Depends(get_db),
+    user: User = Depends(auth.get_current_user),
+):
+    """Return the signed-in user's own saved app password, for the eye icon on the
+    Settings page. Only ever the caller's own row."""
+    settings = db.query(EmailSettings).filter(
+        EmailSettings.user_id == user.id,
+        EmailSettings.is_deleted == False,  # noqa: E712
+    ).first()
+    revealed = reveal_secret(
+        settings.app_password_encrypted if settings else None, user_id=user.id, scope="user-email",
+    )
+    return {"app_password": revealed["value"]}
 
 
 @router.put("/email")

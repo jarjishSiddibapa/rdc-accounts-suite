@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 from datetime import UTC, datetime
+from typing import Literal
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from pydantic import BaseModel, EmailStr, Field, SecretStr, field_validator
@@ -25,6 +26,7 @@ from app.models import (
 from app.permissions import require_app_access
 from app.public_messages import PUBLIC_ISSUE_MESSAGE
 from app.regional import to_ist_iso
+from app.secret_reveal import reveal_secret
 from app.services.invoice_booking_tracker import monitor
 from app.services.mailer_shared import send_mail
 
@@ -241,6 +243,17 @@ def latest_tracker(db: Session = Depends(get_db)):
 @router.get("/settings", dependencies=[Depends(require_admin)])
 def get_settings(db: Session = Depends(get_db)):
     return _settings(monitor.get_or_create_settings(db))
+
+
+@router.get("/settings/secret/{name}")
+def reveal_saved_secret(
+    name: Literal["password", "sender_app_password"],
+    db: Session = Depends(get_db),
+    admin: User = Depends(require_admin),
+):
+    row = monitor.get_or_create_settings(db)
+    token = row.password_encrypted if name == "password" else row.sender_app_password_encrypted
+    return reveal_secret(token, user_id=admin.id, scope=f"invoice-{name}")
 
 
 @router.put("/settings", dependencies=[Depends(require_admin)])

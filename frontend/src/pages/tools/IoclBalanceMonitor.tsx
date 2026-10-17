@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import {
   Activity,
   AlertTriangle,
@@ -163,6 +163,27 @@ export default function IoclBalanceMonitor() {
   const [checking, setChecking] = useState(false)
   const [sessionUploading, setSessionUploading] = useState(false)
 
+  // The saved portal password filled in by the eye icon. Saving it back unchanged
+  // would needlessly reset the saved browser session, so it is not re-sent.
+  const revealedPassword = useRef('')
+
+  async function revealSaved(name: 'password' | 'sender_app_password') {
+    const isPortal = name === 'password'
+    if (!(isPortal ? settings?.password_configured : settings?.sender_app_password_configured)) return
+    if (isPortal ? password : senderAppPassword) return
+    try {
+      const data = await get<{ value: string }>(`${BASE}/settings/secret/${name}`)
+      if (isPortal) {
+        revealedPassword.current = data.value
+        setPassword(data.value)
+      } else {
+        setSenderAppPassword(data.value)
+      }
+    } catch (error) {
+      setMessage({ ok: false, text: visibleIssue(error, 'Could not load the saved value.', isAdmin) })
+    }
+  }
+
   async function loadChecks() {
     const params = new URLSearchParams({ limit: String(checkPageSize), offset: String((checkPage - 1) * checkPageSize) })
     if (checkStatus) params.set('status', checkStatus)
@@ -241,7 +262,7 @@ export default function IoclBalanceMonitor() {
     try {
       const updated = await put<Settings>(`${BASE}/settings`, {
         ...settings,
-        password: password || null,
+        password: password && password !== revealedPassword.current ? password : null,
         sender_app_password: senderAppPassword || null,
         daily_to: parseRecipients(dailyTo),
         daily_cc: parseRecipients(dailyCc),
@@ -252,6 +273,7 @@ export default function IoclBalanceMonitor() {
       setStatus(updated)
       setPassword('')
       setSenderAppPassword('')
+      revealedPassword.current = ''
       setMessage({ ok: true, text: successText })
     } catch (error) {
       setMessage({ ok: false, text: visibleIssue(error, 'Could not save settings.', isAdmin) })
@@ -389,7 +411,7 @@ export default function IoclBalanceMonitor() {
           <div className="grid gap-4 lg:grid-cols-2">
             <Field label="Login URL"><input className="field-control" value={settings.login_url} onChange={(event) => setSettings({ ...settings, login_url: event.target.value })} /></Field>
             <Field label="IOCL username"><input className="field-control" autoComplete="username" value={settings.username} onChange={(event) => setSettings({ ...settings, username: event.target.value })} /></Field>
-            <Field label="IOCL password" hint={settings.password_configured ? 'Leave blank to keep the saved password.' : 'Required before monitoring can start.'}><PasswordInput autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} placeholder={settings.password_configured ? 'Saved — enter only to replace it' : 'Enter IOCL password'} /></Field>
+            <Field label="IOCL password" hint={settings.password_configured ? 'Click the eye to view the saved password. Leave blank to keep it.' : 'Required before monitoring can start.'}><PasswordInput autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} onReveal={() => revealSaved('password')} placeholder={settings.password_configured ? 'Saved — click the eye to view, or type to replace' : 'Enter IOCL password'} /></Field>
             <Field label="Login timeout (seconds)" hint="Give the portal more time if it loads slowly. 15–300 seconds."><input type="number" min={15} max={300} className="field-control" value={settings.login_timeout_seconds} onChange={(event) => setSettings({ ...settings, login_timeout_seconds: Number(event.target.value) })} /></Field>
           </div>
           <div className="subpanel flex flex-col justify-between gap-3 p-4 sm:flex-row sm:items-center">
@@ -403,7 +425,7 @@ export default function IoclBalanceMonitor() {
           <div className="flex items-center gap-4"><span className="icon-tile grid h-11 w-11 place-items-center rounded-xl"><Mail className="h-5 w-5" /></span><div><h2 className="font-display text-xl font-semibold text-ink">Dedicated mail sender</h2><p className="text-sm text-ink-dim">The single account used by every scheduled morning mail and balance alert.</p></div></div>
           <div className="grid gap-4 lg:grid-cols-2">
             <Field label="Sender email" hint="Use an authorized Gmail or Google Workspace account."><input type="email" autoComplete="username" className="field-control" value={settings.sender_email} onChange={(event) => setSettings({ ...settings, sender_email: event.target.value })} /></Field>
-            <Field label="Sender app password" hint={settings.sender_app_password_configured ? 'Leave blank to keep the saved app password.' : 'Required before email automation can start.'}><PasswordInput autoComplete="new-password" value={senderAppPassword} onChange={(event) => setSenderAppPassword(event.target.value)} placeholder={settings.sender_app_password_configured ? 'Saved — enter only to replace it' : 'Enter the 16-character app password'} /></Field>
+            <Field label="Sender app password" hint={settings.sender_app_password_configured ? 'Click the eye to view the saved app password. Leave blank to keep it.' : 'Required before email automation can start.'}><PasswordInput autoComplete="new-password" value={senderAppPassword} onChange={(event) => setSenderAppPassword(event.target.value)} onReveal={() => revealSaved('sender_app_password')} placeholder={settings.sender_app_password_configured ? 'Saved — click the eye to view, or type to replace' : 'Enter the 16-character app password'} /></Field>
           </div>
           <div className="subpanel flex flex-col justify-between gap-3 p-4 sm:flex-row sm:items-center">
             <div><p className="text-sm font-semibold text-ink">Sender status: {settings.mail_configured ? 'Ready' : 'Setup required'}</p><p className="mt-1 text-xs leading-5 text-ink-faint">Credentials are encrypted in MySQL and are never returned to the browser, job queue, history, or logs.</p></div>

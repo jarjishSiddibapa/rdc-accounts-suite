@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useState, type ReactNode } from 'react'
+import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import {
   CheckCircle2,
   ChevronDown,
@@ -235,11 +235,29 @@ export default function InvoiceBookingTracker() {
   useEffect(() => { if (!loading) void loadNotifications() }, [notificationPage])
   useEffect(() => { if (!loading) void loadMappings() }, [mappingPage, mappingSearch, showArchived])
 
+  // The saved DMS password filled in by the eye icon. Saving it back unchanged would
+  // needlessly reset the saved browser session, so it is not re-sent.
+  const revealedPassword = useRef('')
+
+  async function revealSaved(name: 'password' | 'sender_app_password') {
+    const isPortal = name === 'password'
+    if (!(isPortal ? settings?.password_configured : settings?.sender_app_password_configured)) return
+    if (isPortal ? password : senderPassword) return
+    try {
+      const data = await get<{ value: string }>(`${BASE}/settings/secret/${name}`)
+      if (isPortal) { revealedPassword.current = data.value; setPassword(data.value) } else setSenderPassword(data.value)
+    } catch (error) {
+      const failure = { ok: false, text: isAdmin && error instanceof ApiError ? error.message : PUBLIC_ISSUE_MESSAGE }
+      if (isPortal) setCredentialsMessage(failure); else setMailMessage(failure)
+    }
+  }
+
   async function saveSettings() {
     if (!settings) return
     setBusy('settings'); setMailMessage(null)
     try {
-      const next = await put<Settings>(`${BASE}/settings`, { ...settings, password: password || null, sender_app_password: senderPassword || null, mail_to: recipients(mailTo), mail_cc: recipients(mailCc) })
+      const next = await put<Settings>(`${BASE}/settings`, { ...settings, password: password && password !== revealedPassword.current ? password : null, sender_app_password: senderPassword || null, mail_to: recipients(mailTo), mail_cc: recipients(mailCc) })
+      revealedPassword.current = ''
       setSettings(next); setStatus(next); setPassword(''); setSenderPassword(''); setMailTo(recipientText(next.mail_to)); setMailCc(recipientText(next.mail_cc)); setMailMessage({ ok: true, text: 'Tracker automation settings saved.' })
     } catch (error) { setMailMessage({ ok: false, text: isAdmin && error instanceof ApiError ? error.message : PUBLIC_ISSUE_MESSAGE }) }
     finally { setBusy(null) }
@@ -351,10 +369,10 @@ export default function InvoiceBookingTracker() {
             <div className="grid gap-4 lg:grid-cols-2">
               <Field label="DMS login URL"><input className="field-control" value={settings.login_url} onChange={(event) => setSettings({ ...settings, login_url: event.target.value })} /></Field>
               <Field label="DMS username"><input className="field-control" autoComplete="username" value={settings.username} onChange={(event) => setSettings({ ...settings, username: event.target.value })} /></Field>
-              <Field label="DMS password" hint={settings.password_configured ? 'Leave blank to keep the encrypted password.' : 'Required before checks can run.'}><PasswordInput value={password} onChange={(event) => setPassword(event.target.value)} placeholder={settings.password_configured ? 'Saved — enter only to replace' : 'Enter DMS password'} /></Field>
+              <Field label="DMS password" hint={settings.password_configured ? 'Click the eye to view the saved password. Leave blank to keep it.' : 'Required before checks can run.'}><PasswordInput value={password} onChange={(event) => setPassword(event.target.value)} onReveal={() => revealSaved('password')} placeholder={settings.password_configured ? 'Saved — click the eye to view, or type to replace' : 'Enter DMS password'} /></Field>
               <Field label="Login timeout (seconds)" hint="15–300 seconds"><input type="number" min={15} max={300} className="field-control" value={settings.login_timeout_seconds} onChange={(event) => setSettings({ ...settings, login_timeout_seconds: Number(event.target.value) })} /></Field>
               <Field label="Sender email"><input type="email" className="field-control" value={settings.sender_email} onChange={(event) => setSettings({ ...settings, sender_email: event.target.value })} /></Field>
-              <Field label="Sender app password" hint={settings.sender_app_password_configured ? 'Leave blank to keep the encrypted app password.' : 'Required for scheduled mail.'}><PasswordInput value={senderPassword} onChange={(event) => setSenderPassword(event.target.value)} placeholder={settings.sender_app_password_configured ? 'Saved — enter only to replace' : 'Enter app password'} /></Field>
+              <Field label="Sender app password" hint={settings.sender_app_password_configured ? 'Click the eye to view the saved app password. Leave blank to keep it.' : 'Required for scheduled mail.'}><PasswordInput value={senderPassword} onChange={(event) => setSenderPassword(event.target.value)} onReveal={() => revealSaved('sender_app_password')} placeholder={settings.sender_app_password_configured ? 'Saved — click the eye to view, or type to replace' : 'Enter app password'} /></Field>
             </div>
             <div className="subpanel flex flex-col justify-between gap-3 p-4 sm:flex-row sm:items-center"><div><p className="text-sm font-semibold text-ink">Saved browser session: {settings.session_configured ? 'Available' : 'Not imported'}</p><p className="mt-1 text-xs text-ink-faint">Optional. Import a Playwright storage-state JSON if the portal uses a session challenge.</p></div><label className="inline-flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-xl border border-border bg-surface px-4 text-sm font-semibold text-ink"><Upload className="h-4 w-4" />{busy === 'session' ? 'Importing…' : 'Import session'}<input type="file" accept=".json,application/json" className="sr-only" disabled={Boolean(busy)} onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadSession(file); event.currentTarget.value = '' }} /></label></div>
             <Flash message={credentialsMessage} />

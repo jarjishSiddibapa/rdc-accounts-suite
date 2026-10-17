@@ -167,6 +167,16 @@ export function SystemEmailSection() {
     void load()
   }, [])
 
+  async function revealSaved() {
+    if (!info?.configured || appPassword) return
+    try {
+      const data = await get<{ app_password: string }>('/admin/system-email/password')
+      setAppPassword(data.app_password)
+    } catch (err) {
+      setSaveMessage(err instanceof Error ? err.message : 'Could not load the saved app password.')
+    }
+  }
+
   async function handleTest() {
     setTesting(true)
     setTestResult(null)
@@ -236,8 +246,9 @@ export function SystemEmailSection() {
           <PasswordInput
             value={appPassword}
             onChange={(e) => setAppPassword(e.target.value)}
+            onReveal={revealSaved}
             autoComplete="new-password"
-            placeholder={info?.configured ? 'Leave blank to keep current password' : 'Gmail app password'}
+            placeholder={info?.configured ? 'Saved - click the eye to view, or type to replace' : 'Gmail app password'}
           />
         </label>
       </div>
