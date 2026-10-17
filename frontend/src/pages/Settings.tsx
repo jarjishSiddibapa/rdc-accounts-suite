@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
-import { CheckCircle2, UserRound } from 'lucide-react'
+import { CheckCircle2, KeyRound, UserRound } from 'lucide-react'
 import { AppShell } from '@/components/AppShell'
 import { GlassCard } from '@/components/GlassCard'
 import { Button } from '@/components/Button'
 import { ErrorBanner } from '@/components/ErrorBanner'
 import { PasswordInput } from '@/components/PasswordInput'
+import { PasswordStrengthMeter } from '@/components/PasswordStrengthMeter'
 import { ApiError, get, put, post } from '@/lib/api'
+import { generateStrongPassword, scorePasswordStrength } from '@/lib/passwordStrength'
 import { useAuth } from '@/lib/auth-context'
 
 interface EmailSettings {
@@ -24,6 +26,12 @@ export default function Settings() {
   const [appPassword, setAppPassword] = useState('')
   const [signature, setSignature] = useState('')
   const [configured, setConfigured] = useState(false)
+
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [confirmNewPassword, setConfirmNewPassword] = useState('')
+  const [passwordSaving, setPasswordSaving] = useState(false)
+  const [passwordMessage, setPasswordMessage] = useState<{ ok: boolean; text: string } | null>(null)
 
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
@@ -91,6 +99,29 @@ export default function Settings() {
       })
     } finally {
       setProfileSaving(false)
+    }
+  }
+
+  async function handlePasswordChange() {
+    setPasswordMessage(null)
+    if (newPassword !== confirmNewPassword) {
+      setPasswordMessage({ ok: false, text: "The new passwords don't match." })
+      return
+    }
+    setPasswordSaving(true)
+    try {
+      await put('/settings/password', { current_password: currentPassword, new_password: newPassword })
+      setCurrentPassword('')
+      setNewPassword('')
+      setConfirmNewPassword('')
+      setPasswordMessage({ ok: true, text: 'Password changed. Use it the next time you sign in.' })
+    } catch (err) {
+      setPasswordMessage({
+        ok: false,
+        text: err instanceof ApiError ? err.message : 'Could not change the password.',
+      })
+    } finally {
+      setPasswordSaving(false)
     }
   }
 
@@ -198,6 +229,95 @@ export default function Settings() {
           </form>
         </GlassCard>
 
+        <GlassCard padding="lg">
+          <div className="flex items-start gap-3">
+            <div className="icon-tile grid h-11 w-11 shrink-0 place-items-center rounded-2xl">
+              <KeyRound className="h-5 w-5" />
+            </div>
+            <div>
+              <p className="text-sm font-semibold text-accent">Account security</p>
+              <h2 className="mt-1.5 font-display text-xl font-semibold tracking-[-0.025em] text-ink">Change password</h2>
+              <p className="mt-1 text-sm text-ink-dim">
+                This is the password you use to sign in to this application. It is separate from the email
+                app password below.
+              </p>
+            </div>
+          </div>
+
+          <form
+            className="mt-6 flex flex-col gap-4"
+            onSubmit={(event) => {
+              event.preventDefault()
+              void handlePasswordChange()
+            }}
+          >
+            <label className="flex flex-col gap-1.5 text-sm">
+              <span className="font-medium text-ink-dim">Current password</span>
+              <PasswordInput
+                autoComplete="current-password"
+                value={currentPassword}
+                onChange={(e) => setCurrentPassword(e.target.value)}
+                placeholder="Your current password"
+              />
+            </label>
+
+            <label className="flex flex-col gap-1.5 text-sm">
+              <div className="flex items-center justify-between gap-2">
+                <span className="font-medium text-ink-dim">New password</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const generated = generateStrongPassword()
+                    setNewPassword(generated)
+                    setConfirmNewPassword(generated)
+                  }}
+                  className="text-xs font-medium text-accent hover:underline"
+                >
+                  Generate strong password
+                </button>
+              </div>
+              <PasswordInput
+                autoComplete="new-password"
+                value={newPassword}
+                onChange={(e) => setNewPassword(e.target.value)}
+                placeholder="At least 10 characters"
+              />
+              <PasswordStrengthMeter password={newPassword} />
+            </label>
+
+            <label className="flex flex-col gap-1.5 text-sm">
+              <span className="font-medium text-ink-dim">Confirm new password</span>
+              <PasswordInput
+                autoComplete="new-password"
+                value={confirmNewPassword}
+                onChange={(e) => setConfirmNewPassword(e.target.value)}
+                placeholder="Repeat your new password"
+              />
+            </label>
+
+            {passwordMessage && (
+              passwordMessage.ok ? (
+                <p className="flex items-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm text-emerald-600">
+                  <CheckCircle2 className="h-4 w-4 shrink-0" />
+                  {passwordMessage.text}
+                </p>
+              ) : (
+                <ErrorBanner>{passwordMessage.text}</ErrorBanner>
+              )
+            )}
+
+            <div className="flex justify-end">
+              <Button
+                type="submit"
+                loading={passwordSaving}
+                disabled={!currentPassword || !scorePasswordStrength(newPassword).isAcceptable || !confirmNewPassword}
+              >
+                Change password
+              </Button>
+            </div>
+          </form>
+        </GlassCard>
+
       <GlassCard padding="lg">
         <p className="text-sm font-semibold text-accent">Report delivery</p>
         <h2 className="mt-1.5 font-display text-xl font-semibold tracking-[-0.025em] text-ink">Email sender identity</h2>
@@ -239,8 +359,13 @@ export default function Settings() {
               onChange={(e) => setAppPassword(e.target.value)}
               disabled={loading}
               autoComplete="new-password"
-              placeholder={configured ? '••••••••' : 'App password'}
+              placeholder={configured ? 'Saved - type a new one only to replace it' : 'App password'}
             />
+            {configured && (
+              <span className="text-xs text-ink-faint">
+                The saved password is stored encrypted and is never shown again. Leave this blank to keep it.
+              </span>
+            )}
           </label>
 
           <label className="flex flex-col gap-1.5 text-sm">

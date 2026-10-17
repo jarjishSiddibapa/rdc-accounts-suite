@@ -443,6 +443,12 @@ class SummaryAndWorkbookTests(unittest.TestCase):
         values = load_workbook(path, data_only=True)
         self.assertEqual(formulas.sheetnames, ["Summary", "Payments", "Receipts", "Working"])
         summary_sheet, cached = formulas["Summary"], values["Summary"]
+        headers = [summary_sheet.cell(2, c).value for c in range(2, 12)]
+        self.assertEqual(headers[:4], ["Sr.No.", "Location", "Authorized Person", "Op. Balance"])
+        self.assertEqual(headers[4], "Collection September- 2026")
+        self.assertEqual(headers[5], "Payable (80 % Of Collection)")
+        self.assertIn("Actual Paid", headers)
+        self.assertEqual(headers[-1], "Cl. Balance")
         rows = {summary_sheet.cell(r, 3).value: r for r in range(3, 12)}
         main_row = rows["Main Operation"]
         self.assertIn("SUMIF(Receipts!", summary_sheet.cell(main_row, 6).value)

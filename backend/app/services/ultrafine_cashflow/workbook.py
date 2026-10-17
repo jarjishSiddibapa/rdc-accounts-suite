@@ -10,6 +10,7 @@ app.services.xlsx_formula_cache).
 
 from __future__ import annotations
 
+from collections import Counter
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
@@ -150,11 +151,18 @@ def _write_summary(ws, figures: MonthFigures, plan: list[dict], as_of: datetime,
                    pay_last: int, rec_last: int) -> dict[str, float]:
     """Summary sheet; returns {coordinate: value} for every formula cell."""
     values: dict[str, float] = {}
-    month_label = datetime.strptime(figures.month, "%Y-%m").strftime("%b- %Y")
+    month_label = datetime.strptime(figures.month, "%Y-%m").strftime("%B- %Y")
     ws["B1"] = f"Cash Flow as of {_ordinal(as_of.day)} {as_of:%B, %Y}                      Amt in Lacs"
     ws["B1"].font = _TITLE_FONT
+    # "Payable (80 % Of Collection)": the heading names the percentage most rows use;
+    # the odd location paying out a different share still shows its own figure below it.
+    pct_counts = Counter(r.payable_pct for r in figures.rows)
+    payable_header = "Payable"
+    if pct_counts:
+        top = pct_counts.most_common(1)[0][0]   # ties go to the one listed first
+        payable_header = f"Payable ({top:g} % Of Collection)"
     headers = ["Sr.No.", "Location", "Authorized Person", "Op. Balance", f"Collection {month_label}",
-               "Payable", "Reserve", "Actual Paid", "Statutory & Others Expns", "Cl. Balance"]
+               payable_header, "Reserve", "Actual Paid", "Statutory & Others Expns", "Cl. Balance"]
     for offset, header in enumerate(headers):
         ws.cell(row=2, column=2 + offset, value=header)
     _style_header(ws, 2, 2, 11)

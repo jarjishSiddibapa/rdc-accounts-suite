@@ -116,6 +116,7 @@ export function SetupPanel({
   onChanged: () => void
 }) {
   const [inputs, setInputs] = useState<InputRow[]>([])
+  const [loadVersion, setLoadVersion] = useState(0)
   const [sections, setSections] = useState<PlanSection[]>([])
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
@@ -129,6 +130,8 @@ export function SetupPanel({
     try {
       const data = await get<SetupResponse>(`${BASE}/months/${month}/setup`)
       setInputs(data.inputs)
+      // the boxes are uncontrolled; a new key re-seeds them from the server, but only per load, never per keystroke
+      setLoadVersion((v) => v + 1)
       setSections(
         data.plan.flatMap((block) =>
           block.sections.map((s) => ({ id: s.id, block_no: block.block_no, title: s.title, items: s.items })),
@@ -249,7 +252,7 @@ export function SetupPanel({
                           aria-label={`Opening balance override for ${row.cf_location}`}
                           placeholder="carried forward"
                           defaultValue={row.opening_balance ?? ''}
-                          key={`${month}-${row.cf_location}-open-${row.opening_balance}`}
+                          key={`${month}-${row.cf_location}-open-${loadVersion}`}
                           onChange={(e) =>
                             setInputs((previous) =>
                               previous.map((r, i) =>
@@ -266,7 +269,7 @@ export function SetupPanel({
                           aria-label={`Statutory amount for ${row.cf_location}`}
                           placeholder="0"
                           defaultValue={row.statutory_amount ?? ''}
-                          key={`${month}-${row.cf_location}-stat-${row.statutory_amount}`}
+                          key={`${month}-${row.cf_location}-stat-${loadVersion}`}
                           onChange={(e) =>
                             setInputs((previous) =>
                               previous.map((r, i) =>

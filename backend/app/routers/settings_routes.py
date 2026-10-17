@@ -4,15 +4,16 @@ Who reports get sent TO (default recipients) is an application-wide admin
 setting, not a per-user preference - see admin_routes.py's
 /api/admin/report-recipients."""
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel, field_validator
 from sqlalchemy.orm import Session
 
 from app import auth, security
 from app.database import get_db
 from app.models import EmailSettings, User
+from app.rate_limit import auth_limiter
 from app.services.mailer_shared import test_smtp_connection
-from app.validation import normalize_email, normalize_optional_name
+from app.validation import MAX_PASSWORD_BYTES, normalize_email, normalize_optional_name, validate_password
 
 router = APIRouter(prefix="/api/settings", tags=["settings"])
 
@@ -48,6 +49,23 @@ class ProfileBody(BaseModel):
         return normalize_optional_name(value)
 
 
+class ChangePasswordBody(BaseModel):
+    current_password: str
+    new_password: str
+
+    @field_validator("current_password")
+    @classmethod
+    def validate_current(cls, value: str) -> str:
+        if not value or len(value.encode("utf-8")) > MAX_PASSWORD_BYTES:
+            raise ValueError("Enter your current password")
+        return value
+
+    @field_validator("new_password")
+    @classmethod
+    def validate_new(cls, value: str) -> str:
+        return validate_password(value)
+
+
 def _serialize(settings: EmailSettings | None) -> dict:
     if settings is None:
         return {
@@ -78,6 +96,29 @@ def put_profile(
         "first_name": user.first_name,
         "last_name": user.last_name,
     }
+
+
+@router.put("/password")
+def change_password(
+    body: ChangePasswordBody,
+    response: Response,
+    db: Session = Depends(get_db),
+    user: User = Depends(auth.get_current_user),
+):
+    """Change the signed-in user's own login password. The current password is
+    required, so a left-open browser can't be used to take over the account."""
+    auth_limiter.enforce(f"change-password:{user.id}", limit=8, window_seconds=15 * 60)
+    if not auth.verify_password(body.current_password, user.password_hash):
+        raise HTTPException(status_code=400, detail="Your current password is incorrect.")
+    if body.new_password == body.current_password:
+        raise HTTPException(status_code=400, detail="Choose a password different from your current one.")
+
+    user.password_hash = auth.hash_password(body.new_password)
+    db.commit()
+    # The session cookie is tied to the old password; issue a fresh one so this
+    # browser stays signed in (any other session of this account is signed out).
+    auth.create_session(response, user)
+    return {"ok": True}
 
 
 @router.get("/email")
