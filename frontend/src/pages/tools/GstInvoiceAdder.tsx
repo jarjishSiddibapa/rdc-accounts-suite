@@ -8,6 +8,7 @@ import { ProgressPanel, type JobState, type JobStatus } from '@/components/Progr
 import { ApiError, apiUrl, get, post } from '@/lib/api'
 import { formatIndianNumber } from '@/lib/regional'
 import { AutoMailCard } from '@/components/AutoMailCard'
+import { ReportMailPanel } from '@/components/ReportMailPanel'
 import { useAuth } from '@/lib/auth-context'
 
 const BASE = '/tools/gst-invoice-adder'
@@ -183,6 +184,8 @@ export default function GstInvoiceAdder() {
             {error && <ErrorBanner className="whitespace-pre-wrap">{error}</ErrorBanner>}
           </GlassCard>
         )}
+
+        <ReportMailPanel baseUrl={BASE} reportName="GST Invoice Number report" />
 
         {isAdmin && <AutoMailCard baseUrl={BASE} reportName="GST Invoice Number report" />}
       </div>

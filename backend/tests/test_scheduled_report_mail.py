@@ -425,6 +425,17 @@ class CompactTableTests(unittest.TestCase):
         self.assertIn('class="u0"', compact)
 
 
+def _big_workbook(path, rows=4000):
+    """A real workbook with no empty cells (like the report's), big enough that
+    compacting it makes a clear difference."""
+    wb = openpyxl.Workbook(write_only=True)
+    ws = wb.create_sheet("Ageing")
+    ws.append([f"Col {i}" for i in range(12)])
+    for r in range(rows):
+        ws.append([f"Customer {r % 53}", f"INV{r:07d}", r * 1.37, r % 90, 0, 0, r * 0.5, 0, 0, 0, "-", "Transactions"])
+    wb.save(path)
+
+
 class UntaggedMailBuilderTests(unittest.TestCase):
     SNAPSHOT = {"send_when_unmapped": True}
 
@@ -438,7 +449,7 @@ class UntaggedMailBuilderTests(unittest.TestCase):
                     "needs_mapping_fix": True, "total_rows": 1,
                     "validation_warnings": [{"category": "Location Not Mapped", "items": ["A", "B"]}],
                 })
-            Path(output_path).write_bytes(b"x" * 1_000_000)
+            _big_workbook(output_path)
             return BuiltReport(
                 result={"needs_mapping_fix": False, "total_rows": 1, "validation_warnings": []},
                 as_on_date=dt.date(2026, 10, 19), frames=(df, untagged, df, below, df),
@@ -460,15 +471,43 @@ class UntaggedMailBuilderTests(unittest.TestCase):
         self.assertIn(".b0{", html)
         self.assertLess(html.index("</style>"), html.index("<body"))
 
-    def test_an_oversized_workbook_is_replaced_by_one_without_the_full_ageing_sheet(self):
+    def _sizes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            full = Path(tmp) / "f.xlsx"
+            _big_workbook(full)
+            compact = Path(tmp) / "c.xlsx"
+            from app.services import xlsx_compact
+            xlsx_compact.compact_xlsx(full, compact)
+            return full.stat().st_size, compact.stat().st_size
+
+    def _build(self, limit):
         with patch.object(untagged_mail.report_job, "build_report", self._built(None)), \
-                patch.object(mail, "MAX_ATTACHMENT_BYTES", 500_000):
+                patch.object(mail, "MAX_ATTACHMENT_BYTES", limit):
             payload = untagged_mail.build(self.SNAPSHOT)
         self.addCleanup(lambda: [shutil.rmtree(p, ignore_errors=True) for p in payload.cleanup])
+        return payload
+
+    def test_an_oversized_workbook_is_attached_in_full_after_compacting(self):
+        full, compact = self._sizes()
+        self.assertLess(compact, full * 0.7)
+        payload = self._build((full + compact) // 2)
+        attached = payload.attachment_groups[0][0]
+        self.assertTrue(attached.endswith("Untagged_Invoices_Report_As_On_2026-10-19.xlsx"))
+        self.assertNotIn("Without_Full_Ageing", attached)
+        self.assertEqual(payload.notes, [])                       # nothing was left out, so no apology
+        self.assertIn("compacted", payload.detail["attachment"])
+        self.assertLessEqual(Path(attached).stat().st_size, (full + compact) // 2)
+        sheet = openpyxl.load_workbook(attached)["Ageing"]
+        self.assertEqual(sheet.max_row, 4001)                     # every row is still there
+        self.assertEqual(sheet["B4001"].value, "INV0003999")
+        self.assertEqual(payload.downloads, [("Untagged Invoices Report", attached)])
+
+    def test_only_if_even_the_compact_file_is_too_big_is_the_full_ageing_sheet_dropped(self):
+        full, compact = self._sizes()
+        payload = self._build(compact // 2)
         attached = payload.attachment_groups[0][0]
         self.assertIn("Without_Full_Ageing", attached)
         self.assertTrue(any("full" in note.lower() for note in payload.notes))
-        # the trimmed workbook really lacks the big sheet
         self.assertNotIn("Ageing", openpyxl.load_workbook(attached).sheetnames)
 
     def test_missing_mappings_hold_the_mail_when_that_is_the_setting(self):
@@ -515,16 +554,37 @@ class GstMailBuilderTests(unittest.TestCase):
         self.assertIn("20", payload.sections[0][1])
         self.assertTrue(payload.attachment_groups[0][0].endswith(".xlsx"))
 
-    def test_an_oversized_report_is_split_into_parts_that_each_fit(self):
-        whole = self._run(3000, 10 ** 9)
-        whole_size = Path(whole.attachment_groups[0][0]).stat().st_size
-        payload = self._run(3000, int(whole_size * 0.6) )
+    def _whole_sizes(self):
+        direct = lambda fn, *a, **k: fn(*a, **k)
+        from app.services import xlsx_compact
+        with patch.object(gst_mail.report_job, "build_report", self._fake_build(3000)), \
+                patch.object(gst_mail, "run_cpu_phase", direct):
+            payload = self._run(3000, 10 ** 9)
+        standard = Path(payload.attachment_groups[0][0]).stat().st_size
+        with tempfile.TemporaryDirectory() as tmp:
+            compact = Path(tmp) / "c.xlsx"
+            xlsx_compact.compact_xlsx(payload.attachment_groups[0][0], compact)
+            return standard, compact.stat().st_size
+
+    def test_an_oversized_report_is_compacted_into_one_mail_when_that_fits(self):
+        standard, compact = self._whole_sizes()
+        self.assertLess(compact, standard * 0.7)
+        payload = self._run(3000, (standard + compact) // 2)
+        self.assertEqual(len(payload.attachment_groups), 1)
+        self.assertIn("compacted", payload.detail["attachment"])
+        self.assertEqual(openpyxl.load_workbook(payload.attachment_groups[0][0]).active.max_row, 3001)
+
+    def test_only_if_even_the_compact_file_is_too_big_is_it_split_into_parts(self):
+        standard, compact = self._whole_sizes()
+        limit = int(compact * 0.6)
+        payload = self._run(3000, limit)
         self.assertGreater(len(payload.attachment_groups), 1)
         total_rows = 0
         for (path,) in payload.attachment_groups:
-            self.assertLessEqual(Path(path).stat().st_size, int(whole_size * 0.6))
+            self.assertLessEqual(Path(path).stat().st_size, limit)
             total_rows += openpyxl.load_workbook(path).active.max_row - 1
         self.assertEqual(total_rows, 3000)    # nothing lost or repeated
+        self.assertEqual(len(payload.downloads), len(payload.attachment_groups))
 
 
 class AutoMailRouteTests(_DbCase):
@@ -533,12 +593,9 @@ class AutoMailRouteTests(_DbCase):
         from app import auth
         from app.routers import auto_mail_routes
         self.routes_module = auto_mail_routes
-        self.router = auto_mail_routes.make_auto_mail_router(APP, lambda *a: None)
+        self.router = auto_mail_routes.make_auto_mail_router(APP)
         self.endpoints = {(r.path, tuple(sorted(r.methods))): r.endpoint for r in self.router.routes}
         self.auth = auth
-        patcher = patch.object(auto_mail_routes, "get_system_email_settings", lambda db: {"configured": True})
-        patcher.start()
-        self.addCleanup(patcher.stop)
         patcher = patch.object(mail, "get_system_email_settings", lambda db: {"configured": True})
         patcher.start()
         self.addCleanup(patcher.stop)
@@ -546,17 +603,11 @@ class AutoMailRouteTests(_DbCase):
     def endpoint(self, path, method):
         return self.endpoints[(path, (method,))]
 
-    def test_the_log_route_returns_the_history(self):
-        self.db.add(ScheduledReportMailLog(app_key=APP, trigger="manual", status="sent", requested_by="a@rdc.in",
-                                           started_at=dt.datetime(2026, 10, 19, 3, 0)))
-        self.db.commit()
-        result = self.endpoint("/auto-mail/log", "GET")(20, 0, self.db)
-        self.assertEqual(result["total"], 1)
-        self.assertEqual(result["items"][0]["requested_by"], "a@rdc.in")
-        self.assertTrue(result["items"][0]["started_at"].startswith("2026-10-19T03:00"))
-
     def test_every_route_is_administrators_only(self):
         self.assertTrue(any(dep.dependency is self.auth.require_admin for dep in self.router.dependencies))
+
+    def test_there_is_no_way_to_send_without_a_preview_from_here(self):
+        self.assertNotIn(("/auto-mail/send-now", ("POST",)), self.endpoints)
 
     def test_save_then_read_back(self):
         body = self.routes_module.AutoMailBody(**GOOD)
@@ -573,54 +624,38 @@ class AutoMailRouteTests(_DbCase):
         self.assertEqual(caught.exception.status_code, 400)
         self.assertIn("at least one day", caught.exception.detail)
 
-    def test_send_now_queues_a_job_owned_by_the_admin(self):
-        from types import SimpleNamespace
-        mail.save_settings(self.db, APP, GOOD)
-        with patch.object(self.routes_module, "submit_job", return_value="job-9") as submit:
-            result = self.endpoint("/auto-mail/send-now", "POST")(self.db, SimpleNamespace(id=7, email="boss@rdc.in"))
-        self.assertEqual(submit.call_args.kwargs["requested_by"], "boss@rdc.in")
-        self.assertEqual(result, {"job_id": "job-9"})
-        self.assertEqual(submit.call_args.args[1], "manual")
-        self.assertEqual(submit.call_args.kwargs["owner_id"], 7)
-        self.assertFalse(submit.call_args.kwargs["cancel_on_disconnect"])
-
-    def test_send_now_needs_a_recipient_and_a_configured_sender(self):
-        from fastapi import HTTPException
-        from types import SimpleNamespace
-        send = self.endpoint("/auto-mail/send-now", "POST")
-        with self.assertRaises(HTTPException) as caught:      # nothing saved yet: no To
-            send(self.db, SimpleNamespace(id=1))
-        self.assertIn("To recipient", caught.exception.detail)
-        mail.save_settings(self.db, APP, GOOD)
-        with patch.object(self.routes_module, "get_system_email_settings", lambda db: {"configured": False}):
-            with self.assertRaises(HTTPException) as caught:
-                send(self.db, SimpleNamespace(id=1))
-        self.assertIn("system email", caught.exception.detail)
-
-    def test_send_now_is_refused_while_a_run_is_in_progress(self):
-        from fastapi import HTTPException
-        from types import SimpleNamespace
-        mail.save_settings(self.db, APP, GOOD)
-        row = self.row()
-        row.running_since = mail._utcnow()
+    def test_the_log_route_returns_the_history(self):
+        self.db.add(ScheduledReportMailLog(app_key=APP, trigger="manual", status="sent", requested_by="a@rdc.in",
+                                           started_at=dt.datetime(2026, 10, 19, 3, 0)))
         self.db.commit()
-        with self.assertRaises(HTTPException) as caught:
-            self.endpoint("/auto-mail/send-now", "POST")(self.db, SimpleNamespace(id=1))
-        self.assertEqual(caught.exception.status_code, 409)
+        result = self.endpoint("/auto-mail/log", "GET")(20, 0, self.db)
+        self.assertEqual(result["total"], 1)
+        self.assertEqual(result["items"][0]["requested_by"], "a@rdc.in")
+        self.assertTrue(result["items"][0]["started_at"].startswith("2026-10-19T03:00"))
 
 
 class RegistrationTests(unittest.TestCase):
-    def test_both_mail_jobs_are_allowed_to_run_from_the_queue(self):
+    def test_the_mail_jobs_are_allowed_to_run_from_the_queue(self):
         from app import jobs
         for task in (
             "app.services.untagged_invoices.auto_mail:run_auto_mail_job",
             "app.services.gst_invoice_adder.auto_mail:run_auto_mail_job",
+            "app.services.untagged_invoices.auto_mail:run_preview_job",
+            "app.services.gst_invoice_adder.auto_mail:run_preview_job",
         ):
             self.assertIn(task, jobs._ALLOWED_TASKS)
 
     def test_both_applications_appear_in_the_admin_recipient_list(self):
         from app.permissions import REPORT_RECIPIENT_APP_KEYS
         self.assertLessEqual({"untagged-invoices-report", "gst-invoice-adder"}, REPORT_RECIPIENT_APP_KEYS)
+
+    def test_both_applications_expose_the_preview_and_the_admin_routes(self):
+        from app.main import app
+        paths = app.openapi()["paths"]
+        for key in ("untagged-invoices-report", "gst-invoice-adder"):
+            for suffix in ("/mail/preview", "/mail/confirm-send", "/mail/defaults", "/auto-mail", "/auto-mail/log"):
+                self.assertIn(f"/api/tools/{key}{suffix}", paths)
+            self.assertNotIn(f"/api/tools/{key}/auto-mail/send-now", paths)
 
 
 if __name__ == "__main__":

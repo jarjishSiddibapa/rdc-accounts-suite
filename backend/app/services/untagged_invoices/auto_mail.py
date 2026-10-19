@@ -11,15 +11,17 @@ import uuid
 from datetime import date
 
 from app.config import SCRATCH_DIR
+from app.services import report_mail_preview
 from app.services import scheduled_report_mail as mail
+from app.services import xlsx_compact
 from app.services.mailer_shared import sheet_to_html
 from app.services.untagged_invoices import processor, report_job
 
 APP_KEY = "untagged-invoices-report"
 
 _NO_FULL_AGEING_NOTE = (
-    "The complete workbook is too large to attach to an email, so the full \"Ageing\" sheet "
-    "(every open item) is left out of this attachment. Download the complete report from the "
+    "Even compacted, the complete workbook is too large to attach to an email, so the full \"Ageing\" "
+    "sheet (every open item) is left out of this attachment. Download the complete report from the "
     "Untagged Invoices Report page in the application."
 )
 _NO_ATTACHMENT_NOTE = (
@@ -75,8 +77,17 @@ def build(snapshot: dict, progress_cb=None, cancel_event=None) -> mail.MailPaylo
         ("Below 1k Summary", sheet_to_html(str(summary_path), "Below 1k Summary", payload.css, "b")),
     ]
 
+    payload.downloads = [("Untagged Invoices Report", str(report_path))]
     attachment = report_path
     if report_path.stat().st_size > mail.MAX_ATTACHMENT_BYTES:
+        # The same complete workbook, written more compactly (see xlsx_compact):
+        # it opens in Excel exactly as before, at under half the size.
+        xlsx_compact.compact_xlsx_in_place(report_path)
+        payload.detail["attachment"] = "complete workbook (compacted to fit the email limit)"
+    else:
+        payload.detail["attachment"] = "complete workbook"
+    if report_path.stat().st_size > mail.MAX_ATTACHMENT_BYTES:
+        # Last resort, only if even the compact file does not fit.
         df, untagged_summary, untagged_ageing, below_summary, below_ageing = built.frames
         attachment = work_dir / f"Untagged_Invoices_Report_As_On_{as_on.isoformat()}_Without_Full_Ageing.xlsx"
         processor.write_report(
@@ -90,8 +101,6 @@ def build(snapshot: dict, progress_cb=None, cancel_event=None) -> mail.MailPaylo
             attachment = None
         else:
             payload.notes.append(_NO_FULL_AGEING_NOTE)
-    else:
-        payload.detail["attachment"] = "complete workbook"
 
     payload.attachment_groups = [[str(attachment)]] if attachment else [[]]
     return payload
@@ -101,4 +110,13 @@ def run_auto_mail_job(trigger: str = "scheduled", requested_by: str | None = Non
                       progress_cb=None, cancel_event=None) -> dict:
     return mail.run_mail_job(
         APP_KEY, trigger, build, progress_cb=progress_cb, cancel_event=cancel_event, requested_by=requested_by,
+    )
+
+
+def run_preview_job(user_id: int, to: list, cc: list, subject: str, intro: str,
+                    allow_unmapped: bool = False, progress_cb=None, cancel_event=None) -> dict:
+    """Build the report and the exact mail for review. Sends nothing."""
+    return report_mail_preview.build_preview(
+        APP_KEY, build, user_id, to, cc, subject, intro, allow_unmapped,
+        progress_cb=progress_cb, cancel_event=cancel_event,
     )

@@ -27,6 +27,7 @@ from app.jobs import cancel_job, get_job, submit_job
 from app.models import User
 from app.permissions import require_app_access
 from app.routers.auto_mail_routes import make_auto_mail_router
+from app.routers.report_mail_routes import make_report_mail_router
 from app.services.untagged_invoices import auto_mail, mapping_store, report_job
 
 router = APIRouter(
@@ -34,7 +35,8 @@ router = APIRouter(
     dependencies=[Depends(require_app_access("untagged-invoices-report"))],
 )
 
-router.include_router(make_auto_mail_router("untagged-invoices-report", auto_mail.run_auto_mail_job))
+router.include_router(make_auto_mail_router("untagged-invoices-report"))
+router.include_router(make_report_mail_router("untagged-invoices-report", auto_mail.run_preview_job))
 
 _XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 

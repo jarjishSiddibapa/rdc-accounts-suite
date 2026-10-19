@@ -534,6 +534,23 @@ def _ensure_detail_named_styles(wb: Workbook) -> None:
                                        number_format=number_format))
 
 
+_WIDTH_SAMPLE_ROWS = 200
+
+
+def _display_length(val, numeric: bool, is_days: bool) -> int:
+    """Characters a value takes on screen - enough to size its column."""
+    if _is_blank(val):
+        return 1
+    if isinstance(val, _dt.datetime):
+        return 11   # 01-Jan-2026
+    if numeric:
+        try:
+            return len(f"{int(val):,}") if is_days else len(f"{float(val):,.2f}")
+        except (TypeError, ValueError):
+            return len(str(val))
+    return len(str(val))
+
+
 def _write_detail_sheet(wb: Workbook, title: str, df: pd.DataFrame, tab_color: str,
                         log_q=None, progress_cb=None, base: float = 0.0, span: float = 0.3) -> None:
     """Write a full-detail sheet (Ageing / Untagged Detailed Ageing) - every
@@ -552,29 +569,34 @@ def _write_detail_sheet(wb: Workbook, title: str, df: pd.DataFrame, tab_color: s
     n_rows = len(df)
     report_row = row_progress_reporter(progress_cb, base=base, span=span, total_rows=n_rows)
 
-    ws.row_dimensions[1].height = 32
-    header_cells = []
-    col_max_len = []
-    for col_name in cols:
-        label = str(col_name).strip()
-        c = WriteOnlyCell(ws, value=label)
-        c.style = _STYLE_HDR
-        header_cells.append(c)
-        col_max_len.append(len(label))
-    ws.append(header_cells)
-
     numeric_cols = [_is_numeric_col(c) for c in cols]
     days_os_idx  = cols.index(_DAYS_OS_COL) if _DAYS_OS_COL in cols else -1
 
-    # Column widths only ever sampled the first 200 written rows - track that
-    # inline while building rows instead of a second pass reading cells back
-    # (which write-only mode can't do anyway, since rows aren't kept once
-    # appended).
-    WIDTH_SAMPLE_ROWS = 200
+    # In a write-only sheet the column widths and the frozen header row are
+    # written ahead of the first data row, so both must be set before it: set
+    # afterwards they are silently ignored (numbers then show as ####### and
+    # the header scrolls away). Widths come from the header and the first 200
+    # rows.
+    col_max_len = [len(str(col_name).strip()) for col_name in cols]
+    for sample in df.head(_WIDTH_SAMPLE_ROWS).itertuples(index=False):
+        for ci, val in enumerate(sample):
+            length = _display_length(val, numeric_cols[ci], ci == days_os_idx)
+            if length > col_max_len[ci]:
+                col_max_len[ci] = length
+    for ci in range(1, n_cols + 1):
+        ws.column_dimensions[get_column_letter(ci)].width = min(max(col_max_len[ci - 1] + 3, 10), 45)
+    ws.freeze_panes = "A2"
+
+    ws.row_dimensions[1].height = 32
+    header_cells = []
+    for col_name in cols:
+        c = WriteOnlyCell(ws, value=str(col_name).strip())
+        c.style = _STYLE_HDR
+        header_cells.append(c)
+    ws.append(header_cells)
 
     for ri, row_vals in enumerate(df.itertuples(index=False), 2):
         is_even_row = (ri % 2 == 0)
-        track_width = (ri - 2) < WIDTH_SAMPLE_ROWS
         row_cells = []
         for ci, val in enumerate(row_vals, 1):
             c = WriteOnlyCell(ws)
@@ -583,42 +605,26 @@ def _write_detail_sheet(wb: Workbook, title: str, df: pd.DataFrame, tab_color: s
                 # a date is never a number, whatever its column is called
                 c.value = val
                 c.style = _STYLE_DATE_EVEN if is_even_row else _STYLE_DATE_ODD
-                disp = val.strftime("%d-%b-%Y")
             elif numeric_cols[ci - 1]:
                 is_days = (ci - 1) == days_os_idx
                 if is_blank:
                     c.value = _DASH
-                    disp = _DASH
                 else:
                     try:
                         c.value = int(val) if is_days else float(val)
                     except (TypeError, ValueError):
                         c.value = val
-                    disp = str(c.value)
                 if is_days:
                     c.style = _STYLE_NUM_INT_EVEN if is_even_row else _STYLE_NUM_INT_ODD
                 else:
                     c.style = _STYLE_NUM_DEC_EVEN if is_even_row else _STYLE_NUM_DEC_ODD
             else:
-                if is_blank:
-                    c.value = _DASH
-                    disp = _DASH
-                    c.style = _STYLE_TXT_EVEN if is_even_row else _STYLE_TXT_ODD
-                else:
-                    c.value = str(val)
-                    disp = c.value
-                    c.style = _STYLE_TXT_EVEN if is_even_row else _STYLE_TXT_ODD
+                c.value = _DASH if is_blank else str(val)
+                c.style = _STYLE_TXT_EVEN if is_even_row else _STYLE_TXT_ODD
             row_cells.append(c)
-            if track_width and len(disp) > col_max_len[ci - 1]:
-                col_max_len[ci - 1] = len(disp)
         ws.append(row_cells)
         report_row(ri - 1)
 
-    for ci in range(1, n_cols + 1):
-        col_letter = get_column_letter(ci)
-        ws.column_dimensions[col_letter].width = min(max(col_max_len[ci - 1] + 3, 10), 45)
-
-    ws.freeze_panes = "A2"
     if n_rows:
         ws.auto_filter.ref = f"A1:{get_column_letter(n_cols)}{n_rows + 1}"
 
@@ -649,6 +655,14 @@ def _write_pivot_sheet(wb: Workbook, title: str, df: pd.DataFrame, tab_color: st
     bdr = _thin_border()
     n_cols = len(cols)
     n_rows = len(df)
+
+    # widths and the frozen header go in ahead of the first row (see
+    # _write_detail_sheet): set afterwards they are ignored
+    ws.column_dimensions["A"].width = 26
+    ws.column_dimensions["B"].width = 18
+    for ci in range(3, n_cols + 1):
+        ws.column_dimensions[get_column_letter(ci)].width = 15
+    ws.freeze_panes = "A2"
 
     hdr_font  = Font(name="Segoe UI", bold=True, size=10, color="FFFFFF")
     hdr_fill  = PatternFill("solid", fgColor=_HDR_BG)
@@ -767,12 +781,6 @@ def _write_pivot_sheet(wb: Workbook, title: str, df: pd.DataFrame, tab_color: st
         note_cell.font = Font(name="Segoe UI", size=9, italic=True, color="808080")
         ws.append([note_cell])
 
-    ws.column_dimensions["A"].width = 26
-    ws.column_dimensions["B"].width = 18
-    for ci in range(3, n_cols + 1):
-        ws.column_dimensions[get_column_letter(ci)].width = 15
-
-    ws.freeze_panes = "A2"
     if n_rows:
         ws.auto_filter.ref = f"A1:{get_column_letter(n_cols)}{n_rows + 1}"
 

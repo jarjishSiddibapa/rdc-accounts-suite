@@ -875,10 +875,22 @@ table `scheduled_report_mail`, created by the app at startup - no SQL script).
 An admin picks the weekdays and time (IST), the wording and whether to hold the
 mail when mappings are missing; the To/Cc are that application's default
 recipients (Admin -> Report recipients). The scheduler process polls
-`enqueue_due_checks`, and "Send now" runs the same durable job. Mail goes out via
-the system email identity. Gmail rejects messages over 25 MB: the Untagged
-attachment drops the full "Ageing" sheet when the whole workbook is too large,
-and the GST workbook is split into numbered parts, one mail each.
+`enqueue_due_checks`; scheduled mail goes out via the system email identity and
+every run is logged (`scheduled_report_mail_log`, shown on the admin card).
+Mailing by hand is preview-first like the Unaccounted/MRN/PO mail
+(`app/routers/report_mail_routes.py`, `app/services/report_mail_preview.py`):
+"Preview email" builds the report and the exact mail, the page shows it with a
+download of the report, and only "Confirm & send" sends - from the signed-in
+person's own email identity (Settings), logged as a manual run.
+
+Gmail rejects messages over 25 MB, and the full report is ~26 MB as openpyxl
+writes it. `app/services/xlsx_compact.py` rewrites the same workbook without the
+redundant per-cell addresses (11 MB, still a normal .xlsx that Excel opens with
+no repair; verified in real Excel). The mail attaches that complete workbook;
+only if even it is too big does the Untagged mail drop the "Ageing" sheet, or the
+GST mail split into numbered parts. In a write-only openpyxl sheet the column
+widths and frozen header must be set BEFORE the first row, or they are silently
+ignored (numbers then show as #######).
 
 Normal production update sequence:
 

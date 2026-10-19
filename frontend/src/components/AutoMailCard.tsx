@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, CheckCircle2, Mail, Send } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Mail } from 'lucide-react'
 import { GlassCard } from '@/components/GlassCard'
 import { Button } from '@/components/Button'
 import { ErrorBanner } from '@/components/ErrorBanner'
-import { ProgressPanel, type JobState, type JobStatus } from '@/components/ProgressPanel'
-import { ApiError, get, post, put } from '@/lib/api'
+import { ApiError, get, put } from '@/lib/api'
 import { formatIndianDate, formatIndianDateTime } from '@/lib/regional'
 import { cn } from '@/utils/cn'
 
@@ -85,19 +84,6 @@ function formatBytes(bytes: number | null): string {
   return bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`
 }
 
-interface SendResult {
-  status?: string
-  message?: string
-}
-
-interface JobResponse {
-  status: JobStatus
-  progress: number
-  phase: string
-  result: SendResult | null
-  error: string | null
-}
-
 const WEEKDAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 const PRESETS: { label: string; days: number[] }[] = [
   { label: 'Every day', days: [0, 1, 2, 3, 4, 5, 6] },
@@ -112,8 +98,9 @@ function splitEmails(value: string): string[] {
 /**
  * Administrator-only controls for an application's automatic report mail:
  * the weekdays and time it goes out, who receives it, the wording, and an
- * on-demand "Send now". The server does the scheduling; this only edits the
- * settings and shows what happened last.
+ * send history. The server does the scheduling; this only edits the settings
+ * and shows what happened. Mailing a report by hand, with a preview first, is
+ * ReportMailPanel.
  */
 export function AutoMailCard({ baseUrl, reportName }: { baseUrl: string; reportName: string }) {
   const [saved, setSaved] = useState<AutoMailSettings | null>(null)
@@ -123,10 +110,6 @@ export function AutoMailCard({ baseUrl, reportName }: { baseUrl: string; reportN
   const [loadError, setLoadError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null)
-  const [confirmSend, setConfirmSend] = useState(false)
-  const [sendJobId, setSendJobId] = useState<string | null>(null)
-  const [sendStarting, setSendStarting] = useState(false)
-  const [sendOutcome, setSendOutcome] = useState<{ ok: boolean; text: string } | null>(null)
   const [log, setLog] = useState<LogPage | null>(null)
   const [logPage, setLogPage] = useState(0)
   const [logError, setLogError] = useState<string | null>(null)
@@ -210,34 +193,6 @@ export function AutoMailCard({ baseUrl, reportName }: { baseUrl: string; reportN
     }
   }
 
-  async function handleSendNow() {
-    setConfirmSend(false)
-    setSendStarting(true)
-    setSendOutcome(null)
-    setSendJobId(null)
-    try {
-      const res = await post<{ job_id: string }>(`${baseUrl}/auto-mail/send-now`)
-      setSendJobId(res.job_id)
-    } catch (err) {
-      setSendOutcome({ ok: false, text: err instanceof ApiError ? err.message : 'Could not start the mail.' })
-    } finally {
-      setSendStarting(false)
-    }
-  }
-
-  async function pollSend(jobId: string): Promise<JobState<SendResult>> {
-    const job = await get<JobResponse>(`${baseUrl}/jobs/${jobId}`)
-    return {
-      status: job.status,
-      progress: (job.progress ?? 0) * 100,
-      phase: job.phase,
-      result: job.result ?? undefined,
-      error: job.error ?? undefined,
-    }
-  }
-
-  const sending = sendStarting || (sendJobId !== null && sendOutcome === null)
-  const recipientCount = saved.to.length + saved.cc.length
   const last = saved.last
 
   return (
@@ -417,57 +372,7 @@ export function AutoMailCard({ baseUrl, reportName }: { baseUrl: string; reportN
           : <ErrorBanner className="whitespace-pre-wrap">{message.text}</ErrorBanner>
       )}
 
-      {sendJobId && (
-        <ProgressPanel
-          jobId={sendJobId}
-          poller={pollSend}
-          cancelOnTabClose={false}
-          onDone={(res) => {
-            setSendOutcome(
-              res?.status === 'sent'
-                ? { ok: true, text: 'The mail has been sent.' }
-                : { ok: false, text: res?.message ?? 'The mail was not sent.' },
-            )
-            void load()
-            void loadLog(0)
-          }}
-          onError={(error) => {
-            setSendOutcome({ ok: false, text: error })
-            void load()
-            void loadLog(0)
-          }}
-        />
-      )}
-      {sendOutcome && (
-        sendOutcome.ok
-          ? <p className="flex items-center gap-1.5 text-sm text-emerald-600"><CheckCircle2 className="h-4 w-4" />{sendOutcome.text}</p>
-          : <ErrorBanner className="whitespace-pre-wrap">{sendOutcome.text}</ErrorBanner>
-      )}
-
-      {confirmSend && (
-        <div className="flex flex-col gap-3 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-ink sm:flex-row sm:items-center sm:justify-between">
-          <span>
-            This builds the report now and mails it to {recipientCount} recipient{recipientCount === 1 ? '' : 's'}.
-            It takes a few minutes.
-          </span>
-          <span className="flex gap-2">
-            <Button variant="secondary" onClick={() => setConfirmSend(false)}>Cancel</Button>
-            <Button icon={<Send className="h-4 w-4" />} onClick={() => void handleSendNow()}>Send now</Button>
-          </span>
-        </div>
-      )}
-
       <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
-        {dirty && <span className="text-xs text-ink-faint sm:mr-auto">Save your changes before sending.</span>}
-        <Button
-          variant="secondary"
-          icon={<Send className="h-4 w-4" />}
-          loading={sending}
-          disabled={dirty || sending || saved.running || recipientCount === 0 || !saved.sender_configured}
-          onClick={() => { setSendOutcome(null); setConfirmSend(true) }}
-        >
-          Send now
-        </Button>
         <Button loading={saving} disabled={!dirty} onClick={() => void handleSave()}>
           Save
         </Button>

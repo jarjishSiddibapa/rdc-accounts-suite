@@ -329,6 +329,33 @@ class TinyAmountTests(unittest.TestCase):
             self.assertEqual(first["16-30 Days"], -5.0)           # real amounts are untouched
 
 
+class SheetLayoutTests(unittest.TestCase):
+    """Widths and the frozen header have to be in the file, or Excel shows
+    ####### for numbers and the header scrolls away."""
+
+    def test_every_sheet_has_column_widths_and_a_frozen_header(self):
+        as_on = dt.date(2026, 1, 31)
+        rows = [_base_row(**{"Location Name": "LOC A", "Accounted Outstanding": -776767.06}),
+                _base_row(**{"Location Name": "LOC A", "Accounted Outstanding": 500.0})]
+        df = add_location_column(pd.DataFrame(rows), {"LOC A": "Location A"})
+        df = recompute_ageing_buckets(df, as_on, _LogQueue())
+        ua = build_untagged_ageing(df)
+        us = build_untagged_summary(ua, {})
+        ba = build_below_1k_ageing(df)
+        bs = build_below_1k_summary(ba, {})
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "o.xlsx"
+            write_report(df, us, ua, bs, ba, out, as_on, log_q=_LogQueue())
+            wb = openpyxl.load_workbook(out)
+            for ws in wb.worksheets:
+                self.assertEqual(ws.freeze_panes, "A2", ws.title)
+                self.assertGreaterEqual(ws.column_dimensions["D"].width, 10, ws.title)
+            ageing = wb["Ageing"]
+            header = [c.value for c in ageing[1]]
+            amount = ageing.column_dimensions[openpyxl.utils.get_column_letter(header.index("Accounted Outstanding") + 1)]
+            self.assertGreaterEqual(amount.width, len("Accounted Outstanding"))   # wide enough for "-776,767.06"
+
+
 class NumericColumnTests(unittest.TestCase):
     def test_identifier_columns_are_not_amounts(self):
         from app.services.untagged_invoices.processor import _is_numeric_col

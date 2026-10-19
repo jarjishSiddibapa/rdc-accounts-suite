@@ -101,6 +101,7 @@ class MailPayload:
     values: dict[str, str]                       # placeholder values for subject / intro
     sections: list[tuple[str, str]] = field(default_factory=list)   # (heading, html) shown under the intro
     css: list[str] = field(default_factory=list)  # class rules the section tables use (kept in <head>)
+    downloads: list[tuple[str, str]] = field(default_factory=list)   # (label, path) of the full report, for the preview
     attachment_groups: list[list[str]] = field(default_factory=list)  # one mail per group
     notes: list[str] = field(default_factory=list)                    # shown after the sections
     detail: dict = field(default_factory=dict)   # stored with the run
@@ -350,6 +351,25 @@ def _finish_run(app_key: str, trigger: str, status: str, error: str | None, deta
         db.close()
 
 
+def record_manual_send(app_key: str, requested_by: str | None, started_at: datetime, status: str,
+                       error: str | None, recipients: dict, messages: list[dict], detail: dict) -> None:
+    """Log a mail that a person previewed and sent by hand (not through
+    run_mail_job), so the history shows every mail whichever way it left."""
+    db = SessionLocal()
+    try:
+        db.add(ScheduledReportMailLog(
+            app_key=app_key, trigger="manual", requested_by=requested_by, status=status,
+            started_at=started_at, finished_at=_utcnow(),
+            to_recipients=json.dumps(recipients.get("to", [])), cc_recipients=json.dumps(recipients.get("cc", [])),
+            messages=json.dumps(messages, ensure_ascii=False),
+            detail=json.dumps(detail, ensure_ascii=False, default=str),
+            error_message=(error or None) and error[:2000],
+        ))
+        db.commit()
+    finally:
+        db.close()
+
+
 def _iso(value: datetime | None) -> str | None:
     return value.replace(tzinfo=UTC).isoformat() if value else None
 
@@ -415,6 +435,33 @@ def _wrap_html(intro_text: str, sections: list[tuple[str, str]], notes: list[str
     )
 
 
+def compose_messages(snapshot: dict, payload: MailPayload) -> list[dict]:
+    """The mail(s) for a built report: [{subject, html_body, attachments}].
+    One mail normally; one per attachment group when the report is split into
+    parts (the tables go in the first only)."""
+    groups = payload.attachment_groups or [[]]
+    messages = []
+    for index, group in enumerate(groups, 1):
+        subject = render_text(snapshot["subject_template"], payload.values)
+        if len(groups) > 1:
+            subject = f"{subject} (Part {index} of {len(groups)})"
+        notes = list(payload.notes)
+        if len(groups) > 1:
+            notes.append(
+                f"The report is too large for a single email, so it is sent in {len(groups)} parts. "
+                f"This is part {index}."
+            )
+        body = _wrap_html(
+            render_text(snapshot["intro_template"], payload.values),
+            payload.sections if index == 1 else [],
+            notes,
+            snapshot["signature"],
+            payload.css if index == 1 else None,
+        )
+        messages.append({"subject": subject, "html_body": body, "attachments": list(group)})
+    return messages
+
+
 def _deliver(db: Session, app_key: str, subject: str, html_body: str, attachments: list[str]) -> dict:
     sender = get_system_email_settings(db)
     if not sender["configured"]:
@@ -445,7 +492,7 @@ def _recipients_snapshot(app_key: str) -> dict:
         db.close()
 
 
-def _attachment_info(paths: list[str]) -> list[dict]:
+def attachment_info(paths: list[str]) -> list[dict]:
     info = []
     for path in paths:
         try:
@@ -482,32 +529,18 @@ def run_mail_job(app_key: str, trigger: str, build, progress_cb=None, cancel_eve
             progress_cb(0.93, "Sending the mail...")
         db = SessionLocal()
         try:
-            groups = payload.attachment_groups or [[]]
-            for index, group in enumerate(groups, 1):
-                subject = render_text(snapshot["subject_template"], payload.values)
-                if len(groups) > 1:
-                    subject = f"{subject} (Part {index} of {len(groups)})"
-                notes = list(payload.notes)
-                if len(groups) > 1:
-                    notes.append(
-                        f"The report is too large for a single email, so it is sent in {len(groups)} parts. "
-                        f"This is part {index}."
-                    )
-                body = _wrap_html(
-                    render_text(snapshot["intro_template"], payload.values),
-                    payload.sections if index == 1 else [],
-                    notes,
-                    snapshot["signature"],
-                    payload.css if index == 1 else None,
+            messages = compose_messages(snapshot, payload)
+            for message in messages:
+                recipients = recipients_used = _deliver(
+                    db, app_key, message["subject"], message["html_body"], message["attachments"],
                 )
-                recipients = recipients_used = _deliver(db, app_key, subject, body, group)
                 sent_messages.append({
-                    "subject": subject,
+                    "subject": message["subject"],
                     "sent_at": _iso(_utcnow()),
-                    "attachments": _attachment_info(group),
+                    "attachments": attachment_info(message["attachments"]),
                 })
             detail["recipients"] = recipients
-            detail["mails_sent"] = len(groups)
+            detail["mails_sent"] = len(messages)
         finally:
             db.close()
         status = "sent"

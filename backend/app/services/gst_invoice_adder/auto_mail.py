@@ -15,7 +15,9 @@ from pathlib import Path
 
 from app.config import SCRATCH_DIR
 from app.jobs import run_cpu_phase
+from app.services import report_mail_preview
 from app.services import scheduled_report_mail as mail
+from app.services import xlsx_compact
 from app.services.gst_invoice_adder import report_job
 
 APP_KEY = "gst-invoice-adder"
@@ -47,6 +49,7 @@ def _write_parts(df, gst_map: dict, work_dir, stem: str, size_of_whole: int) -> 
         for index, (start, end) in enumerate(ranges, 1):
             path = str(work_dir / f"{stem}_Part_{index}_of_{len(ranges)}.xlsx")
             run_cpu_phase(report_job.write_workbook, path, df.iloc[start:end].reset_index(drop=True), gst_map)
+            xlsx_compact.compact_xlsx_in_place(path)
             paths.append(path)
         if all(_size(path) <= mail.MAX_ATTACHMENT_BYTES for path in paths):
             return paths
@@ -85,15 +88,26 @@ def build(snapshot: dict, progress_cb=None, cancel_event=None) -> mail.MailPaylo
     payload.sections = [("Summary", _stats_table(result["total"], result["found"], result["blank"]))]
 
     whole_size = whole_path.stat().st_size
+    payload.detail["attachment"] = "complete workbook"
+    if whole_size > mail.MAX_ATTACHMENT_BYTES:
+        # The same complete workbook, written more compactly (see xlsx_compact):
+        # it opens in Excel exactly as before, at under half the size.
+        if progress_cb:
+            progress_cb(0.91, "Compacting the workbook to fit an email...")
+        xlsx_compact.compact_xlsx_in_place(whole_path)
+        whole_size = whole_path.stat().st_size
+        payload.detail["attachment"] = "complete workbook (compacted to fit the email limit)"
     if whole_size <= mail.MAX_ATTACHMENT_BYTES:
         payload.attachment_groups = [[str(whole_path)]]
-        payload.detail["attachment"] = "complete workbook"
+        payload.downloads = [("GST Invoice Number report", str(whole_path))]
     else:
+        # Last resort, only if even the compact file does not fit.
         if progress_cb:
-            progress_cb(0.91, "Splitting the report into parts that fit in an email...")
+            progress_cb(0.92, "Splitting the report into parts that fit in an email...")
         parts = _write_parts(built.df, built.gst_map, work_dir, stem, whole_size)
         whole_path.unlink(missing_ok=True)
         payload.attachment_groups = [[path] for path in parts]
+        payload.downloads = [(f"Part {i} of {len(parts)}", path) for i, path in enumerate(parts, 1)]
         payload.detail["attachment"] = f"split into {len(parts)} mails (size limit)"
     return payload
 
@@ -102,4 +116,13 @@ def run_auto_mail_job(trigger: str = "scheduled", requested_by: str | None = Non
                       progress_cb=None, cancel_event=None) -> dict:
     return mail.run_mail_job(
         APP_KEY, trigger, build, progress_cb=progress_cb, cancel_event=cancel_event, requested_by=requested_by,
+    )
+
+
+def run_preview_job(user_id: int, to: list, cc: list, subject: str, intro: str,
+                    allow_unmapped: bool = False, progress_cb=None, cancel_event=None) -> dict:
+    """Build the report and the exact mail for review. Sends nothing."""
+    return report_mail_preview.build_preview(
+        APP_KEY, build, user_id, to, cc, subject, intro, allow_unmapped,
+        progress_cb=progress_cb, cancel_event=cancel_event,
     )

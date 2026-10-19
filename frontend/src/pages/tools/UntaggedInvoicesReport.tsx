@@ -18,6 +18,7 @@ import { CreatableCombobox } from '@/components/CreatableCombobox'
 import { Pagination } from '@/components/Pagination'
 import { LoadingNotice } from '@/components/LoadingNotice'
 import { AutoMailCard } from '@/components/AutoMailCard'
+import { ReportMailPanel } from '@/components/ReportMailPanel'
 import { useAuth } from '@/lib/auth-context'
 import { usePagination } from '@/hooks/usePagination'
 import { ApiError, apiUrl, del, get, post, postForm, put } from '@/lib/api'
@@ -587,6 +588,8 @@ export default function UntaggedInvoicesReport() {
 
           <LogPanel log={activityLog} onClear={() => setActivityLog([])} />
         </GlassCard>
+
+        <ReportMailPanel baseUrl={BASE} reportName="Untagged Invoices Report" />
 
         {isAdmin && <AutoMailCard baseUrl={BASE} reportName="Untagged Invoices Report" />}
 
