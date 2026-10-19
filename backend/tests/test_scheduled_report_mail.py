@@ -404,6 +404,15 @@ class SummaryTableTests(unittest.TestCase):
             self.assertNotIn("=ROUND", html)
             self.assertIn("Below 1k Summary", openpyxl.load_workbook(path).sheetnames)
 
+    def test_mail_tables_carry_no_unit_footnote_row(self):
+        untagged, below = _frames()
+        with tempfile.TemporaryDirectory() as tmp:
+            path = str(Path(tmp) / "s.xlsx")
+            processor.write_summary_workbook(untagged, below, path)
+            self.assertNotIn("Lakhs", sheet_to_html(path, "Untagged Summary"))
+            sheet = openpyxl.load_workbook(path)["Untagged Summary"]
+            self.assertEqual(sheet.max_row, 3)                    # header, one location, Grand Total
+
 
 class CompactTableTests(unittest.TestCase):
     def test_compact_markup_is_far_smaller_and_keeps_every_value(self):
@@ -465,11 +474,21 @@ class UntaggedMailBuilderTests(unittest.TestCase):
         self.assertTrue(payload.attachment_groups[0][0].endswith("Untagged_Invoices_Report_As_On_2026-10-19.xlsx"))
         self.assertEqual(payload.values["date"], "19-Oct-2026")
         self.assertEqual(payload.notes, [])
-        html = mail._wrap_html("Hi", payload.sections, payload.notes, "", payload.css)
+        html = mail._wrap_html("Hi", payload.sections, payload.notes, "", payload.css, payload.intro_note)
         self.assertIn("<style>.u0{", html)
         self.assertIn('<meta charset="utf-8">', html)
         self.assertIn(".b0{", html)
         self.assertLess(html.index("</style>"), html.index("<body"))
+
+    def test_the_lakhs_unit_is_one_bold_line_in_the_mail_text_not_a_table_row(self):
+        with patch.object(untagged_mail.report_job, "build_report", self._built(None)):
+            payload = untagged_mail.build(self.SNAPSHOT)
+        self.addCleanup(lambda: [shutil.rmtree(p, ignore_errors=True) for p in payload.cleanup])
+        html = mail._wrap_html("Dear Team,", payload.sections, payload.notes, "", payload.css, payload.intro_note)
+        self.assertEqual(html.count("Lakhs"), 1)                  # stated once, nowhere in the tables
+        self.assertIn("<b>Note: All amounts in Lakhs (÷ 1,00,000)</b>", html)
+        self.assertLess(html.index("Dear Team,"), html.index("Lakhs"))
+        self.assertLess(html.index("Lakhs"), html.index("Untagged Summary"))
 
     def _sizes(self):
         with tempfile.TemporaryDirectory() as tmp:

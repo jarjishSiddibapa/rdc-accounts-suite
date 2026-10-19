@@ -785,6 +785,9 @@ def _write_pivot_sheet(wb: Workbook, title: str, df: pd.DataFrame, tab_color: st
         ws.auto_filter.ref = f"A1:{get_column_letter(n_cols)}{n_rows + 1}"
 
 
+LAKHS_NOTE = "All amounts in Lakhs (÷ 1,00,000)"
+
+
 # Both summaries' "Above 30 Days" is Total minus the first two bucket columns
 # (0-15 + 16-30 Days = 0-30 days), so both use the same formula. Rounded so
 # float noise never turns a true zero into a visible 0.00.
@@ -792,12 +795,12 @@ def _above_30_formula(amount_ref, bucket_refs) -> str:
     return f"=ROUND({amount_ref}-{bucket_refs[0]}-{bucket_refs[1]},2)"
 
 
-def _untagged_summary_sheet(wb: Workbook, df: pd.DataFrame) -> None:
+def _untagged_summary_sheet(wb: Workbook, df: pd.DataFrame, footnote: bool = True) -> None:
     _write_pivot_sheet(
         wb, "Untagged Summary", df, "6A1B9A",
         location_col_header="Location Name", amount_col="Accounted Outstanding",
         above_30_formula=_above_30_formula,
-        footnote="All amounts in Lakhs (÷ 1,00,000)",
+        footnote=LAKHS_NOTE if footnote else None,
     )
 
 
@@ -814,7 +817,8 @@ def write_summary_workbook(df_untagged_summary: pd.DataFrame, df_below_1k_summar
     """A small workbook holding only the two summary sheets, formatted exactly
     as in the report - the source of the tables shown in the automatic mail."""
     wb = Workbook(write_only=True)
-    _untagged_summary_sheet(wb, df_untagged_summary)
+    # the mail states the unit once in its text, so the table carries no footnote
+    _untagged_summary_sheet(wb, df_untagged_summary, footnote=False)
     _below_1k_summary_sheet(wb, df_below_1k_summary)
     wb.save(Path(output_path))
 

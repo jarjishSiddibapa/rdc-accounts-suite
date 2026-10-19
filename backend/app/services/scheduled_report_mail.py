@@ -104,6 +104,7 @@ class MailPayload:
     downloads: list[tuple[str, str]] = field(default_factory=list)   # (label, path) of the full report, for the preview
     attachment_groups: list[list[str]] = field(default_factory=list)  # one mail per group
     notes: list[str] = field(default_factory=list)                    # shown after the sections
+    intro_note: str = ""                         # a bold line straight after the mail text
     detail: dict = field(default_factory=dict)   # stored with the run
     hold_reason: str | None = None               # set: do not send, record why
     cleanup: list[str] = field(default_factory=list)
@@ -415,8 +416,10 @@ def log_view(db: Session, app_key: str, limit: int = 20, offset: int = 0) -> dic
 
 
 def _wrap_html(intro_text: str, sections: list[tuple[str, str]], notes: list[str], signature: str,
-               css: list[str] | None = None) -> str:
+               css: list[str] | None = None, intro_note: str = "") -> str:
     parts = [_plain_to_html(intro_text)]
+    if intro_note:
+        parts.append('<p style="margin:0 0 12px 0;"><b>' + html.escape(intro_note) + "</b></p>")
     for heading, table_html in sections:
         parts.append(f'<p style="margin:14px 0 4px 0;"><b>{html.escape(heading)}</b></p>\n{table_html}')
     for note in notes:
@@ -457,6 +460,7 @@ def compose_messages(snapshot: dict, payload: MailPayload) -> list[dict]:
             notes,
             snapshot["signature"],
             payload.css if index == 1 else None,
+            payload.intro_note,
         )
         messages.append({"subject": subject, "html_body": body, "attachments": list(group)})
     return messages

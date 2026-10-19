@@ -892,6 +892,12 @@ GST mail split into numbered parts. In a write-only openpyxl sheet the column
 widths and frozen header must be set BEFORE the first row, or they are silently
 ignored (numbers then show as #######).
 
+The Untagged mail states the unit once, as a bold "Note: All amounts in Lakhs
+(÷ 1,00,000)" line right after the mail text (`MailPayload.intro_note`). The mail's
+summary tables carry no footnote row; the report workbook's own Untagged Summary
+sheet keeps it. `.xlsb` output is deliberately not produced: no Python library
+writes it, and Excel COM was removed because it hung server processes.
+
 Normal production update sequence:
 
 1. `git pull origin main`

@@ -72,6 +72,7 @@ def build(snapshot: dict, progress_cb=None, cancel_event=None) -> mail.MailPaylo
     processor.write_summary_workbook(built.untagged_summary, built.below_1k_summary, summary_path)
     # compact markup: with every style inline the two tables run to ~190 KB and
     # Gmail clips a message over ~102 KB
+    payload.intro_note = f"Note: {processor.LAKHS_NOTE}"
     payload.sections = [
         ("Untagged Summary", sheet_to_html(str(summary_path), "Untagged Summary", payload.css, "u")),
         ("Below 1k Summary", sheet_to_html(str(summary_path), "Below 1k Summary", payload.css, "b")),
