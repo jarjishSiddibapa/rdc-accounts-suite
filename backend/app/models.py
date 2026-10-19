@@ -410,6 +410,29 @@ class ScheduledReportMail(Base):
     is_deleted = Column(Boolean, default=False, nullable=False)
 
 
+class ScheduledReportMailLog(Base):
+    """Append-only history of every automatic or on-demand report mail run:
+    when it started and finished, who asked, what happened, who it went to and
+    each message actually sent."""
+
+    __tablename__ = "scheduled_report_mail_log"
+
+    # BIGINT on MySQL; plain INTEGER on SQLite, which only auto-numbers that
+    id = Column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True)
+    app_key = Column(String(64), ForeignKey("applications.key"), nullable=False, index=True)
+    trigger = Column(String(20), nullable=False)  # scheduled / manual
+    requested_by = Column(String(255), nullable=True)  # the admin's email for a manual run
+    status = Column(String(20), nullable=False, index=True)  # running / sent / failed / held / skipped
+    started_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+    finished_at = Column(DateTime, nullable=True)
+    to_recipients = Column(Text, nullable=True)  # JSON list, as used for this run
+    cc_recipients = Column(Text, nullable=True)  # JSON list
+    messages = Column(Text, nullable=True)  # JSON: [{subject, sent_at, attachments: [{name, bytes}]}]
+    detail = Column(Text, nullable=True)  # JSON: row counts, attachment note, unmapped values
+    error_message = Column(Text, nullable=True)
+    is_deleted = Column(Boolean, default=False, nullable=False)
+
+
 class BackgroundJob(Base):
     """Durable work queue shared by every API and worker process."""
 

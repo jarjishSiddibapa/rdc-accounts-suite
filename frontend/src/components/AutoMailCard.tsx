@@ -5,7 +5,7 @@ import { Button } from '@/components/Button'
 import { ErrorBanner } from '@/components/ErrorBanner'
 import { ProgressPanel, type JobState, type JobStatus } from '@/components/ProgressPanel'
 import { ApiError, get, post, put } from '@/lib/api'
-import { formatIndianDateTime } from '@/lib/regional'
+import { formatIndianDate, formatIndianDateTime } from '@/lib/regional'
 import { cn } from '@/utils/cn'
 
 interface LastRun {
@@ -33,6 +33,56 @@ interface AutoMailSettings {
   next_run: string | null
   running: boolean
   last: LastRun
+}
+
+interface LogMessage {
+  subject: string
+  sent_at: string | null
+  attachments: { name: string; bytes: number | null }[]
+}
+
+interface LogEntry {
+  id: number
+  trigger: string
+  requested_by: string | null
+  status: string
+  started_at: string | null
+  finished_at: string | null
+  to: string[]
+  cc: string[]
+  messages: LogMessage[]
+  detail: Record<string, unknown>
+  error: string | null
+}
+
+interface LogPage {
+  total: number
+  items: LogEntry[]
+}
+
+const LOG_PAGE_SIZE = 10
+
+const STATUS_STYLE: Record<string, { label: string; className: string }> = {
+  sent: { label: 'Sent', className: 'bg-emerald-500/15 text-emerald-600' },
+  failed: { label: 'Failed', className: 'bg-red-500/15 text-red-500' },
+  held: { label: 'Held back', className: 'bg-amber-500/15 text-amber-600' },
+  skipped: { label: 'Skipped', className: 'bg-slate-500/15 text-ink-dim' },
+  running: { label: 'Running', className: 'bg-sky-500/15 text-sky-600' },
+  interrupted: { label: 'Interrupted', className: 'bg-red-500/15 text-red-500' },
+}
+
+/** Date and time to the second, in IST - the log is about exactly when. */
+function formatLogTime(value: string | null): string {
+  if (!value) return '-'
+  return formatIndianDate(value, {
+    day: '2-digit', month: 'short', year: 'numeric',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true,
+  })
+}
+
+function formatBytes(bytes: number | null): string {
+  if (bytes === null) return ''
+  return bytes >= 1024 * 1024 ? `${(bytes / 1024 / 1024).toFixed(1)} MB` : `${Math.max(1, Math.round(bytes / 1024))} KB`
 }
 
 interface SendResult {
@@ -77,6 +127,9 @@ export function AutoMailCard({ baseUrl, reportName }: { baseUrl: string; reportN
   const [sendJobId, setSendJobId] = useState<string | null>(null)
   const [sendStarting, setSendStarting] = useState(false)
   const [sendOutcome, setSendOutcome] = useState<{ ok: boolean; text: string } | null>(null)
+  const [log, setLog] = useState<LogPage | null>(null)
+  const [logPage, setLogPage] = useState(0)
+  const [logError, setLogError] = useState<string | null>(null)
 
   const apply = useCallback((data: AutoMailSettings) => {
     setSaved(data)
@@ -94,9 +147,20 @@ export function AutoMailCard({ baseUrl, reportName }: { baseUrl: string; reportN
     }
   }, [apply, baseUrl])
 
+  const loadLog = useCallback(async (page: number) => {
+    try {
+      setLog(await get<LogPage>(`${baseUrl}/auto-mail/log?limit=${LOG_PAGE_SIZE}&offset=${page * LOG_PAGE_SIZE}`))
+      setLogPage(page)
+      setLogError(null)
+    } catch (err) {
+      setLogError(err instanceof ApiError ? err.message : 'Could not load the send history.')
+    }
+  }, [baseUrl])
+
   useEffect(() => {
     void load()
-  }, [load])
+    void loadLog(0)
+  }, [load, loadLog])
 
   const current = useMemo(
     () => (form ? { ...form, to: splitEmails(toText), cc: splitEmails(ccText) } : null),
@@ -365,10 +429,12 @@ export function AutoMailCard({ baseUrl, reportName }: { baseUrl: string; reportN
                 : { ok: false, text: res?.message ?? 'The mail was not sent.' },
             )
             void load()
+            void loadLog(0)
           }}
           onError={(error) => {
             setSendOutcome({ ok: false, text: error })
             void load()
+            void loadLog(0)
           }}
         />
       )}
@@ -405,6 +471,76 @@ export function AutoMailCard({ baseUrl, reportName }: { baseUrl: string; reportN
         <Button loading={saving} disabled={!dirty} onClick={() => void handleSave()}>
           Save
         </Button>
+      </div>
+
+      <div className="flex flex-col gap-3 border-t border-stroke/60 pt-5">
+        <div className="flex items-center justify-between gap-3">
+          <h3 className="font-display text-lg font-semibold text-ink">Send history</h3>
+          <Button variant="secondary" onClick={() => void loadLog(logPage)}>Refresh</Button>
+        </div>
+        <p className="text-xs text-ink-faint">
+          Every run, newest first: when it started and finished (IST), whether it was scheduled or sent
+          by hand, who it went to, and each message actually sent.
+        </p>
+        {logError && <ErrorBanner>{logError}</ErrorBanner>}
+        {log && log.items.length === 0 && <p className="text-sm text-ink-dim">Nothing has been sent yet.</p>}
+        <div className="flex flex-col gap-3">
+          {log?.items.map((entry) => {
+            const style = STATUS_STYLE[entry.status] ?? { label: entry.status, className: 'bg-slate-500/15 text-ink-dim' }
+            const note = typeof entry.detail?.attachment === 'string' ? entry.detail.attachment : null
+            return (
+              <div key={entry.id} className="rounded-xl border border-stroke/70 bg-surface/55 px-4 py-3 text-sm">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                  <span className={cn('rounded-full px-2.5 py-0.5 text-xs font-semibold', style.className)}>{style.label}</span>
+                  <span className="font-medium text-ink">{formatLogTime(entry.started_at)}</span>
+                  <span className="text-ink-dim">
+                    {entry.trigger === 'manual' ? `Sent by hand${entry.requested_by ? ` by ${entry.requested_by}` : ''}` : 'Scheduled'}
+                  </span>
+                  {entry.finished_at && entry.status !== 'running' && (
+                    <span className="text-xs text-ink-faint">finished {formatLogTime(entry.finished_at)}</span>
+                  )}
+                </div>
+                {entry.messages.length > 0 && (
+                  <ul className="mt-2 flex flex-col gap-1 text-ink-dim">
+                    {entry.messages.map((message, index) => (
+                      <li key={index}>
+                        <span className="text-ink">{message.subject}</span>
+                        {' - sent '}{formatLogTime(message.sent_at)}
+                        {message.attachments.length > 0 && (
+                          <span className="text-xs text-ink-faint">
+                            {' '}({message.attachments.map((a) => `${a.name}${a.bytes !== null ? `, ${formatBytes(a.bytes)}` : ''}`).join('; ')})
+                          </span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {(entry.to.length > 0 || entry.cc.length > 0) && (
+                  <p className="mt-1 text-xs text-ink-faint">
+                    To: {entry.to.join(', ') || '-'}{entry.cc.length > 0 ? ` | Cc: ${entry.cc.join(', ')}` : ''}
+                  </p>
+                )}
+                {note && <p className="mt-1 text-xs text-ink-faint">Attachment: {note}</p>}
+                {entry.error && <p className="mt-1 whitespace-pre-wrap text-xs text-red-500">{entry.error}</p>}
+              </div>
+            )
+          })}
+        </div>
+        {log && log.total > LOG_PAGE_SIZE && (
+          <div className="flex items-center justify-between text-sm text-ink-dim">
+            <Button variant="secondary" disabled={logPage === 0} onClick={() => void loadLog(logPage - 1)}>Newer</Button>
+            <span>
+              Page {logPage + 1} of {Math.ceil(log.total / LOG_PAGE_SIZE)} ({log.total} runs)
+            </span>
+            <Button
+              variant="secondary"
+              disabled={(logPage + 1) * LOG_PAGE_SIZE >= log.total}
+              onClick={() => void loadLog(logPage + 1)}
+            >
+              Older
+            </Button>
+          </div>
+        )}
       </div>
     </GlassCard>
   )

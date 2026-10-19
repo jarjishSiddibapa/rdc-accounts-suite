@@ -15,7 +15,9 @@ from sqlalchemy.orm import sessionmaker
 
 from app.database import Base
 from app.jobs import JobUserError
-from app.models import Application, ApplicationEmailRecipient, ScheduledReportMail, SystemEmailSettings
+from app.models import (
+    Application, ApplicationEmailRecipient, ScheduledReportMail, ScheduledReportMailLog, SystemEmailSettings,
+)
 from app.regional import IST
 from app.services import scheduled_report_mail as mail
 from app.services.gst_invoice_adder import auto_mail as gst_mail
@@ -38,7 +40,7 @@ class _DbCase(unittest.TestCase):
         engine = create_engine("sqlite://")
         Base.metadata.create_all(
             engine, tables=[Application.__table__, ApplicationEmailRecipient.__table__, ScheduledReportMail.__table__,
-                    SystemEmailSettings.__table__],
+                    SystemEmailSettings.__table__, ScheduledReportMailLog.__table__],
         )
         self.factory = sessionmaker(bind=engine, expire_on_commit=False)
         self.db = self.factory()
@@ -165,6 +167,115 @@ class ScheduleTests(_DbCase):
         self.assertEqual(submit.call_args.args[1], "scheduled")
         self.assertEqual(submit.call_args.kwargs["owner_id"], 0)
         self.assertEqual(self.row().last_attempt_date, dt.date(2026, 10, 19))
+
+
+class SendLogTests(_DbCase):
+    """Every run leaves a log entry: when, who asked, to whom, what was sent."""
+
+    def setUp(self):
+        super().setUp()
+        mail.save_settings(self.db, APP, GOOD)
+        self.sent = MagicMock()
+        for target, value in (
+            ("send_mail", self.sent),
+            ("get_system_email_settings", lambda db: {"configured": True, "sender_email": "sys@rdc.in", "app_password": "x"}),
+        ):
+            patcher = patch.object(mail, target, value)
+            patcher.start()
+            self.addCleanup(patcher.stop)
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+
+    def _file(self, name, size=10):
+        path = Path(self.tmp.name) / name
+        path.write_bytes(b"x" * size)
+        return str(path)
+
+    def log(self, **kw):
+        self.db.expire_all()
+        return mail.log_view(self.db, APP, **kw)
+
+    def test_a_sent_run_records_time_recipients_and_each_message(self):
+        a, b = self._file("p1.xlsx", 1234), self._file("p2.xlsx", 99)
+        mail.run_mail_job(APP, "manual", lambda *x: mail.MailPayload(
+            values={"date": "d"}, attachment_groups=[[a], [b]], detail={"rows": 7},
+        ), requested_by="admin@rdc.in")
+        log = self.log()
+        self.assertEqual(log["total"], 1)
+        entry = log["items"][0]
+        self.assertEqual((entry["status"], entry["trigger"], entry["requested_by"]), ("sent", "manual", "admin@rdc.in"))
+        self.assertEqual((entry["to"], entry["cc"]), (["a@rdc.in"], ["b@rdc.in"]))
+        self.assertIsNotNone(entry["started_at"])
+        self.assertIsNotNone(entry["finished_at"])
+        self.assertEqual([m["subject"] for m in entry["messages"]],
+                         ["Report as on d (Part 1 of 2)", "Report as on d (Part 2 of 2)"])
+        self.assertEqual(entry["messages"][0]["attachments"], [{"name": "p1.xlsx", "bytes": 1234}])
+        self.assertTrue(all(m["sent_at"] for m in entry["messages"]))
+        self.assertEqual(entry["detail"]["rows"], 7)
+        self.assertIsNone(entry["error"])
+
+    def test_a_scheduled_run_has_no_requester(self):
+        mail.run_mail_job(APP, "scheduled", lambda *x: mail.MailPayload(values={"date": "d"}))
+        entry = self.log()["items"][0]
+        self.assertEqual((entry["trigger"], entry["requested_by"]), ("scheduled", None))
+
+    def test_a_failure_part_way_keeps_what_was_already_sent(self):
+        a, b = self._file("p1.xlsx"), self._file("p2.xlsx")
+        self.sent.side_effect = [None, RuntimeError("SMTP dropped")]
+        with self.assertRaises(JobUserError):
+            mail.run_mail_job(APP, "scheduled", lambda *x: mail.MailPayload(
+                values={"date": "d"}, attachment_groups=[[a], [b]],
+            ))
+        entry = self.log()["items"][0]
+        self.assertEqual(entry["status"], "failed")
+        self.assertEqual(len(entry["messages"]), 1)          # part 1 did go out
+        self.assertIn("SMTP dropped", entry["error"])
+
+    def test_a_held_run_is_logged_with_the_reason_and_intended_recipients(self):
+        mail.run_mail_job(APP, "scheduled", lambda *x: mail.MailPayload(values={}, hold_reason="2 unmapped"))
+        entry = self.log()["items"][0]
+        self.assertEqual((entry["status"], entry["error"], entry["messages"]), ("held", "2 unmapped", []))
+        self.assertEqual(entry["to"], ["a@rdc.in"])
+
+    def test_a_refused_overlapping_run_is_logged_as_skipped(self):
+        row = self.row()
+        row.running_since = mail._utcnow()
+        self.db.commit()
+        with self.assertRaises(JobUserError):
+            mail.run_mail_job(APP, "scheduled", lambda *x: mail.MailPayload(values={}))
+        entry = self.log()["items"][0]
+        self.assertEqual(entry["status"], "skipped")
+        self.assertIn("still in progress", entry["error"])
+
+    def test_a_build_failure_is_logged_failed(self):
+        def build(*_):
+            raise RuntimeError("ERP down")
+        with self.assertRaises(JobUserError):
+            mail.run_mail_job(APP, "scheduled", build)
+        entry = self.log()["items"][0]
+        self.assertEqual(entry["status"], "failed")
+        self.assertIn("ERP down", entry["error"])
+        self.assertIsNotNone(entry["finished_at"])
+
+    def test_newest_first_and_paged(self):
+        for _ in range(5):
+            mail.run_mail_job(APP, "scheduled", lambda *x: mail.MailPayload(values={"date": "d"}))
+        page = self.log(limit=2, offset=0)
+        self.assertEqual(page["total"], 5)
+        self.assertEqual(len(page["items"]), 2)
+        ids = [item["id"] for item in self.log(limit=10)["items"]]
+        self.assertEqual(ids, sorted(ids, reverse=True))
+        self.assertEqual(len(self.log(limit=2, offset=4)["items"]), 1)
+
+    def test_a_run_whose_worker_died_shows_as_interrupted(self):
+        old = mail._utcnow() - dt.timedelta(hours=3)
+        self.db.add(ScheduledReportMailLog(app_key=APP, trigger="scheduled", status="running", started_at=old))
+        self.db.commit()
+        self.assertEqual(self.log()["items"][0]["status"], "interrupted")
+
+    def test_each_application_sees_only_its_own_log(self):
+        mail.run_mail_job(APP, "scheduled", lambda *x: mail.MailPayload(values={"date": "d"}))
+        self.assertEqual(mail.log_view(self.db, "gst-invoice-adder")["total"], 0)
 
 
 class RunMailJobTests(_DbCase):
@@ -435,6 +546,15 @@ class AutoMailRouteTests(_DbCase):
     def endpoint(self, path, method):
         return self.endpoints[(path, (method,))]
 
+    def test_the_log_route_returns_the_history(self):
+        self.db.add(ScheduledReportMailLog(app_key=APP, trigger="manual", status="sent", requested_by="a@rdc.in",
+                                           started_at=dt.datetime(2026, 10, 19, 3, 0)))
+        self.db.commit()
+        result = self.endpoint("/auto-mail/log", "GET")(20, 0, self.db)
+        self.assertEqual(result["total"], 1)
+        self.assertEqual(result["items"][0]["requested_by"], "a@rdc.in")
+        self.assertTrue(result["items"][0]["started_at"].startswith("2026-10-19T03:00"))
+
     def test_every_route_is_administrators_only(self):
         self.assertTrue(any(dep.dependency is self.auth.require_admin for dep in self.router.dependencies))
 
@@ -457,7 +577,8 @@ class AutoMailRouteTests(_DbCase):
         from types import SimpleNamespace
         mail.save_settings(self.db, APP, GOOD)
         with patch.object(self.routes_module, "submit_job", return_value="job-9") as submit:
-            result = self.endpoint("/auto-mail/send-now", "POST")(self.db, SimpleNamespace(id=7))
+            result = self.endpoint("/auto-mail/send-now", "POST")(self.db, SimpleNamespace(id=7, email="boss@rdc.in"))
+        self.assertEqual(submit.call_args.kwargs["requested_by"], "boss@rdc.in")
         self.assertEqual(result, {"job_id": "job-9"})
         self.assertEqual(submit.call_args.args[1], "manual")
         self.assertEqual(submit.call_args.kwargs["owner_id"], 7)

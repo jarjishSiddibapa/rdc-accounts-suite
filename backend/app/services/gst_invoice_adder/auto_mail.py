@@ -98,5 +98,8 @@ def build(snapshot: dict, progress_cb=None, cancel_event=None) -> mail.MailPaylo
     return payload
 
 
-def run_auto_mail_job(trigger: str = "scheduled", progress_cb=None, cancel_event=None) -> dict:
-    return mail.run_mail_job(APP_KEY, trigger, build, progress_cb=progress_cb, cancel_event=cancel_event)
+def run_auto_mail_job(trigger: str = "scheduled", requested_by: str | None = None,
+                      progress_cb=None, cancel_event=None) -> dict:
+    return mail.run_mail_job(
+        APP_KEY, trigger, build, progress_cb=progress_cb, cancel_event=cancel_event, requested_by=requested_by,
+    )

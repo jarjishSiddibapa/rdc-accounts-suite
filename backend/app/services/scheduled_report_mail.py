@@ -21,6 +21,7 @@ from __future__ import annotations
 import html
 import json
 import logging
+import os
 import re
 import shutil
 from dataclasses import dataclass, field
@@ -33,7 +34,7 @@ from sqlalchemy.orm import Session
 from app import audit_middleware
 from app.database import SessionLocal
 from app.jobs import JobCancelled, JobUserError
-from app.models import ScheduledReportMail
+from app.models import ScheduledReportMail, ScheduledReportMailLog
 from app.regional import now_ist
 from app.services.mailer_shared import (
     _plain_to_html,
@@ -285,8 +286,9 @@ def save_settings(db: Session, app_key: str, data: dict) -> dict:
 
 # ── running ──────────────────────────────────────────────────────────────────
 
-def _claim_run(app_key: str, trigger: str) -> dict | None:
-    """Mark the run as started; None when another run is still in progress."""
+def _claim_run(app_key: str, trigger: str, requested_by: str | None) -> dict | None:
+    """Mark the run as started and open its log entry; None (after logging a
+    "skipped" entry) when another run is still in progress."""
     db = SessionLocal()
     try:
         row = (
@@ -297,32 +299,99 @@ def _claim_run(app_key: str, trigger: str) -> dict | None:
         ) or get_or_create_settings(db, app_key)
         now = _utcnow()
         if _is_running(row, now):
+            db.add(ScheduledReportMailLog(
+                app_key=app_key, trigger=trigger, requested_by=requested_by, status="skipped",
+                started_at=now, finished_at=now,
+                error_message="Not run: an earlier run of this mail was still in progress.",
+            ))
+            db.commit()
             return None
         row.running_since = now
+        entry = ScheduledReportMailLog(
+            app_key=app_key, trigger=trigger, requested_by=requested_by, status="running", started_at=now,
+        )
+        db.add(entry)
         db.commit()
         return {
             "subject_template": row.subject_template,
             "intro_template": row.intro_template,
             "signature": row.signature or "",
             "send_when_unmapped": bool(row.send_when_unmapped),
+            "log_id": entry.id,
         }
     finally:
         db.close()
 
 
-def _finish_run(app_key: str, trigger: str, status: str, error: str | None, detail: dict) -> None:
+def _finish_run(app_key: str, trigger: str, status: str, error: str | None, detail: dict,
+                log_id: int, messages: list[dict], recipients: dict | None) -> None:
     db = SessionLocal()
     try:
+        now = _utcnow()
         row = get_or_create_settings(db, app_key)
         row.running_since = None
-        row.last_run_at = _utcnow()
+        row.last_run_at = now
         row.last_trigger = trigger
         row.last_status = status
         row.last_error = (error or None) and error[:2000]
         row.last_detail = json.dumps(detail, ensure_ascii=False, default=str)
+        entry = db.get(ScheduledReportMailLog, log_id)
+        if entry is not None:
+            entry.status = status
+            entry.finished_at = now
+            entry.error_message = (error or None) and error[:2000]
+            entry.detail = json.dumps(detail, ensure_ascii=False, default=str)
+            entry.messages = json.dumps(messages, ensure_ascii=False)
+            if recipients is not None:
+                entry.to_recipients = json.dumps(recipients.get("to", []))
+                entry.cc_recipients = json.dumps(recipients.get("cc", []))
         db.commit()
     finally:
         db.close()
+
+
+def _iso(value: datetime | None) -> str | None:
+    return value.replace(tzinfo=UTC).isoformat() if value else None
+
+
+def log_view(db: Session, app_key: str, limit: int = 20, offset: int = 0) -> dict:
+    """The newest runs first. A run still marked "running" long after it can
+    possibly have finished is shown as "interrupted" (its worker died)."""
+    query = db.query(ScheduledReportMailLog).filter(
+        ScheduledReportMailLog.app_key == app_key, ScheduledReportMailLog.is_deleted.is_(False),
+    )
+    total = query.count()
+    rows = (
+        query.order_by(ScheduledReportMailLog.started_at.desc(), ScheduledReportMailLog.id.desc())
+        .offset(max(offset, 0)).limit(max(1, min(limit, 100))).all()
+    )
+    now = _utcnow()
+
+    def loads(raw, default):
+        try:
+            return json.loads(raw) if raw else default
+        except ValueError:
+            return default
+
+    items = []
+    for row in rows:
+        status = row.status
+        if status == "running" and now - row.started_at >= _RUN_STALE_AFTER:
+            status = "interrupted"
+        items.append({
+            "id": row.id,
+            "trigger": row.trigger,
+            "requested_by": row.requested_by,
+            "status": status,
+            "started_at": _iso(row.started_at),
+            "finished_at": _iso(row.finished_at),
+            "to": loads(row.to_recipients, []),
+            "cc": loads(row.cc_recipients, []),
+            "messages": loads(row.messages, []),
+            "detail": loads(row.detail, {}),
+            "error": row.error_message,
+        })
+    return {"total": total, "items": items}
 
 
 def _wrap_html(intro_text: str, sections: list[tuple[str, str]], notes: list[str], signature: str,
@@ -368,19 +437,44 @@ def _deliver(db: Session, app_key: str, subject: str, html_body: str, attachment
     return recipients
 
 
-def run_mail_job(app_key: str, trigger: str, build, progress_cb=None, cancel_event=None) -> dict:
+def _recipients_snapshot(app_key: str) -> dict:
+    db = SessionLocal()
+    try:
+        return get_report_recipient_defaults(db, app_key)
+    finally:
+        db.close()
+
+
+def _attachment_info(paths: list[str]) -> list[dict]:
+    info = []
+    for path in paths:
+        try:
+            size = os.path.getsize(path)
+        except OSError:
+            size = None
+        info.append({"name": os.path.basename(path), "bytes": size})
+    return info
+
+
+def run_mail_job(app_key: str, trigger: str, build, progress_cb=None, cancel_event=None,
+                 requested_by: str | None = None) -> dict:
     """Build the report with ``build(snapshot, progress_cb, cancel_event) ->
     MailPayload``, mail it to the application's recipients, and record the
-    outcome. ``trigger`` is "scheduled" or "manual"."""
-    snapshot = _claim_run(app_key, trigger)
+    outcome in the settings row and in the send log. ``trigger`` is
+    "scheduled" or "manual" (``requested_by`` then names the admin)."""
+    snapshot = _claim_run(app_key, trigger, requested_by)
     if snapshot is None:
         raise JobUserError("An automatic mail run for this report is already in progress. Try again in a few minutes.")
+    log_id = snapshot["log_id"]
     payload: MailPayload | None = None
     status, error, detail = "failed", None, {}
+    sent_messages: list[dict] = []
+    recipients_used: dict | None = None
     try:
         payload = build(snapshot, progress_cb, cancel_event)
         detail = dict(payload.detail)
         if payload.hold_reason:
+            recipients_used = _recipients_snapshot(app_key)
             status, error = "held", payload.hold_reason
             return {"status": status, "message": payload.hold_reason}
 
@@ -406,7 +500,12 @@ def run_mail_job(app_key: str, trigger: str, build, progress_cb=None, cancel_eve
                     snapshot["signature"],
                     payload.css if index == 1 else None,
                 )
-                recipients = _deliver(db, app_key, subject, body, group)
+                recipients = recipients_used = _deliver(db, app_key, subject, body, group)
+                sent_messages.append({
+                    "subject": subject,
+                    "sent_at": _iso(_utcnow()),
+                    "attachments": _attachment_info(group),
+                })
             detail["recipients"] = recipients
             detail["mails_sent"] = len(groups)
         finally:
@@ -433,7 +532,7 @@ def run_mail_job(app_key: str, trigger: str, build, progress_cb=None, cancel_eve
                     shutil.rmtree(path, ignore_errors=True)
                 else:
                     Path(path).unlink(missing_ok=True)
-        _finish_run(app_key, trigger, status, error, detail)
+        _finish_run(app_key, trigger, status, error, detail, log_id, sent_messages, recipients_used)
 
 
 # ── scheduler hook ───────────────────────────────────────────────────────────
