@@ -1,9 +1,10 @@
 """Untagged Invoices Report Generator — processing pipeline.
 
-Single input: an Oracle AR "Aging" export (the same raw shape as the
-Unapplied Receipts Report's ageing file — see
-app.services.unapplied_receipts.processor._read_ageing). Produces one
-workbook with 5 sheets, in this fixed order:
+Single input: the open AR ageing, fetched live from the Oracle ERP
+(``fetch_ageing_from_erp``) - there is no file to upload. The query returns
+the data under the same column names the old Oracle "Aging" export used, so
+everything below is unchanged. Produces one workbook with 5 sheets, in this
+fixed order:
 
   1. Untagged Summary    - Location-wise pivot of the Untagged Ageing rows,
                             sorted by Accounted Outstanding ascending
@@ -25,11 +26,11 @@ restricted to Type = Transactions - Receipts rows are never untagged or
 below-1k candidates, only the raw "Ageing" sheet itself carries them.
 
 Ageing buckets (Days O/S, 0-15 Days, 16-30 Days, ...) are always recomputed
-from (Invoice/ Receipt Date, as_on_date) rather than trusted from the
-source file's own bucket columns - those are frozen to whatever "As of
-Date" the ERP export itself was run with, so recomputing lets this report
-be regenerated as of any date without a fresh ERP export. as_on_date
-defaults to today when not given.
+from (Invoice/ Receipt Date, as_on_date) rather than taken from the ERP
+query's own 0-30 / 31-60 ... buckets, which use different ranges. The report
+always runs on the live ERP data, so as_on_date is simply today.
+
+In the written workbook an empty cell or a zero shows "-".
 """
 
 from __future__ import annotations
@@ -47,6 +48,8 @@ from openpyxl.utils import get_column_letter
 
 from app.jobs import JobUserError
 from app.services import tabular_input
+from app.services.erp_ageing import OracleConfig, fetch_ageing_from_erp  # noqa: F401 - used by the router
+from app.services.report_dash import DASH as _DASH, FMT_DEC as _FMT_DEC, FMT_INT as _FMT_INT, is_blank as _is_blank
 from app.services.report_progress import row_progress_reporter
 
 # ── column name resolution (tolerant of minor header drift - trailing
@@ -456,6 +459,9 @@ def _is_numeric_col(col_name: str) -> bool:
     low = str(col_name).lower()
     if col_name in BUCKET_COLS or col_name == _DAYS_OS_COL:
         return True
+    # "Invoice No/ Receipt No" and "Invoice Type" contain "invoice" but are identifiers, not amounts
+    if "no/" in low or "type" in low:
+        return False
     return any(m in low for m in _CURRENCY_MARKERS)
 
 
@@ -500,10 +506,10 @@ def _ensure_detail_named_styles(wb: Workbook) -> None:
     num_font = Font(name="Consolas", size=10)
     align_right = Alignment(horizontal="right", vertical="center")
     for name, fill, number_format in (
-        (_STYLE_NUM_INT_ODD,  PatternFill("solid", fgColor=_ROW_ODD),  "#,##0"),
-        (_STYLE_NUM_INT_EVEN, PatternFill("solid", fgColor=_ROW_EVEN), "#,##0"),
-        (_STYLE_NUM_DEC_ODD,  PatternFill("solid", fgColor=_ROW_ODD),  "#,##0.00"),
-        (_STYLE_NUM_DEC_EVEN, PatternFill("solid", fgColor=_ROW_EVEN), "#,##0.00"),
+        (_STYLE_NUM_INT_ODD,  PatternFill("solid", fgColor=_ROW_ODD),  _FMT_INT),
+        (_STYLE_NUM_INT_EVEN, PatternFill("solid", fgColor=_ROW_EVEN), _FMT_INT),
+        (_STYLE_NUM_DEC_ODD,  PatternFill("solid", fgColor=_ROW_ODD),  _FMT_DEC),
+        (_STYLE_NUM_DEC_EVEN, PatternFill("solid", fgColor=_ROW_EVEN), _FMT_DEC),
     ):
         wb.add_named_style(NamedStyle(name=name, font=num_font, fill=fill,
                                        border=bdr, alignment=align_right,
@@ -566,7 +572,7 @@ def _write_detail_sheet(wb: Workbook, title: str, df: pd.DataFrame, tab_color: s
         row_cells = []
         for ci, val in enumerate(row_vals, 1):
             c = WriteOnlyCell(ws)
-            is_blank = val is None or (isinstance(val, float) and pd.isna(val))
+            is_blank = _is_blank(val)
             if not is_blank and isinstance(val, _dt.datetime):
                 # a date is never a number, whatever its column is called
                 c.value = val
@@ -575,8 +581,8 @@ def _write_detail_sheet(wb: Workbook, title: str, df: pd.DataFrame, tab_color: s
             elif numeric_cols[ci - 1]:
                 is_days = (ci - 1) == days_os_idx
                 if is_blank:
-                    c.value = None
-                    disp = ""
+                    c.value = _DASH
+                    disp = _DASH
                 else:
                     try:
                         c.value = int(val) if is_days else float(val)
@@ -589,13 +595,9 @@ def _write_detail_sheet(wb: Workbook, title: str, df: pd.DataFrame, tab_color: s
                     c.style = _STYLE_NUM_DEC_EVEN if is_even_row else _STYLE_NUM_DEC_ODD
             else:
                 if is_blank:
-                    c.value = ""
-                    disp = ""
+                    c.value = _DASH
+                    disp = _DASH
                     c.style = _STYLE_TXT_EVEN if is_even_row else _STYLE_TXT_ODD
-                elif isinstance(val, _dt.datetime):
-                    c.value = val
-                    c.style = _STYLE_DATE_EVEN if is_even_row else _STYLE_DATE_ODD
-                    disp = val.strftime("%d-%b-%Y")
                 else:
                     c.value = str(val)
                     disp = c.value
@@ -682,16 +684,16 @@ def _write_pivot_sheet(wb: Workbook, title: str, df: pd.DataFrame, tab_color: st
             c.border = bdr
             c.fill = row_fill
             if col_name in (LOCATION_COL, "Account Incharges"):
-                c.value = str(val) if val else ""
+                c.value = _DASH if _is_blank(val) else str(val)
                 c.font = txt_font
                 c.alignment = align_left
             else:
                 c.font = num_font
                 c.alignment = align_right
                 is_count = col_name == COUNT_COL
-                c.number_format = "#,##0" if is_count else "#,##0.00"
-                if val is None or pd.isna(val):
-                    c.value = None
+                c.number_format = _FMT_INT if is_count else _FMT_DEC
+                if _is_blank(val):
+                    c.value = _DASH
                 else:
                     c.value = int(val) if is_count else float(val)
             row_cells.append(c)
@@ -701,7 +703,7 @@ def _write_pivot_sheet(wb: Workbook, title: str, df: pd.DataFrame, tab_color: st
         above_cell = WriteOnlyCell(ws, value=above_30_formula(report_amount_ref, bucket_refs))
         above_cell.font = num_font
         above_cell.alignment = align_right
-        above_cell.number_format = "#,##0.00"
+        above_cell.number_format = _FMT_DEC
         above_cell.border = bdr
         above_cell.fill = row_fill
         row_cells.append(above_cell)
@@ -734,7 +736,7 @@ def _write_pivot_sheet(wb: Workbook, title: str, df: pd.DataFrame, tab_color: st
             c.value = f"=SUBTOTAL(9,{col_letter}2:{col_letter}{n_rows + 1})"
         else:
             c.value = 0
-        c.number_format = "#,##0" if cols[ci - 1] == COUNT_COL else "#,##0.00"
+        c.number_format = _FMT_INT if cols[ci - 1] == COUNT_COL else _FMT_DEC
         c.font = gt_font
         c.fill = gt_fill
         c.alignment = align_right
@@ -747,7 +749,7 @@ def _write_pivot_sheet(wb: Workbook, title: str, df: pd.DataFrame, tab_color: st
     grand_above.font = gt_font
     grand_above.fill = gt_fill
     grand_above.alignment = align_right
-    grand_above.number_format = "#,##0.00"
+    grand_above.number_format = _FMT_DEC
     grand_above.border = bdr
     grand_cells.append(grand_above)
 
@@ -793,7 +795,8 @@ def write_report(
 
     # Both summaries' "Above 30 Days" is Total minus the first two bucket
     # columns (0-15 + 16-30 Days = 0-30 days), so both use the same formula.
-    above_30_formula = lambda amount_ref, bucket_refs: f"={amount_ref}-{bucket_refs[0]}-{bucket_refs[1]}"
+    # Rounded so float noise never turns a true zero into a visible 0.00.
+    above_30_formula = lambda amount_ref, bucket_refs: f"=ROUND({amount_ref}-{bucket_refs[0]}-{bucket_refs[1]},2)"
 
     if progress_cb:
         progress_cb(0.55, "Writing Untagged Summary...")

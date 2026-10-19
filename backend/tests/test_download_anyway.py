@@ -179,7 +179,7 @@ class UntaggedInvoicesTests(_TempDirCase):
                     patch.object(untagged_invoices_report.mapping_store, "load_all", return_value=({}, {})), \
                     patch.multiple(
                         proc,
-                        read_ageing_file=MagicMock(return_value=df),
+                        fetch_ageing_from_erp=MagicMock(return_value=df),
                         missing_location_mappings=MagicMock(return_value=["RAW LOCATION"]),
                         add_location_column=MagicMock(return_value=df),
                         missing_incharge_mappings=MagicMock(return_value=[]),
@@ -190,8 +190,7 @@ class UntaggedInvoicesTests(_TempDirCase):
                         build_below_1k_summary=MagicMock(return_value=df),
                         write_report=write,
                     ):
-                result = untagged_invoices_report._run_process_job(
-                    self._input(), str(output), "2026-09-30", allow_unmapped=allow)
+                result = untagged_invoices_report._run_process_job(str(output), allow_unmapped=allow)
             self.assertEqual(result["needs_mapping_fix"], not allow)
             self.assertEqual(output.exists(), allow)
             self.assertEqual(result["validation_warnings"][0]["items"], ["RAW LOCATION"])

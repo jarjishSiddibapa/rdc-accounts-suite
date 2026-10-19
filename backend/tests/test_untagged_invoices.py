@@ -1,4 +1,4 @@
-"""Coverage for the Untagged Invoices Report Generator's processing
+﻿"""Coverage for the Untagged Invoices Report Generator's processing
 pipeline: header/row cleanup, Location mapping, ageing-bucket recompute
 (from an as-on date, not the source file's own frozen buckets, and not
 duplicated when the source file's own bucket columns don't exactly match
@@ -266,6 +266,91 @@ class PivotTests(unittest.TestCase):
         self.assertEqual(list(summary[LOCATION_COL]), ["Location B", "Location A"])
 
 
+class ErpFrameTests(unittest.TestCase):
+    _COLUMNS = [
+        "CUSTOMER_NAME", "CUSTOMER_ACCOUNT", "LOCATION", "TRX_NUMBER", "INVOICE_RCPT_CLASS",
+        "CREDITLIMIT", "PAYMENT_TERM", "OUTSTANDING_AMOUNT", "UNAPPLIED_AMOUNT", "DUE_DATE",
+        "OVER_DUE_DAYS", "SALESPERSON",
+    ]
+
+    def _rows(self):
+        d = dt.datetime(2026, 1, 1)
+        return [
+            ("Acme", "1001", " Pune ", "INV1", "Invoice", None, 30, 500, 0, d, 10, "Ravi"),
+            ("Acme", "1001", "Pune", "CM1", "Credit Memo", None, 30, -250.5, 0, d, 10, None),
+            ("Acme", "1001", None, "RCT1", "Receipts", None, None, -90, 0, d, 10, None),
+        ]
+
+    def test_columns_match_what_the_pipeline_reads(self):
+        from app.services.erp_ageing import erp_frame as _erp_frame
+        df = _erp_frame(self._COLUMNS, self._rows())
+        for needed in ("Customer Name", "Location Name", "Invoice/ Receipt Date",
+                       "Accounted Outstanding", _TYPE_COL):
+            self.assertIn(needed, df.columns)
+        self.assertEqual(df["Location Name"].tolist(), ["Pune", "Pune", ""])
+
+    def test_receipts_are_receipts_and_everything_else_is_a_transaction(self):
+        from app.services.erp_ageing import erp_frame as _erp_frame
+        df = _erp_frame(self._COLUMNS, self._rows())
+        self.assertEqual(df[_TYPE_COL].tolist(), ["Transactions", "Transactions", "Receipts"])
+
+    def test_erp_frame_runs_through_the_rest_of_the_pipeline(self):
+        from app.services.erp_ageing import erp_frame as _erp_frame
+        df = _erp_frame(self._COLUMNS, self._rows())
+        df = add_location_column(df, {"PUNE": "Pune"})
+        df = recompute_ageing_buckets(df, dt.date(2026, 1, 31), _LogQueue())
+        self.assertEqual(df["Days O/S"].tolist(), [30, 30, 30])
+        untagged = build_untagged_ageing(df)
+        self.assertEqual(untagged["Invoice No/ Receipt No"].tolist(), ["CM1"])  # the receipt is not untagged
+        self.assertEqual(len(build_below_1k_ageing(df)), 1)
+
+
+class NumericColumnTests(unittest.TestCase):
+    def test_identifier_columns_are_not_amounts(self):
+        from app.services.untagged_invoices.processor import _is_numeric_col
+        self.assertFalse(_is_numeric_col("Invoice No/ Receipt No"))
+        self.assertFalse(_is_numeric_col("Invoice Type"))
+        self.assertTrue(_is_numeric_col("Accounted Outstanding"))
+        self.assertTrue(_is_numeric_col("Credit Limit"))
+
+
+class DashForEmptyAndZeroTests(unittest.TestCase):
+    def test_zero_format_and_blank_cells_show_a_dash(self):
+        as_on = dt.date(2026, 1, 31)
+        rows = [
+            _base_row(**{"Location Name": "LOC A", "Accounted Outstanding": 500.0}),
+            _base_row(**{"Location Name": "UNKNOWN", "Accounted Outstanding": 700.0}),  # no Location mapped
+        ]
+        df = add_location_column(pd.DataFrame(rows), {"LOC A": "Location A"})
+        df = recompute_ageing_buckets(df, as_on, _LogQueue())
+        below_1k_ageing = build_below_1k_ageing(df)
+        below_1k_summary = build_below_1k_summary(below_1k_ageing, {})
+        untagged_ageing = build_untagged_ageing(df)
+        untagged_summary = build_untagged_summary(untagged_ageing, {})
+
+        with tempfile.TemporaryDirectory() as tmp:
+            out_path = Path(tmp) / "out.xlsx"
+            write_report(df, untagged_summary, untagged_ageing, below_1k_summary, below_1k_ageing,
+                         out_path, as_on, log_q=_LogQueue())
+            wb = openpyxl.load_workbook(out_path)
+
+            ws = wb["Ageing"]
+            header = [c.value for c in ws[1]]
+            rows_out = [{h: c for h, c in zip(header, row)} for row in ws.iter_rows(min_row=2)]
+            unmapped = next(r for r in rows_out if r["Location Name"].value == "UNKNOWN")
+            self.assertEqual(unmapped[LOCATION_COL].value, "-")     # empty text
+            # a zero bucket keeps its number but its format turns it into a dash
+            zero_bucket = unmapped["0-15 Days"]
+            self.assertEqual(zero_bucket.value, 0.0)
+            self.assertIn('"-"', zero_bucket.number_format)
+
+            pivot = wb["Below 1k Summary"]
+            first = [c.value for c in pivot[2]]
+            self.assertEqual(first[1], "-")   # Account Incharges not set
+            self.assertIn('"-"', pivot.cell(row=2, column=5).number_format)
+            self.assertTrue(str(pivot.cell(row=2, column=pivot.max_column).value).startswith("=ROUND("))
+
+
 class WriteReportTests(unittest.TestCase):
     def test_sheet_order_and_grand_total_formula(self):
         as_on = dt.date(2026, 1, 31)
@@ -342,3 +427,4 @@ class WriteReportTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+

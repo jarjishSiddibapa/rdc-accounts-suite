@@ -1,23 +1,25 @@
 """GST Invoice Number Adder tool routes.
 
-Ports the desktop app "RDCTRAK GST Invoice Number Enricher v12" — uploads an
-RDC Receivable Aging Report (.xlsx/.xlsb/.xls) and enriches it with a new
-"GST Invoice Number" column, looked up from Oracle per (invoice no, invoice
-date) pair. See services/gst_invoice_adder/processor.py for the ported
-business logic and why it must not be "simplified".
+Ports the desktop app "RDCTRAK GST Invoice Number Enricher v12". The open
+receivables ageing is fetched live from the ERP (app.services.erp_ageing) and
+enriched with a new "GST Invoice Number" column, looked up from Oracle per
+(invoice no, invoice date) pair. See services/gst_invoice_adder/processor.py
+for the ported business logic and why it must not be "simplified".
+
+Nothing is uploaded: the ageing is always the latest, as on today.
 
 No mapping tables and no email feature in the original desktop app, so
-neither is added here - this is a pure upload -> background job -> download
-tool, same shape as trial_balance.py minus the account-picker step.
+neither is added here - this is a pure background job -> download tool.
 
 Oracle connectivity reuses the SAME ORACLE_* env vars (same actual Oracle
 server) already wired up for services/unapplied_receipts - see app.config.
 """
 
 import uuid
+from datetime import date
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import FileResponse
 
 from app.auth import get_current_user
@@ -30,11 +32,10 @@ from app.config import (
     ORACLE_USER,
     SCRATCH_DIR,
 )
-from app.jobs import JobUserError, cancel_job, run_cpu_phase, submit_job, get_job
+from app.jobs import cancel_job, run_cpu_phase, submit_job, get_job
 from app.permissions import require_app_access
-from app.services import tabular_input
+from app.services import erp_ageing
 from app.services.gst_invoice_adder import processor
-from app.uploads import save_upload
 
 router = APIRouter(
     prefix="/api/tools/gst-invoice-adder", tags=["gst-invoice-adder"],
@@ -68,32 +69,15 @@ class _LogQueue:
         self.messages.append(item)
 
 
-def _cpu_phase_read_and_extract(input_path: str):
-    """Step 1 - 100% CPU (pandas read + vectorized key extraction), no
-    Oracle/DB involved, so it runs on the CPU process pool."""
-    df, inv_no_col_pd, inv_date_col_pd = processor.read_data_df(input_path)
-    if len(df) == 0:
-        raise JobUserError("No data rows found after skipping header rows.")
-    pairs_unique = processor._extract_pairs_vectorized(df, inv_no_col_pd, inv_date_col_pd)
-    return df, inv_no_col_pd, inv_date_col_pd, pairs_unique
-
-
-def _cpu_phase_write_output(input_path: str, output_path: str, df, inv_no_col_pd, inv_date_col_pd, gst_map: dict):
-    """Step 3 - 100% CPU (openpyxl read/write), no Oracle/DB involved, so it
-    runs on the CPU process pool. Uses a plain picklable log_q (not the
-    router's real _LogQueue, which isn't picklable) - its messages are
-    merged into the outer log after this call returns."""
+def _cpu_phase_write_output(output_path: str, df, gst_map: dict):
+    """Step 3 - 100% CPU (openpyxl write), no Oracle/DB involved, so it runs on
+    the CPU process pool. Uses a plain picklable log_q (not the router's real
+    _LogQueue, which isn't picklable) - its messages are merged into the outer
+    log after this call returns."""
     log_q = _CollectingLogQueue()
-    if tabular_input.detect_format(input_path) == "xlsb":
-        total, found, blank = processor.build_gst_report_pure_python(
-            df, inv_no_col_pd, inv_date_col_pd, gst_map, output_path, log_q,
-        )
-    else:
-        header_row_1based = processor.detect_header_index(input_path) + 1
-        total, found, blank = processor.insert_gst_column(
-            wb_path=input_path, output_path=output_path,
-            gst_map=gst_map, header_row=header_row_1based, log_q=log_q,
-        )
+    total, found, blank = processor.build_gst_report_pure_python(
+        df, processor.COL_INV_NO, processor.COL_INV_DATE, gst_map, output_path, log_q,
+    )
     return total, found, blank, log_q.messages
 
 
@@ -108,65 +92,61 @@ class _CollectingLogQueue:
         self.messages.append(item)
 
 
-def _job_enrich(input_path: str, output_path: str, download_name: str,
+def _job_enrich(output_path: str, download_name: str,
                  progress_cb=None, cancel_event=None) -> dict:
-    """Orchestrates process_report's 3 steps directly (rather than calling
-    processor.process_report as one opaque call) so the CPU-bound read and
-    write steps can each run on the CPU process pool, while the Oracle fetch
-    in between - already its own correctly-parallel ThreadPoolExecutor +
-    connection pool - stays on this thread exactly as before, since it's
-    I/O-bound and gains nothing from a separate process."""
+    """Fetch the ageing from the ERP, look up each (invoice no, date) pair's
+    GST number, and write the enriched workbook. The Oracle fetches stay on
+    this thread (I/O-bound, already their own ThreadPoolExecutor + connection
+    pool); the CPU-bound write runs on the CPU process pool."""
     log_q = _LogQueue()
-    original_input = input_path
+
+    if progress_cb:
+        progress_cb(0.02, "Fetching the ageing from the ERP...")
+    # the fetch reports 0.05-0.25; squeeze that into this job's 0.02-0.09
+    fetch_progress = (
+        (lambda frac, msg: progress_cb(0.02 + (frac - 0.05) / 0.2 * 0.07, msg)) if progress_cb else None
+    )
+    df = erp_ageing.fetch_ageing_from_erp(
+        _ORACLE_CFG, log_q, progress_cb=fetch_progress, cancel_event=cancel_event,
+    )
+    pairs_unique = processor._extract_pairs_vectorized(df, processor.COL_INV_NO, processor.COL_INV_DATE)
+    log_q.put(("info", f"{len(df)} data rows found"))
+    log_q.put(("info", f"{len(pairs_unique)} unique (invoice no, date) pairs"))
+
+    if progress_cb:
+        progress_cb(0.09, "Connecting to Oracle...")
+    processor.init_oracle_client(_ORACLE_CFG.instant_client_dir)
+    pool = processor._make_pool(_ORACLE_CFG, log_q)
     try:
-        if progress_cb:
-            progress_cb(0.02, "Reading input file...")
-        # .xlsx and .xlsb are handled natively; .xls / .csv / ERP-HTML become an equivalent .xlsx first
-        if tabular_input.detect_format(input_path) not in ("xlsx", "xlsb"):
-            input_path = str(tabular_input.to_xlsx(input_path, Path(input_path).parent, log_q))
-        df, inv_no_col_pd, inv_date_col_pd, pairs_unique = run_cpu_phase(
-            _cpu_phase_read_and_extract, input_path,
+        gst_map = processor._fetch_all_parallel(
+            pairs_unique,
+            pool,
+            log_q,
+            progress_cb,
+            cancel_event=cancel_event,
         )
-        log_q.put(("info", f"{len(df)} data rows found"))
-        log_q.put(("info", f"{len(pairs_unique)} unique (invoice no, date) pairs"))
-
-        if progress_cb:
-            progress_cb(0.08, "Connecting to Oracle...")
-        processor.init_oracle_client(_ORACLE_CFG.instant_client_dir)
-        pool = processor._make_pool(_ORACLE_CFG, log_q)
-        try:
-            gst_map = processor._fetch_all_parallel(
-                pairs_unique,
-                pool,
-                log_q,
-                progress_cb,
-                cancel_event=cancel_event,
-            )
-        finally:
-            try:
-                pool.close(force=bool(cancel_event is not None and cancel_event.is_set()))
-            except TypeError:
-                pool.close()
-            except Exception:
-                pass
-
-        if progress_cb:
-            progress_cb(0.90, "Preparing output workbook...")
-        ok_cnt = sum(1 for v in gst_map.values() if v)
-        log_q.put(("info", f"{ok_cnt}/{len(gst_map)} keys returned a GST number"))
-
-        if progress_cb:
-            progress_cb(0.92, "Writing enriched output...")
-        total, found, blank, cpu_log_messages = run_cpu_phase(
-            _cpu_phase_write_output, input_path, output_path, df, inv_no_col_pd, inv_date_col_pd, gst_map,
-        )
-        log_q.messages.extend(cpu_log_messages)
-
-        if progress_cb:
-            progress_cb(1.0, "Done")
     finally:
-        Path(input_path).unlink(missing_ok=True)
-        Path(original_input).unlink(missing_ok=True)
+        try:
+            pool.close(force=bool(cancel_event is not None and cancel_event.is_set()))
+        except TypeError:
+            pool.close()
+        except Exception:
+            pass
+
+    if progress_cb:
+        progress_cb(0.90, "Preparing output workbook...")
+    ok_cnt = sum(1 for v in gst_map.values() if v)
+    log_q.put(("info", f"{ok_cnt}/{len(gst_map)} keys returned a GST number"))
+
+    if progress_cb:
+        progress_cb(0.92, "Writing enriched output...")
+    total, found, blank, cpu_log_messages = run_cpu_phase(
+        _cpu_phase_write_output, output_path, df, gst_map,
+    )
+    log_q.messages.extend(cpu_log_messages)
+
+    if progress_cb:
+        progress_cb(1.0, "Done")
 
     return {
         "total": total,
@@ -179,14 +159,12 @@ def _job_enrich(input_path: str, output_path: str, download_name: str,
 
 
 @router.post("/process")
-async def process(file: UploadFile = File(...), user=Depends(get_current_user)):
-    input_path = await save_upload(file, SCRATCH_DIR)
-    stem = Path(file.filename or "report").stem
-    output_path = SCRATCH_DIR / f"{uuid.uuid4()}_{stem}_gst_enriched.xlsx"
-    download_name = f"{stem}_gst_enriched.xlsx"
+def process(user=Depends(get_current_user)):
+    output_path = SCRATCH_DIR / f"{uuid.uuid4()}_gst_invoice_numbers.xlsx"
+    download_name = f"GST_Invoice_Numbers_As_On_{date.today().isoformat()}.xlsx"
 
     job_id = submit_job(
-        _job_enrich, str(input_path), str(output_path), download_name,
+        _job_enrich, str(output_path), download_name,
         owner_id=user.id,
     )
     return {"job_id": job_id}

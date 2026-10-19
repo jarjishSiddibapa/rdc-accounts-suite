@@ -1,33 +1,41 @@
 """Untagged Invoices Report Generator tool routes.
 
-  1. POST /process           - upload the Aging export (+ an optional "as on"
-                                date, defaults to today) and run the 5-sheet
-                                report pipeline (see
+  1. POST /process           - fetch the open ageing live from the Oracle ERP
+                                (as on today) and run the 5-sheet report
+                                pipeline (see
                                 app.services.untagged_invoices.processor) as
-                                a background job.
+                                a background job. Nothing is uploaded.
   2. GET  /jobs/{job_id}      - poll job status/progress.
   3. GET  /download/{job_id}  - download the finished workbook.
   4. Two mapping CRUD route groups (locations, accounts-incharge), backed by
      the shared MySQL database (see mapping_store.py / models.py).
 """
 
+import uuid
 from datetime import date
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, Form, HTTPException
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.auth import get_current_user
-from app.config import SCRATCH_DIR
+from app.config import (
+    ORACLE_HOST,
+    ORACLE_INSTANT_CLIENT_DIR,
+    ORACLE_PASSWORD,
+    ORACLE_PORT,
+    ORACLE_SERVICE_NAME,
+    ORACLE_USER,
+    SCRATCH_DIR,
+)
 from app.database import SessionLocal, get_db
 from app.jobs import cancel_job, get_job, submit_job
 from app.models import User
 from app.permissions import require_app_access
 from app.services.untagged_invoices import mapping_store, processor
-from app.uploads import save_upload
 
 router = APIRouter(
     prefix="/api/tools/untagged-invoices-report", tags=["untagged-invoices-report"],
@@ -61,14 +69,25 @@ class _LogQueue:
 
 # ── /process job pipeline ───────────────────────────────────────────────────
 
-def _run_process_job(input_path: str, output_path: str, as_on_date_str: Optional[str],
-                      allow_unmapped: bool = False,
+def _oracle_cfg() -> processor.OracleConfig:
+    return processor.OracleConfig(
+        host=ORACLE_HOST,
+        port=ORACLE_PORT,
+        service_name=ORACLE_SERVICE_NAME,
+        user=ORACLE_USER,
+        password=ORACLE_PASSWORD,
+        instant_client_dir=ORACLE_INSTANT_CLIENT_DIR,
+    )
+
+
+def _run_process_job(output_path: str, allow_unmapped: bool = False,
                       progress_cb=None, cancel_event=None) -> dict:
     """Runs in a dedicated app.worker process (not tied to any request) -
     opens its own short-lived DB session since the request that queued the
-    job has already returned by the time this runs."""
+    job has already returned by the time this runs. The ageing is fetched
+    live from the ERP, so the report is always as on today."""
     log_q = _LogQueue(progress_cb)
-    as_on_date = date.fromisoformat(as_on_date_str) if as_on_date_str else date.today()
+    as_on_date = date.today()
 
     if progress_cb:
         progress_cb(0.02, "Loading centralized mappings...")
@@ -78,57 +97,55 @@ def _run_process_job(input_path: str, output_path: str, as_on_date_str: Optional
     finally:
         db.close()
 
-    try:
-        if progress_cb:
-            progress_cb(0.05, "Reading the Aging export...")
-        df = processor.read_ageing_file(input_path, log_q)
+    df = processor.fetch_ageing_from_erp(
+        _oracle_cfg(), log_q, progress_cb=progress_cb, cancel_event=cancel_event,
+        include_buckets=False,   # this report works out its own ageing buckets
+    )
 
-        missing_locations = processor.missing_location_mappings(df, location_map)
-        df = processor.add_location_column(df, location_map)
+    missing_locations = processor.missing_location_mappings(df, location_map)
+    df = processor.add_location_column(df, location_map)
 
-        resolved_locations = df[processor.LOCATION_COL].astype(str).str.strip()
-        missing_incharges = processor.missing_incharge_mappings(
-            sorted(resolved_locations.unique()), incharge_map,
-        )
+    resolved_locations = df[processor.LOCATION_COL].astype(str).str.strip()
+    missing_incharges = processor.missing_incharge_mappings(
+        sorted(resolved_locations.unique()), incharge_map,
+    )
 
-        validation_warnings = []
-        if missing_locations:
-            validation_warnings.append({"category": "Location Not Mapped", "items": missing_locations})
-        if missing_incharges:
-            validation_warnings.append({"category": "Accounts Incharge Not Mapped", "items": missing_incharges})
+    validation_warnings = []
+    if missing_locations:
+        validation_warnings.append({"category": "Location Not Mapped", "items": missing_locations})
+    if missing_incharges:
+        validation_warnings.append({"category": "Accounts Incharge Not Mapped", "items": missing_incharges})
 
-        if validation_warnings:
-            for warning in validation_warnings:
-                log_q.put(("warn", f"{warning['category']}: {len(warning['items'])} unmapped value(s)"))
-        if validation_warnings and allow_unmapped:
-            log_q.put(("warn", "Writing the report anyway - unmapped values stay blank."))
-        if validation_warnings and not allow_unmapped:
-            log_q.put(("warn", "Fix the mappings above and regenerate - report was not written yet."))
-            return {
-                "needs_mapping_fix": True,
-                "total_rows": int(len(df)),
-                "validation_warnings": validation_warnings,
-                "log": log_q.messages,
-            }
+    if validation_warnings:
+        for warning in validation_warnings:
+            log_q.put(("warn", f"{warning['category']}: {len(warning['items'])} unmapped value(s)"))
+    if validation_warnings and allow_unmapped:
+        log_q.put(("warn", "Writing the report anyway - unmapped values show as -."))
+    if validation_warnings and not allow_unmapped:
+        log_q.put(("warn", "Fix the mappings above and regenerate - report was not written yet."))
+        return {
+            "needs_mapping_fix": True,
+            "total_rows": int(len(df)),
+            "validation_warnings": validation_warnings,
+            "log": log_q.messages,
+        }
 
-        if progress_cb:
-            progress_cb(0.30, "Recomputing ageing buckets...")
-        df = processor.recompute_ageing_buckets(df, as_on_date, log_q)
+    if progress_cb:
+        progress_cb(0.30, "Recomputing ageing buckets...")
+    df = processor.recompute_ageing_buckets(df, as_on_date, log_q)
 
-        if progress_cb:
-            progress_cb(0.45, "Building pivots...")
-        df_untagged_ageing = processor.build_untagged_ageing(df)
-        df_untagged_summary = processor.build_untagged_summary(df_untagged_ageing, incharge_map)
-        df_below_1k_ageing = processor.build_below_1k_ageing(df)
-        df_below_1k_summary = processor.build_below_1k_summary(df_below_1k_ageing, incharge_map)
+    if progress_cb:
+        progress_cb(0.45, "Building pivots...")
+    df_untagged_ageing = processor.build_untagged_ageing(df)
+    df_untagged_summary = processor.build_untagged_summary(df_untagged_ageing, incharge_map)
+    df_below_1k_ageing = processor.build_below_1k_ageing(df)
+    df_below_1k_summary = processor.build_below_1k_summary(df_below_1k_ageing, incharge_map)
 
-        processor.write_report(
-            df, df_untagged_summary, df_untagged_ageing,
-            df_below_1k_summary, df_below_1k_ageing,
-            output_path, as_on_date, log_q=log_q, progress_cb=progress_cb,
-        )
-    finally:
-        Path(input_path).unlink(missing_ok=True)
+    processor.write_report(
+        df, df_untagged_summary, df_untagged_ageing,
+        df_below_1k_summary, df_below_1k_ageing,
+        output_path, as_on_date, log_q=log_q, progress_cb=progress_cb,
+    )
 
     filename = f"Untagged_Invoices_Report_As_On_{as_on_date.isoformat()}.xlsx"
     log_q.put(("ok", f"Done - {filename}"))
@@ -150,26 +167,15 @@ def _run_process_job(input_path: str, output_path: str, as_on_date_str: Optional
 
 
 @router.post("/process")
-async def submit_process(
-    file: UploadFile = File(...),
-    as_on_date: Optional[str] = Form(None),
+def submit_process(
     allow_unmapped: bool = Form(False),
     user: User = Depends(get_current_user),
 ):
-    if as_on_date:
-        try:
-            date.fromisoformat(as_on_date)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="as_on_date must be an ISO date (YYYY-MM-DD)")
-
-    input_path = await save_upload(file, SCRATCH_DIR)
-    output_path = SCRATCH_DIR / f"{input_path.stem}_Untagged_Invoices_Report.xlsx"
+    output_path = SCRATCH_DIR / f"untagged_{uuid.uuid4().hex}_Untagged_Invoices_Report.xlsx"
 
     job_id = submit_job(
         _run_process_job,
-        str(input_path),
         str(output_path),
-        as_on_date,
         allow_unmapped=allow_unmapped,
         owner_id=user.id,
     )

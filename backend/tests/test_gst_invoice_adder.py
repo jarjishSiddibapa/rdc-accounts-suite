@@ -114,7 +114,7 @@ class BuildGstReportPureWriterTests(unittest.TestCase):
         data_rows = list(ws.iter_rows(min_row=2, values_only=True))
         self.assertEqual(len(data_rows), 2)
         self.assertEqual(data_rows[0], ("Acme Traders", "GST1001", "1001", datetime(2026, 1, 1), 100.0))
-        self.assertEqual(data_rows[1], ("Acme Traders", None, "1002", datetime(2026, 1, 2), 200.0))
+        self.assertEqual(data_rows[1], ("Acme Traders", "-", "1002", datetime(2026, 1, 2), 200.0))
         self.assertEqual(ws.freeze_panes, "A2")
         self.assertEqual(ws.auto_filter.ref, f"A1:E{len(data_rows) + 1}")
 

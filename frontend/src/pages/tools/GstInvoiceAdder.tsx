@@ -4,11 +4,9 @@ import { AppShell } from '@/components/AppShell'
 import { GlassCard } from '@/components/GlassCard'
 import { Button } from '@/components/Button'
 import { ErrorBanner } from '@/components/ErrorBanner'
-import { FileDropzone } from '@/components/FileDropzone'
 import { ProgressPanel, type JobState, type JobStatus } from '@/components/ProgressPanel'
-import { ApiError, apiUrl, get, post, postForm } from '@/lib/api'
+import { ApiError, apiUrl, get, post } from '@/lib/api'
 import { formatIndianNumber } from '@/lib/regional'
-import { EXCEL_ACCEPT } from '@/lib/fileTypes'
 
 const BASE = '/tools/gst-invoice-adder'
 
@@ -41,7 +39,6 @@ async function pollEnrichJob(jobId: string): Promise<JobState<EnrichResult>> {
 }
 
 export default function GstInvoiceAdder() {
-  const [file, setFile] = useState<File | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [jobId, setJobId] = useState<string | null>(null)
   const [result, setResult] = useState<EnrichResult | null>(null)
@@ -50,15 +47,12 @@ export default function GstInvoiceAdder() {
   const active = jobId !== null && result === null && !error
 
   async function handleGenerate() {
-    if (!file) return
     setSubmitting(true)
     setError(null)
     setResult(null)
     setJobId(null)
     try {
-      const formData = new FormData()
-      formData.append('file', file)
-      const res = await postForm<{ job_id: string }>(`${BASE}/process`, formData)
+      const res = await post<{ job_id: string }>(`${BASE}/process`)
       setJobId(res.job_id)
       // submitting stays true until the background job itself settles
       // (cleared in ProgressPanel's onDone/onError below) - the request
@@ -73,7 +67,7 @@ export default function GstInvoiceAdder() {
     if (!jobId) return
     const a = document.createElement('a')
     a.href = apiUrl(`${BASE}/download/${jobId}`)
-    a.download = result?.download_name || 'gst_enriched.xlsx'
+    a.download = result?.download_name || 'GST_Invoice_Numbers.xlsx'
     document.body.appendChild(a)
     a.click()
     a.remove()
@@ -81,7 +75,6 @@ export default function GstInvoiceAdder() {
 
   function resetAll() {
     if (active) return
-    setFile(null)
     setJobId(null)
     setResult(null)
     setError(null)
@@ -101,20 +94,11 @@ export default function GstInvoiceAdder() {
                 Add GST Invoice Numbers
               </h2>
               <p className="mt-1 text-sm leading-6 text-ink-dim">
-                Upload an RDC Receivable Aging Report and every row is looked up in Oracle by invoice
-                number and date, then a new "GST Invoice Number" column is inserted next to it.
+                Fetches the latest receivable ageing from the ERP, looks up every row in Oracle by
+                invoice number and date, and adds a "GST Invoice Number" column next to it.
               </p>
             </div>
           </div>
-
-          <FileDropzone
-            accept={EXCEL_ACCEPT}
-            label="Drag & drop the Receivable Aging Report here, or click to browse"
-            hint="Supports .xlsx, .xlsb, .xls, and .csv"
-            files={file ? [file] : []}
-            onFilesSelected={(incoming) => setFile(incoming[0] ?? null)}
-            onRemove={() => setFile(null)}
-          />
 
           {error && <ErrorBanner className="whitespace-pre-wrap">{error}</ErrorBanner>}
 
@@ -123,10 +107,10 @@ export default function GstInvoiceAdder() {
           </p>
 
           <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
-            <Button variant="secondary" icon={<RotateCcw className="h-4 w-4" />} disabled={active || (!file && !result)} onClick={resetAll}>
+            <Button variant="secondary" icon={<RotateCcw className="h-4 w-4" />} disabled={active || !result} onClick={resetAll}>
               Reset
             </Button>
-            <Button onClick={() => void handleGenerate()} loading={submitting} disabled={!file || active}>
+            <Button onClick={() => void handleGenerate()} loading={submitting} disabled={active}>
               Save GST numbers
             </Button>
           </div>

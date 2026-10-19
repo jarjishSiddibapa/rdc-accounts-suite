@@ -12,18 +12,15 @@ import { AppShell } from '@/components/AppShell'
 import { GlassCard } from '@/components/GlassCard'
 import { Button } from '@/components/Button'
 import { ErrorBanner } from '@/components/ErrorBanner'
-import { FileDropzone } from '@/components/FileDropzone'
 import { ProgressPanel, type JobState, type JobStatus } from '@/components/ProgressPanel'
 import { MappingTable, type MappingColumn, type MappingRow } from '@/components/MappingTable'
 import { CreatableCombobox } from '@/components/CreatableCombobox'
-import { DatePicker } from '@/components/TemporalPicker'
 import { Pagination } from '@/components/Pagination'
 import { LoadingNotice } from '@/components/LoadingNotice'
 import { usePagination } from '@/hooks/usePagination'
 import { ApiError, apiUrl, del, get, post, postForm, put } from '@/lib/api'
 import { formatIndianNumber } from '@/lib/regional'
 import { cn } from '@/utils/cn'
-import { EXCEL_ACCEPT } from '@/lib/fileTypes'
 
 const BASE = '/tools/untagged-invoices-report'
 
@@ -292,7 +289,7 @@ function ValidationWarnings({
       </div>
       <p className="text-sm text-ink-dim">
         Fix each unmapped value below, then generate the report. Missing a few? Use Download
-        anyway: the report is written now and those values stay blank.
+        anyway: the report is written now and those values show as -.
       </p>
       {warnings.map((warning) => (
         <WarningCategoryFix
@@ -430,9 +427,6 @@ function MappingSection({ config }: { config: MappingConfig }) {
 // ── page ──────────────────────────────────────────────────────────────────
 
 export default function UntaggedInvoicesReport() {
-  const [file, setFile] = useState<File | null>(null)
-  const [asOnDate, setAsOnDate] = useState('')
-
   const [submitting, setSubmitting] = useState(false)
   const [jobId, setJobId] = useState<string | null>(null)
   const [result, setResult] = useState<ProcessResult | null>(null)
@@ -461,12 +455,7 @@ export default function UntaggedInvoicesReport() {
       })
   }, [])
 
-  function handleFileSelected(files: File[]) {
-    setFile(files[0] ?? null)
-  }
-
   async function handleProcess(allowUnmapped = false) {
-    if (!file) return
     autoDownload.current = allowUnmapped
     setSubmitting(true)
     setProcessError(null)
@@ -475,8 +464,6 @@ export default function UntaggedInvoicesReport() {
     setActivityLog([['info', 'Queuing report for processing...']])
     try {
       const fd = new FormData()
-      fd.append('file', file)
-      if (asOnDate) fd.append('as_on_date', asOnDate)
       if (allowUnmapped) fd.append('allow_unmapped', 'true')
       const res = await postForm<{ job_id: string }>(`${BASE}/process`, fd)
       setJobId(res.job_id)
@@ -498,7 +485,6 @@ export default function UntaggedInvoicesReport() {
     a.remove()
   }
 
-  const canProcess = Boolean(file)
   const validationWarnings = result?.validation_warnings ?? []
 
   return (
@@ -518,34 +504,15 @@ export default function UntaggedInvoicesReport() {
                 Generate untagged invoices report
               </h2>
               <p className="mt-1 text-sm leading-6 text-ink-dim">
-                Upload the Aging export to generate the formatted workbook (Untagged Summary,
-                Untagged Ageing, Below 1k Summary, Below 1k Ageing and Ageing sheets).
+                Fetches the latest ageing from the ERP and generates the formatted workbook
+                (Untagged Summary, Untagged Ageing, Below 1k Summary, Below 1k Ageing and
+                Ageing sheets), as on today.
               </p>
             </div>
           </div>
 
-          <div className="flex flex-col gap-2">
-            <span className="text-sm font-medium text-ink-dim">Aging export</span>
-            <FileDropzone
-              accept={EXCEL_ACCEPT}
-              label="Drag & drop the Aging export here, or click to browse"
-              files={file ? [file] : []}
-              onFilesSelected={handleFileSelected}
-              onRemove={() => setFile(null)}
-            />
-          </div>
-
-          <label className="flex flex-col gap-2 sm:max-w-xs">
-            <span className="text-sm font-medium text-ink-dim">As on date (optional)</span>
-            <DatePicker value={asOnDate} onValueChange={setAsOnDate} aria-label="As on date" />
-            <span className="text-xs text-ink-faint">
-              Ageing buckets are computed from the invoice/receipt date against this date.
-              Defaults to today if left blank.
-            </span>
-          </label>
-
           <div className="flex justify-stretch sm:justify-end">
-            <Button onClick={() => void handleProcess()} loading={submitting} disabled={!canProcess}>
+            <Button onClick={() => void handleProcess()} loading={submitting}>
               Generate report
             </Button>
           </div>

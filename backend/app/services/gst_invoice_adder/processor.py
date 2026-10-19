@@ -53,6 +53,7 @@ from __future__ import annotations
 
 import copy
 import logging
+import numbers
 import os
 import re as _re
 from dataclasses import dataclass
@@ -69,6 +70,7 @@ from openpyxl.utils import column_index_from_string, get_column_letter
 
 from app.jobs import JobCancelled, JobUserError
 from app.oracle_runtime import initialize_oracle_client
+from app.services.report_dash import DASH, FMT_DEC, FMT_INT, is_blank
 
 logger = logging.getLogger(__name__)
 
@@ -456,6 +458,8 @@ def build_gst_report_pure_python(
                 value, is_date = _cell_value_for_output(
                     row[source_indices[name]], name == inv_date_col,
                 )
+            if is_blank(value):
+                value = DASH
             cell = WriteOnlyCell(ws, value=value)
             cell.border = _THIN_BORDER
             if name == COL_GST_NEW:
@@ -464,6 +468,9 @@ def build_gst_report_pure_python(
                 cell.font = _DAT_FONT
                 if is_date:
                     cell.number_format = "DD-MMM-YYYY"
+                elif isinstance(value, numbers.Real) and not isinstance(value, bool):
+                    # a zero shows as "-"
+                    cell.number_format = FMT_INT if isinstance(value, numbers.Integral) else FMT_DEC
             output_cells.append(cell)
         ws.append(output_cells)
 
