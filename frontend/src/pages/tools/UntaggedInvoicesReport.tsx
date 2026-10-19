@@ -17,6 +17,8 @@ import { MappingTable, type MappingColumn, type MappingRow } from '@/components/
 import { CreatableCombobox } from '@/components/CreatableCombobox'
 import { Pagination } from '@/components/Pagination'
 import { LoadingNotice } from '@/components/LoadingNotice'
+import { AutoMailCard } from '@/components/AutoMailCard'
+import { useAuth } from '@/lib/auth-context'
 import { usePagination } from '@/hooks/usePagination'
 import { ApiError, apiUrl, del, get, post, postForm, put } from '@/lib/api'
 import { formatIndianNumber } from '@/lib/regional'
@@ -427,6 +429,8 @@ function MappingSection({ config }: { config: MappingConfig }) {
 // ── page ──────────────────────────────────────────────────────────────────
 
 export default function UntaggedInvoicesReport() {
+  const { user } = useAuth()
+  const isAdmin = user?.role === 'admin'
   const [submitting, setSubmitting] = useState(false)
   const [jobId, setJobId] = useState<string | null>(null)
   const [result, setResult] = useState<ProcessResult | null>(null)
@@ -583,6 +587,8 @@ export default function UntaggedInvoicesReport() {
 
           <LogPanel log={activityLog} onClear={() => setActivityLog([])} />
         </GlassCard>
+
+        {isAdmin && <AutoMailCard baseUrl={BASE} reportName="Untagged Invoices Report" />}
 
         {/* ── Mapping tables ─────────────────────────────────────────── */}
         <GlassCard padding="lg" className="flex flex-col gap-5">

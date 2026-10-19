@@ -69,7 +69,7 @@ _ULTRAFINE_APP_KEYS = {
 # not a shared default (ultrafine-balance-confirmation,
 # ultrafine-payment-reminder) - so the admin "default recipients" concept
 # doesn't apply to them and they must NOT be offered in that picker.
-REPORT_RECIPIENT_APP_KEYS = {"unaccounted"}
+REPORT_RECIPIENT_APP_KEYS = {"unaccounted", "untagged-invoices-report", "gst-invoice-adder"}
 
 
 def parse_allowed_apps(user: User) -> list[str]:

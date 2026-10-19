@@ -864,6 +864,22 @@ only while it still holds the original `Elairaja` value. Run it in MySQL
 Workbench against the production schema; it is repeatable and works before or
 after the application has first started.
 
+Untagged Invoices Report and GST Invoice Number Adder no longer take an upload:
+both run the open-receivables ageing query against the Oracle ERP
+(`app/services/erp_ageing.py`, the same `ORACLE_*` settings in `backend/.env`),
+so they are always as on today. Generated workbooks show `-` for a zero or empty
+cell (`app/services/report_dash.py`).
+
+Both can also be mailed automatically (`app/services/scheduled_report_mail.py`,
+table `scheduled_report_mail`, created by the app at startup - no SQL script).
+An admin picks the weekdays and time (IST), the wording and whether to hold the
+mail when mappings are missing; the To/Cc are that application's default
+recipients (Admin -> Report recipients). The scheduler process polls
+`enqueue_due_checks`, and "Send now" runs the same durable job. Mail goes out via
+the system email identity. Gmail rejects messages over 25 MB: the Untagged
+attachment drops the full "Ageing" sheet when the whole workbook is too large,
+and the GST workbook is split into numbered parts, one mail each.
+
 Normal production update sequence:
 
 1. `git pull origin main`

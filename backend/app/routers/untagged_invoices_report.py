@@ -12,7 +12,6 @@
 """
 
 import uuid
-from datetime import date
 from pathlib import Path
 from typing import Optional
 
@@ -22,148 +21,34 @@ from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.auth import get_current_user
-from app.config import (
-    ORACLE_HOST,
-    ORACLE_INSTANT_CLIENT_DIR,
-    ORACLE_PASSWORD,
-    ORACLE_PORT,
-    ORACLE_SERVICE_NAME,
-    ORACLE_USER,
-    SCRATCH_DIR,
-)
-from app.database import SessionLocal, get_db
+from app.config import SCRATCH_DIR
+from app.database import get_db
 from app.jobs import cancel_job, get_job, submit_job
 from app.models import User
 from app.permissions import require_app_access
-from app.services.untagged_invoices import mapping_store, processor
+from app.routers.auto_mail_routes import make_auto_mail_router
+from app.services.untagged_invoices import auto_mail, mapping_store, report_job
 
 router = APIRouter(
     prefix="/api/tools/untagged-invoices-report", tags=["untagged-invoices-report"],
     dependencies=[Depends(require_app_access("untagged-invoices-report"))],
 )
 
+router.include_router(make_auto_mail_router("untagged-invoices-report", auto_mail.run_auto_mail_job))
+
 _XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-
-
-# ── log adapter (mirrors app.routers.unapplied_receipts._LogQueue) ─────────
-
-class _LogQueue:
-    def __init__(self, progress_cb=None, start: float = 0.05, end: float = 0.5):
-        self._progress_cb = progress_cb
-        self._start = start
-        self._end = end
-        self._count = 0
-        self.messages: list[tuple[str, str]] = []
-
-    def put(self, item) -> None:
-        level, msg = item
-        self.messages.append((level, msg))
-        if self._progress_cb:
-            self._count += 1
-            frac = min(self._end, self._start + self._count * 0.03)
-            try:
-                self._progress_cb(frac, msg)
-            except Exception:
-                pass
 
 
 # ── /process job pipeline ───────────────────────────────────────────────────
 
-def _oracle_cfg() -> processor.OracleConfig:
-    return processor.OracleConfig(
-        host=ORACLE_HOST,
-        port=ORACLE_PORT,
-        service_name=ORACLE_SERVICE_NAME,
-        user=ORACLE_USER,
-        password=ORACLE_PASSWORD,
-        instant_client_dir=ORACLE_INSTANT_CLIENT_DIR,
-    )
-
-
 def _run_process_job(output_path: str, allow_unmapped: bool = False,
                       progress_cb=None, cancel_event=None) -> dict:
-    """Runs in a dedicated app.worker process (not tied to any request) -
-    opens its own short-lived DB session since the request that queued the
-    job has already returned by the time this runs. The ageing is fetched
-    live from the ERP, so the report is always as on today."""
-    log_q = _LogQueue(progress_cb)
-    as_on_date = date.today()
-
-    if progress_cb:
-        progress_cb(0.02, "Loading centralized mappings...")
-    db = SessionLocal()
-    try:
-        location_map, incharge_map = mapping_store.load_all(db)
-    finally:
-        db.close()
-
-    df = processor.fetch_ageing_from_erp(
-        _oracle_cfg(), log_q, progress_cb=progress_cb, cancel_event=cancel_event,
-        include_buckets=False,   # this report works out its own ageing buckets
-    )
-
-    missing_locations = processor.missing_location_mappings(df, location_map)
-    df = processor.add_location_column(df, location_map)
-
-    resolved_locations = df[processor.LOCATION_COL].astype(str).str.strip()
-    missing_incharges = processor.missing_incharge_mappings(
-        sorted(resolved_locations.unique()), incharge_map,
-    )
-
-    validation_warnings = []
-    if missing_locations:
-        validation_warnings.append({"category": "Location Not Mapped", "items": missing_locations})
-    if missing_incharges:
-        validation_warnings.append({"category": "Accounts Incharge Not Mapped", "items": missing_incharges})
-
-    if validation_warnings:
-        for warning in validation_warnings:
-            log_q.put(("warn", f"{warning['category']}: {len(warning['items'])} unmapped value(s)"))
-    if validation_warnings and allow_unmapped:
-        log_q.put(("warn", "Writing the report anyway - unmapped values show as -."))
-    if validation_warnings and not allow_unmapped:
-        log_q.put(("warn", "Fix the mappings above and regenerate - report was not written yet."))
-        return {
-            "needs_mapping_fix": True,
-            "total_rows": int(len(df)),
-            "validation_warnings": validation_warnings,
-            "log": log_q.messages,
-        }
-
-    if progress_cb:
-        progress_cb(0.30, "Recomputing ageing buckets...")
-    df = processor.recompute_ageing_buckets(df, as_on_date, log_q)
-
-    if progress_cb:
-        progress_cb(0.45, "Building pivots...")
-    df_untagged_ageing = processor.build_untagged_ageing(df)
-    df_untagged_summary = processor.build_untagged_summary(df_untagged_ageing, incharge_map)
-    df_below_1k_ageing = processor.build_below_1k_ageing(df)
-    df_below_1k_summary = processor.build_below_1k_summary(df_below_1k_ageing, incharge_map)
-
-    processor.write_report(
-        df, df_untagged_summary, df_untagged_ageing,
-        df_below_1k_summary, df_below_1k_ageing,
-        output_path, as_on_date, log_q=log_q, progress_cb=progress_cb,
-    )
-
-    filename = f"Untagged_Invoices_Report_As_On_{as_on_date.isoformat()}.xlsx"
-    log_q.put(("ok", f"Done - {filename}"))
-
-    return {
-        "needs_mapping_fix": False,
-        "allowed_unmapped": bool(validation_warnings),
-        "output_path": str(output_path),
-        "download_filename": filename,
-        "as_on_date": as_on_date.isoformat(),
-        "total_rows": int(len(df)),
-        "untagged_ageing_row_count": int(len(df_untagged_ageing)),
-        "untagged_summary_row_count": int(len(df_untagged_summary)),
-        "below_1k_ageing_row_count": int(len(df_below_1k_ageing)),
-        "below_1k_summary_row_count": int(len(df_below_1k_summary)),
-        "validation_warnings": validation_warnings,
-        "log": log_q.messages,
-    }
+    """Runs in a dedicated app.worker process (not tied to any request). The
+    ageing is fetched live from the ERP, so the report is always as on today."""
+    return report_job.build_report(
+        output_path, allow_unmapped=allow_unmapped,
+        progress_cb=progress_cb, cancel_event=cancel_event,
+    ).result
 
 
 @router.post("/process")

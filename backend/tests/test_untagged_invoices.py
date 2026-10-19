@@ -305,6 +305,30 @@ class ErpFrameTests(unittest.TestCase):
         self.assertEqual(len(build_below_1k_ageing(df)), 1)
 
 
+class TinyAmountTests(unittest.TestCase):
+    def test_an_amount_too_small_to_show_is_written_as_zero_not_minus_zero(self):
+        as_on = dt.date(2026, 1, 31)
+        # -2 rupees = -0.00002 Lakhs: displays as -0.00 unless treated as zero
+        rows = [_base_row(**{"Location Name": "LOC A", "Accounted Outstanding": -2.0,
+                             "Invoice/ Receipt Date": dt.datetime(2026, 1, 30)}),     # 0-15 Days
+                _base_row(**{"Location Name": "LOC A", "Accounted Outstanding": -500000.0})]  # 16-30 Days
+        df = add_location_column(pd.DataFrame(rows), {"LOC A": "Location A"})
+        df = recompute_ageing_buckets(df, as_on, _LogQueue())
+        untagged_ageing = build_untagged_ageing(df)
+        untagged_summary = build_untagged_summary(untagged_ageing, {})
+        below_ageing = build_below_1k_ageing(df)
+        below_summary = build_below_1k_summary(below_ageing, {})
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp) / "o.xlsx"
+            write_report(df, untagged_summary, untagged_ageing, below_summary, below_ageing, out, as_on,
+                         log_q=_LogQueue())
+            ws = openpyxl.load_workbook(out)["Untagged Summary"]
+            header = [c.value for c in ws[1]]
+            first = {h: c.value for h, c in zip(header, ws[2])}
+            self.assertEqual(first["0-15 Days"], 0.0)            # the tiny 0-15 amount stays out
+            self.assertEqual(first["16-30 Days"], -5.0)           # real amounts are untouched
+
+
 class NumericColumnTests(unittest.TestCase):
     def test_identifier_columns_are_not_amounts(self):
         from app.services.untagged_invoices.processor import _is_numeric_col

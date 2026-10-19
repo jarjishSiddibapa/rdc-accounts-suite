@@ -10,6 +10,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from app import config
 from app.jobs import JobCancelled, JobUserError
 from app.services.unapplied_receipts.processor import (
     OracleConfig,
@@ -18,7 +19,19 @@ from app.services.unapplied_receipts.processor import (
     _start_cancel_watcher,
 )
 
-__all__ = ["ERP_AGEING_SQL", "OracleConfig", "fetch_ageing_from_erp", "erp_frame"]
+__all__ = ["ERP_AGEING_SQL", "OracleConfig", "oracle_config", "fetch_ageing_from_erp", "erp_frame"]
+
+
+def oracle_config() -> OracleConfig:
+    """The ERP connection, from the ORACLE_* settings in backend/.env."""
+    return OracleConfig(
+        host=config.ORACLE_HOST,
+        port=config.ORACLE_PORT,
+        service_name=config.ORACLE_SERVICE_NAME,
+        user=config.ORACLE_USER,
+        password=config.ORACLE_PASSWORD,
+        instant_client_dir=config.ORACLE_INSTANT_CLIENT_DIR,
+    )
 
 # The open receivables query, as supplied. The only addition is
 # arc.customer_name, which the reports have always carried.

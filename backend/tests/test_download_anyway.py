@@ -14,6 +14,7 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 
 from app.routers import rdc_payables, trial_balance, unaccounted_txn, unapplied_receipts, untagged_invoices_report
+from app.services.untagged_invoices import report_job as untagged_report_job
 
 
 def _direct(fn, *args, **kwargs):
@@ -167,7 +168,7 @@ class UnappliedReceiptsTests(_TempDirCase):
 
 class UntaggedInvoicesTests(_TempDirCase):
     def test_stops_by_default_and_writes_when_allowed(self):
-        proc = untagged_invoices_report.processor
+        proc = untagged_report_job.processor
         df = pd.DataFrame({proc.LOCATION_COL: ["Nagpur", "Wada"]})
 
         def write(*args, **kwargs):
@@ -175,8 +176,8 @@ class UntaggedInvoicesTests(_TempDirCase):
 
         for allow in (False, True):
             output = self.dir / f"ti{allow}.xlsx"
-            with patch.object(untagged_invoices_report, "SessionLocal", MagicMock()), \
-                    patch.object(untagged_invoices_report.mapping_store, "load_all", return_value=({}, {})), \
+            with patch.object(untagged_report_job, "SessionLocal", MagicMock()), \
+                    patch.object(untagged_report_job.mapping_store, "load_all", return_value=({}, {})), \
                     patch.multiple(
                         proc,
                         fetch_ageing_from_erp=MagicMock(return_value=df),

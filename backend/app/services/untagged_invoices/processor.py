@@ -48,7 +48,7 @@ from openpyxl.utils import get_column_letter
 
 from app.jobs import JobUserError
 from app.services import tabular_input
-from app.services.erp_ageing import OracleConfig, fetch_ageing_from_erp  # noqa: F401 - used by the router
+from app.services.erp_ageing import fetch_ageing_from_erp  # noqa: F401 - tests and callers reach it through this module
 from app.services.report_dash import DASH as _DASH, FMT_DEC as _FMT_DEC, FMT_INT as _FMT_INT, is_blank as _is_blank
 from app.services.report_progress import row_progress_reporter
 
@@ -455,6 +455,12 @@ def _thin_border() -> Border:
     return Border(left=s, right=s, top=s, bottom=s)
 
 
+def _snap_to_zero(value: float) -> float:
+    """An amount below half a paisa (in the Lakhs summary: a few rupees) would
+    show as -0.00; it is zero for every purpose, so it shows as "-"."""
+    return 0.0 if abs(value) < 0.005 else value
+
+
 def _is_numeric_col(col_name: str) -> bool:
     low = str(col_name).lower()
     if col_name in BUCKET_COLS or col_name == _DAYS_OS_COL:
@@ -695,7 +701,7 @@ def _write_pivot_sheet(wb: Workbook, title: str, df: pd.DataFrame, tab_color: st
                 if _is_blank(val):
                     c.value = _DASH
                 else:
-                    c.value = int(val) if is_count else float(val)
+                    c.value = int(val) if is_count else _snap_to_zero(float(val))
             row_cells.append(c)
 
         report_amount_ref = f"{get_column_letter(amount_col_idx)}{ri}"
@@ -771,6 +777,40 @@ def _write_pivot_sheet(wb: Workbook, title: str, df: pd.DataFrame, tab_color: st
         ws.auto_filter.ref = f"A1:{get_column_letter(n_cols)}{n_rows + 1}"
 
 
+# Both summaries' "Above 30 Days" is Total minus the first two bucket columns
+# (0-15 + 16-30 Days = 0-30 days), so both use the same formula. Rounded so
+# float noise never turns a true zero into a visible 0.00.
+def _above_30_formula(amount_ref, bucket_refs) -> str:
+    return f"=ROUND({amount_ref}-{bucket_refs[0]}-{bucket_refs[1]},2)"
+
+
+def _untagged_summary_sheet(wb: Workbook, df: pd.DataFrame) -> None:
+    _write_pivot_sheet(
+        wb, "Untagged Summary", df, "6A1B9A",
+        location_col_header="Location Name", amount_col="Accounted Outstanding",
+        above_30_formula=_above_30_formula,
+        footnote="All amounts in Lakhs (÷ 1,00,000)",
+    )
+
+
+def _below_1k_summary_sheet(wb: Workbook, df: pd.DataFrame) -> None:
+    _write_pivot_sheet(
+        wb, "Below 1k Summary", df, "00897B",
+        location_col_header="Location Name", amount_col="Total O/S",
+        above_30_formula=_above_30_formula,
+    )
+
+
+def write_summary_workbook(df_untagged_summary: pd.DataFrame, df_below_1k_summary: pd.DataFrame,
+                           output_path: str | Path) -> None:
+    """A small workbook holding only the two summary sheets, formatted exactly
+    as in the report - the source of the tables shown in the automatic mail."""
+    wb = Workbook(write_only=True)
+    _untagged_summary_sheet(wb, df_untagged_summary)
+    _below_1k_summary_sheet(wb, df_below_1k_summary)
+    wb.save(Path(output_path))
+
+
 def write_report(
     df_ageing: pd.DataFrame,
     df_untagged_summary: pd.DataFrame,
@@ -781,10 +821,13 @@ def write_report(
     as_on_date: _dt.date,
     log_q=None,
     progress_cb=None,
+    include_full_ageing: bool = True,
 ) -> None:
     """Write the 5-sheet workbook, in the required order:
     Untagged Summary, Untagged Ageing, Below 1k Summary, Below 1k
-    Ageing, Ageing.
+    Ageing, Ageing. With ``include_full_ageing=False`` the last (and by far
+    the largest) sheet is left out - used when the complete workbook is too
+    big to attach to an email.
 
     Built as a write-only workbook: every sheet is streamed row-by-row via
     ws.append() rather than kept as normal openpyxl Cell objects, which is
@@ -793,19 +836,9 @@ def write_report(
     the write-phase progress span belongs to it."""
     wb = Workbook(write_only=True)
 
-    # Both summaries' "Above 30 Days" is Total minus the first two bucket
-    # columns (0-15 + 16-30 Days = 0-30 days), so both use the same formula.
-    # Rounded so float noise never turns a true zero into a visible 0.00.
-    above_30_formula = lambda amount_ref, bucket_refs: f"=ROUND({amount_ref}-{bucket_refs[0]}-{bucket_refs[1]},2)"
-
     if progress_cb:
         progress_cb(0.55, "Writing Untagged Summary...")
-    _write_pivot_sheet(
-        wb, "Untagged Summary", df_untagged_summary, "6A1B9A",
-        location_col_header="Location Name", amount_col="Accounted Outstanding",
-        above_30_formula=above_30_formula,
-        footnote="All amounts in Lakhs (÷ 1,00,000)",
-    )
+    _untagged_summary_sheet(wb, df_untagged_summary)
 
     if progress_cb:
         progress_cb(0.60, "Writing Untagged Ageing...")
@@ -816,11 +849,7 @@ def write_report(
 
     if progress_cb:
         progress_cb(0.65, "Writing Below 1k Summary...")
-    _write_pivot_sheet(
-        wb, "Below 1k Summary", df_below_1k_summary, "00897B",
-        location_col_header="Location Name", amount_col="Total O/S",
-        above_30_formula=above_30_formula,
-    )
+    _below_1k_summary_sheet(wb, df_below_1k_summary)
 
     if progress_cb:
         progress_cb(0.68, "Writing Below 1k Ageing...")
@@ -829,12 +858,13 @@ def write_report(
         log_q=log_q, progress_cb=progress_cb, base=0.68, span=0.05,
     )
 
-    if progress_cb:
-        progress_cb(0.73, "Writing Ageing (full detail)...")
-    _write_detail_sheet(
-        wb, "Ageing", df_ageing, "1F3864",
-        log_q=log_q, progress_cb=progress_cb, base=0.73, span=0.25,
-    )
+    if include_full_ageing:
+        if progress_cb:
+            progress_cb(0.73, "Writing Ageing (full detail)...")
+        _write_detail_sheet(
+            wb, "Ageing", df_ageing, "1F3864",
+            log_q=log_q, progress_cb=progress_cb, base=0.73, span=0.25,
+        )
 
     output_path = Path(output_path)
     wb.save(output_path)

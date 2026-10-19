@@ -377,6 +377,39 @@ class InvoiceBookingTrackerNotification(Base):
     is_deleted = Column(Boolean, default=False, nullable=False, index=True)
 
 
+class ScheduledReportMail(Base):
+    """Automatic report mail of one application (see
+    app.services.scheduled_report_mail): which weekdays and at what time it is
+    sent, the wording, and the outcome of the latest run. The To/Cc recipients
+    are not stored here - they are the application's admin-managed defaults
+    (ApplicationEmailRecipient). One row per application."""
+
+    __tablename__ = "scheduled_report_mail"
+    __table_args__ = (
+        UniqueConstraint("app_key", name="uq_scheduled_report_mail_app_key"),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    app_key = Column(String(64), ForeignKey("applications.key"), nullable=False)
+    enabled = Column(Boolean, default=False, nullable=False)
+    send_days = Column(String(20), default="0,1,2,3,4,5", nullable=False)  # weekdays, 0 = Monday
+    send_time = Column(String(5), default="08:30", nullable=False)  # HH:MM, IST
+    subject_template = Column(Text, nullable=False)
+    intro_template = Column(Text, nullable=False)
+    signature = Column(Text, nullable=True)
+    send_when_unmapped = Column(Boolean, default=True, nullable=False)
+
+    last_attempt_date = Column(Date, nullable=True)
+    running_since = Column(DateTime, nullable=True)
+    last_run_at = Column(DateTime, nullable=True)
+    last_trigger = Column(String(20), nullable=True)
+    last_status = Column(String(20), nullable=True)  # sent / failed / held
+    last_error = Column(Text, nullable=True)
+    last_detail = Column(Text, nullable=True)  # JSON: counts, unmapped values, attachment note
+    updated_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    is_deleted = Column(Boolean, default=False, nullable=False)
+
+
 class BackgroundJob(Base):
     """Durable work queue shared by every API and worker process."""
 

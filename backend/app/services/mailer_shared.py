@@ -287,7 +287,7 @@ def _plain_to_html(text: str) -> str:
 
 
 # ── Excel-sheet → HTML table (reads actual cell formatting from file) ─────────
-def sheet_to_html(path: str, sheet_name: str) -> str:
+def sheet_to_html(path: str, sheet_name: str, css_sink: list | None = None, class_prefix: str = "t") -> str:
     """Open the saved Excel file and convert the pivot sheet to an HTML table
     that exactly mirrors the formatting in the report: fill colors, bold,
     font size, font name, text alignment — all read directly from the cells.
@@ -298,6 +298,13 @@ def sheet_to_html(path: str, sheet_name: str) -> str:
     Read the formula workbook instead and evaluate the small, controlled set of
     aggregate formulas used by these email tables for display only.  The saved
     attachment is never modified and retains every Excel formula.
+
+    By default every cell carries its full style inline. A big table then runs
+    to hundreds of KB, and Gmail clips a message over ~102 KB. Pass a list as
+    ``css_sink`` to get compact markup instead: each distinct cell style
+    becomes a ``.<class_prefix>N`` rule appended to the list, which the caller
+    must place in the mail's <head>; use a different ``class_prefix`` for each
+    table in the same mail.
     """
     from openpyxl.cell.cell import MergedCell as _MergedCell
 
@@ -338,6 +345,13 @@ def sheet_to_html(path: str, sheet_name: str) -> str:
             for row in ws.iter_rows(min_row=min_row, max_row=max_row, min_col=min_col, max_col=max_col):
                 yield from row
 
+    _term = r"[+-]?\s*\$?[A-Z]{1,3}\$?\d+"
+    _arithmetic_re = re.compile(
+        r"^\s*=\s*(?:ROUND\(\s*((?:" + _term + r")(?:\s*" + _term + r")*)\s*,\s*(\d+)\s*\)"
+        r"|((?:" + _term + r")(?:\s*" + _term + r")+))\s*$",
+        re.IGNORECASE,
+    )
+
     _resolved_values = {}
     _resolving = set()
 
@@ -353,6 +367,24 @@ def sheet_to_html(path: str, sheet_name: str) -> str:
             return raw
         if coordinate in _resolving:
             return None
+
+        arithmetic_match = _arithmetic_re.match(raw)
+        if arithmetic_match:
+            # =D2-E2-F2, optionally wrapped as =ROUND(D2-E2-F2,2)
+            _resolving.add(coordinate)
+            try:
+                total = 0
+                expression = arithmetic_match.group(1) or arithmetic_match.group(3)
+                for sign, ref in re.findall(r"([+-]?)\s*(\$?[A-Z]{1,3}\$?\d+)", expression):
+                    value = _display_value(ws[ref.replace("$", "")])
+                    if isinstance(value, (int, float)) and not isinstance(value, bool):
+                        total += -value if sign == "-" else value
+            finally:
+                _resolving.remove(coordinate)
+            if arithmetic_match.group(2) is not None:
+                total = round(total, int(arithmetic_match.group(2)))
+            _resolved_values[coordinate] = total
+            return total
 
         subtotal_match = _subtotal_re.match(raw)
         sum_match = _sum_re.match(raw)
@@ -489,6 +521,18 @@ def sheet_to_html(path: str, sheet_name: str) -> str:
             return format_indian_number(n, 0 if isinstance(n, int) else 2)
         return str(v)
 
+    _classes: dict[str, str] = {}
+
+    def _cell_attr(css):
+        if css_sink is None:
+            return f'style="{css}"'
+        name = _classes.get(css)
+        if name is None:
+            name = f"{class_prefix}{len(_classes)}"
+            _classes[css] = name
+            css_sink.append(f".{name}{{{css}}}")
+        return f'class="{name}"'
+
     # ── build table ───────────────────────────────────────────────────────────
     lines = [
         '<table style="border-collapse:collapse;font-family:Calibri,Arial,sans-serif;'
@@ -512,7 +556,7 @@ def sheet_to_html(path: str, sheet_name: str) -> str:
                 continue
             css = _cell_css(cell)
             val = _fmt_val(display_value)
-            lines.append(f'  <td style="{css}">{val}</td>')
+            lines.append(f'<td {_cell_attr(css)}>{val}</td>')
         lines.append("</tr>")
 
     lines.append("</table>")
