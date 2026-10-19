@@ -165,12 +165,24 @@ export function ReportMailPanel({ baseUrl, reportName }: { baseUrl: string; repo
     setConfirming(true)
     setError(null)
     try {
-      const res = await post<{ messages: SentMessage[] }>(`${baseUrl}/mail/confirm-send`, { job_id: jobId })
+      const res = await post<{ messages: SentMessage[] }>(
+        `${baseUrl}/mail/confirm-send`,
+        { job_id: jobId },
+        10 * 60_000, // pushing a ~11 MB attachment through Gmail SMTP runs well past the default 30s
+      )
       setSent(res.messages)
       setResult(null)
       setJobId(null)
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : 'Could not send the email.')
+      if (err instanceof ApiError && err.status === 408) {
+        // The server keeps sending after the browser gives up, so the mail may still go out.
+        setError(
+          'This is taking longer than expected. The email may still be on its way: check the send history '
+          + 'or the recipient\'s inbox before sending again.',
+        )
+      } else {
+        setError(err instanceof ApiError ? err.message : 'Could not send the email.')
+      }
     } finally {
       setConfirming(false)
     }
