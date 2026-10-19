@@ -419,9 +419,9 @@ class SummaryAndWorkbookTests(unittest.TestCase):
         self.assertEqual(len(flagged), 1)
         self.assertFalse(flagged[0][3].value)   # no name is left blank, never invented
         rows = {summary_sheet.cell(r, 3).value: r for r in range(3, 14)}
-        # the unmapped 5.00 lakh gets its own row, so the Summary total still ties to the sheets
-        self.assertAlmostEqual(summary_sheet.cell(rows["Not mapped"], 9).value, 5.0)
-        self.assertAlmostEqual(summary_sheet.cell(rows["Total"], 9).value, 7.0)   # 2.00 + 5.00 paid
+        # the unmapped 5.00 lakh has no Summary row; it stays flagged on the Payments sheet
+        self.assertNotIn("Not mapped", rows)
+        self.assertAlmostEqual(summary_sheet.cell(rows["Total"], 8).value, 2.0)   # mapped payments only
         self.assertEqual(payments["E2"].value, 700_000)
 
     def test_workbook_has_live_formulas_cached_values_and_every_line(self):
@@ -443,7 +443,10 @@ class SummaryAndWorkbookTests(unittest.TestCase):
         values = load_workbook(path, data_only=True)
         self.assertEqual(formulas.sheetnames, ["Summary", "Payments", "Receipts", "Working"])
         summary_sheet, cached = formulas["Summary"], values["Summary"]
-        headers = [summary_sheet.cell(2, c).value for c in range(2, 12)]
+        headers = [summary_sheet.cell(2, c).value for c in range(2, 10)]
+        self.assertIsNone(summary_sheet.cell(2, 10).value)   # nothing after Cl. Balance
+        self.assertNotIn("Reserve", headers)
+        self.assertNotIn("Statutory & Others Expns", headers)
         self.assertEqual(headers[:4], ["Sr.No.", "Location", "Authorized Person", "Op. Balance"])
         self.assertEqual(headers[4], "Collection September- 2026")
         self.assertEqual(headers[5], "Payable (80 % Of Collection)")
@@ -453,13 +456,14 @@ class SummaryAndWorkbookTests(unittest.TestCase):
         main_row = rows["Main Operation"]
         self.assertIn("SUMIF(Receipts!", summary_sheet.cell(main_row, 6).value)
         self.assertAlmostEqual(cached.cell(main_row, 6).value, 6.0)       # collection, lakhs
-        self.assertAlmostEqual(cached.cell(main_row, 9).value, 2.0)       # paid
-        self.assertAlmostEqual(cached.cell(main_row, 11).value, 6.0 * 0.8 - 2.0)
+        self.assertAlmostEqual(cached.cell(main_row, 8).value, 2.0)       # paid
+        self.assertAlmostEqual(cached.cell(main_row, 9).value, 6.0 * 0.8 - 2.0)
         self.assertEqual(values["Payments"]["E2"].value, 200000)
         self.assertEqual(values["Receipts"]["E2"].value, 1_000_000)
-        plan_totals = [c.value for row in cached.iter_rows(min_col=5, max_col=5) for c in row
-                       if isinstance(c.value, (int, float)) and abs(c.value - 69.5) < 1e-9]
-        self.assertTrue(plan_totals, "planning block total (45 + 24.5) should be cached")
+        # the planning block (Particulars / Amt in Lacs) is not part of the Summary
+        summary_text = [c.value for row in cached.iter_rows() for c in row if isinstance(c.value, str)]
+        self.assertNotIn("Particulars", summary_text)
+        self.assertNotIn("Amt in Lacs", summary_text)
         # Working sheet lists the dated ratio set
         working = [c.value for row in values["Working"].iter_rows() for c in row if c.value is not None]
         self.assertIn("RDC", working)

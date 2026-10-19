@@ -688,7 +688,8 @@ export function UploadPanel({
                             Fix mappings
                           </Button>
                         )}
-                        {row.issue_count > 0 && (
+                        {row.transactions > 0 ? (
+                          // One button: always rebuilds the workbook from the current data, then downloads it.
                           <Button
                             variant="secondary"
                             className="min-h-9 px-3 py-1.5"
@@ -696,18 +697,19 @@ export function UploadPanel({
                             disabled={Boolean(genJob)}
                             onClick={() => void generate(row.month, true)}
                           >
-                            Download anyway
+                            {row.issue_count > 0 ? "Download anyway" : "Download"}
                           </Button>
-                        )}
-                        {row.file?.available && (
-                          <Button
-                            variant="secondary"
-                            className="min-h-9 px-3 py-1.5"
-                            icon={<Download className="h-4 w-4" />}
-                            onClick={() => download(row.month)}
-                          >
-                            Download
-                          </Button>
+                        ) : (
+                          row.file?.available && (
+                            <Button
+                              variant="secondary"
+                              className="min-h-9 px-3 py-1.5"
+                              icon={<Download className="h-4 w-4" />}
+                              onClick={() => download(row.month)}
+                            >
+                              Download
+                            </Button>
+                          )
                         )}
                         {row.transactions > 0 && (
                           <Button

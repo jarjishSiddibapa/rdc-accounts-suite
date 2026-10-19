@@ -1,1 +1,0 @@
-import{r as o}from"./index-CWpKcoCg.js";function s(e,t=300){const[u,n]=o.useState(e);return o.useEffect(()=>{const r=window.setTimeout(()=>n(e),t);return()=>window.clearTimeout(r)},[t,e]),u}export{s as u};

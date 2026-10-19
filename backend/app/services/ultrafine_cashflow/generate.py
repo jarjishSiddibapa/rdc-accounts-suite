@@ -14,7 +14,7 @@ from app import config
 
 from .models import CashflowFile
 from .resolver import load_maps, unmapped_summary
-from .summary import month_figures, plan_blocks
+from .summary import month_figures
 from .workbook import write_cashflow_workbook
 
 STORAGE_DIR = config.DATA_DIR / "ultrafine_cashflow"
@@ -47,7 +47,7 @@ def generate_month(db: Session, month: str, user_id: int | None, allow_unmapped:
     fd, tmp_name = tempfile.mkstemp(suffix=".xlsx", dir=str(target_dir))
     os.close(fd)
     try:
-        stats = write_cashflow_workbook(Path(tmp_name), figures, maps, plan_blocks(db, month))
+        stats = write_cashflow_workbook(Path(tmp_name), figures, maps)
         os.replace(tmp_name, final_path)
     finally:
         Path(tmp_name).unlink(missing_ok=True)

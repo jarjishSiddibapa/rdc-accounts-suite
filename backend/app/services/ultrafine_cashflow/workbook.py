@@ -22,7 +22,7 @@ from openpyxl.utils import get_column_letter
 from app.services.xlsx_formula_cache import cache_formula_values, inject_cached_values
 
 from .resolver import ISSUE_TEXT, Allocation, Maps
-from .summary import MonthFigures, evaluate_amount, is_plain_number
+from .summary import MonthFigures
 
 _HEADER_FILL = PatternFill("solid", fgColor="1F3A5F")
 _HEADER_FONT = Font(bold=True, color="FFFFFF")
@@ -35,6 +35,9 @@ _BOX = Border(left=_THIN, right=_THIN, top=_THIN, bottom=_THIN)
 _DATETIME_FORMAT = "dd/mm/yyyy hh:mm:ss"
 _MONEY = "#,##0.00"
 _LAKH = "#,##0.00"
+# Summary table: B Sr.No. ... I Cl. Balance. Columns that carry a sum on the total rows.
+LAST_COL = 9
+_TOTAL_COLUMNS = (("E", "opening"), ("F", "collection"), ("G", "payable"), ("H", "paid"), ("I", "closing"))
 
 
 def _ordinal(day: int) -> str:
@@ -147,7 +150,7 @@ def _write_working(ws, maps: Maps) -> None:
         ws["B1"] = "No sharing ratios are configured."
 
 
-def _write_summary(ws, figures: MonthFigures, plan: list[dict], as_of: datetime,
+def _write_summary(ws, figures: MonthFigures, as_of: datetime,
                    pay_last: int, rec_last: int) -> dict[str, float]:
     """Summary sheet; returns {coordinate: value} for every formula cell."""
     values: dict[str, float] = {}
@@ -162,10 +165,10 @@ def _write_summary(ws, figures: MonthFigures, plan: list[dict], as_of: datetime,
         top = pct_counts.most_common(1)[0][0]   # ties go to the one listed first
         payable_header = f"Payable ({top:g} % Of Collection)"
     headers = ["Sr.No.", "Location", "Authorized Person", "Op. Balance", f"Collection {month_label}",
-               payable_header, "Reserve", "Actual Paid", "Statutory & Others Expns", "Cl. Balance"]
+               payable_header, "Actual Paid", "Cl. Balance"]
     for offset, header in enumerate(headers):
         ws.cell(row=2, column=2 + offset, value=header)
-    _style_header(ws, 2, 2, 11)
+    _style_header(ws, 2, 2, LAST_COL)
 
     receipts = f"Receipts!$G$4:$G${rec_last}", f"Receipts!$E$4:$E${rec_last}"
     payments = f"Payments!$H$4:$H${pay_last}", f"Payments!$E$4:$E${pay_last}"
@@ -181,17 +184,14 @@ def _write_summary(ws, figures: MonthFigures, plan: list[dict], as_of: datetime,
         row += 1
         first, last = group_members[0][0], group_members[-1][0]
         ws.cell(row=row, column=4, value=f"Total {group_name}").font = _BOLD
-        for col_letter, attr in (("E", "opening"), ("F", "collection"), ("G", "payable"),
-                                 ("H", "reserve"), ("I", "paid"), ("J", "statutory"), ("K", "closing")):
+        for col_letter, attr in _TOTAL_COLUMNS:
             members = [getattr(r, attr) for _, r in group_members]
-            if attr == "reserve" and all(m is None for m in members):
-                continue
             total = sum(m or 0.0 for m in members)
             cell = ws[f"{col_letter}{row}"]
             cell.value = f"=SUM({col_letter}{first}:{col_letter}{last})"
             cell.number_format, cell.font = _LAKH, _BOLD
             values[cell.coordinate] = total
-        for col in range(2, 12):
+        for col in range(2, LAST_COL + 1):
             ws.cell(row=row, column=col).fill = _SUBTOTAL_FILL
         subtotal_rows.append(row)
         group_members.clear()
@@ -206,17 +206,16 @@ def _write_summary(ws, figures: MonthFigures, plan: list[dict], as_of: datetime,
         ws.cell(row=row, column=5, value=round(item.opening, 6))
         ws[f"F{row}"] = f"=SUMIF({receipts[0]},C{row},{receipts[1]})/100000"
         ws[f"G{row}"] = f"=F{row}*{item.payable_pct:g}%"
-        if item.reserve_pct is not None:
-            ws[f"H{row}"] = f"=F{row}*{item.reserve_pct:g}%"
-            values[f"H{row}"] = item.reserve
-        ws[f"I{row}"] = f"=SUMIF({payments[0]},C{row},{payments[1]})/100000"
-        ws[f"J{row}"] = round(item.statutory, 6) if item.statutory else None
-        ws[f"K{row}"] = f"=E{row}+G{row}-I{row}-J{row}"
+        ws[f"H{row}"] = f"=SUMIF({payments[0]},C{row},{payments[1]})/100000"
+        # Statutory expenses keyed in Month setup still reduce the closing balance;
+        # they just no longer have a column of their own on the Summary.
+        statutory = f"-{round(item.statutory, 6):g}" if item.statutory else ""
+        ws[f"I{row}"] = f"=E{row}+G{row}-H{row}{statutory}"
         values[f"F{row}"], values[f"G{row}"] = item.collection, item.payable
-        values[f"I{row}"], values[f"K{row}"] = item.paid, item.closing
-        for col in range(5, 12):
+        values[f"H{row}"], values[f"I{row}"] = item.paid, item.closing
+        for col in range(5, LAST_COL + 1):
             ws.cell(row=row, column=col).number_format = _LAKH
-        for col in range(2, 12):
+        for col in range(2, LAST_COL + 1):
             ws.cell(row=row, column=col).border = _BOX
         if item.group:
             group_members.append((row, item))
@@ -226,84 +225,27 @@ def _write_summary(ws, figures: MonthFigures, plan: list[dict], as_of: datetime,
         else:
             leaf_rows.append(row)
 
-    # Lines without a CF location belong to no row above. Show them on a row of
-    # their own so the Summary still adds up to the Payments / Receipts sheets.
-    unmapped_collected, unmapped_paid = figures.unmapped_lakhs()
-    if unmapped_collected or unmapped_paid:
-        row += 1
-        ws.cell(row=row, column=3, value="Not mapped")
-        ws.cell(row=row, column=4, value="Needs a CF location - see the Remark column")
-        ws.cell(row=row, column=5, value=0)
-        ws[f"F{row}"] = f'=SUMIF({receipts[0]},"",{receipts[1]})/100000'
-        ws[f"I{row}"] = f'=SUMIF({payments[0]},"",{payments[1]})/100000'
-        ws[f"K{row}"] = f"=E{row}+G{row}-I{row}-J{row}"
-        values[f"F{row}"], values[f"I{row}"] = unmapped_collected, unmapped_paid
-        values[f"K{row}"] = -unmapped_paid
-        for col in range(2, 12):
-            cell = ws.cell(row=row, column=col)
-            cell.border, cell.fill = _BOX, _UNMAPPED_FILL
-            if col >= 5:
-                cell.number_format = _LAKH
-        leaf_rows.append(row)
-
+    # Lines without a CF location belong to no row, so they are not on the Summary;
+    # they stay on the Payments / Receipts sheets, flagged in the Remark column.
     row += 2
-    total_row = row
     ws.cell(row=row, column=3, value="Total").font = _BOLD
-    for col_letter, attr in (("E", "opening"), ("F", "collection"), ("G", "payable"), ("H", "reserve"),
-                             ("I", "paid"), ("J", "statutory"), ("K", "closing")):
+    for col_letter, attr in _TOTAL_COLUMNS:
         total = sum((getattr(r, attr) or 0.0) for r in rows)
-        total += {"collection": unmapped_collected, "paid": unmapped_paid,
-                  "closing": -unmapped_paid}.get(attr, 0.0)
         refs = [f"{col_letter}{r}" for r in sorted(leaf_rows + subtotal_rows)]
         cell = ws[f"{col_letter}{row}"]
         cell.value = f"=SUM({','.join(refs)})" if refs else 0
         cell.number_format, cell.font = _LAKH, _BOLD
         values[cell.coordinate] = total
-    for col in range(2, 12):
+    for col in range(2, LAST_COL + 1):
         ws.cell(row=row, column=col).fill = _SUBTOTAL_FILL
 
-    # planning block(s) under the table
-    for block in plan:
-        row += 3
-        ws.cell(row=row, column=4, value="Particulars")
-        ws.cell(row=row, column=5, value="Amt in Lacs")
-        _style_header(ws, row, 4, 5)
-        first_item_row = row + 1
-        item_rows: list[int] = []
-        block_total = 0.0
-        for section in block["sections"]:
-            row += 1
-            ws.cell(row=row, column=4, value=section["title"]).font = _BOLD
-            for item in section["items"]:
-                row += 1
-                ws.cell(row=row, column=4, value=item["label"])
-                cell = ws.cell(row=row, column=5)
-                cell.number_format = _LAKH
-                expr = (item["amount_expr"] or "").strip()
-                if expr and is_plain_number(expr):
-                    cell.value = float(expr.replace(",", ""))
-                elif expr and item["amount"] is not None:
-                    cell.value = "=" + expr.lstrip("=").replace(",", "")
-                    values[cell.coordinate] = item["amount"]
-                elif expr:
-                    cell.value = expr
-                if item["amount"] is not None:
-                    block_total += item["amount"]
-                    item_rows.append(row)
-            row += 1
-        ws.cell(row=row, column=4, value="Total").font = _BOLD
-        cell = ws.cell(row=row, column=5, value=f"=SUM(E{first_item_row}:E{row - 1})")
-        cell.number_format, cell.font = _LAKH, _BOLD
-        values[cell.coordinate] = block_total
-        # the first-row header sits inside the SUM range as text, which SUM ignores
-
-    for column, width in zip("ABCDEFGHIJK", (3, 8, 30, 34, 14, 18, 14, 14, 14, 18, 14)):
+    for column, width in zip("ABCDEFGHI", (3, 8, 30, 34, 14, 18, 14, 14, 14)):
         ws.column_dimensions[column].width = width
     ws.sheet_view.showGridLines = False
     return values
 
 
-def write_cashflow_workbook(path: Path, figures: MonthFigures, maps: Maps, plan: list[dict]) -> dict:
+def write_cashflow_workbook(path: Path, figures: MonthFigures, maps: Maps) -> dict:
     allocations = figures.allocations
     payments = [a for a in allocations if a.direction == "D"]
     receipts = [a for a in allocations if a.direction == "C"]
@@ -319,7 +261,7 @@ def write_cashflow_workbook(path: Path, figures: MonthFigures, maps: Maps, plan:
     pay_last, _ = _write_ledger(payments_ws, payments, payments=True)
     rec_last, _ = _write_ledger(receipts_ws, receipts, payments=False)
     _write_working(working_ws, maps)
-    summary_values = _write_summary(summary_ws, figures, plan, as_of, pay_last, rec_last)
+    summary_values = _write_summary(summary_ws, figures, as_of, pay_last, rec_last)
 
     path.parent.mkdir(parents=True, exist_ok=True)
     wb.save(path)
