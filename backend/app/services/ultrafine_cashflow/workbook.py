@@ -26,7 +26,7 @@ from .summary import MonthFigures
 
 _HEADER_FILL = PatternFill("solid", fgColor="1F3A5F")
 _HEADER_FONT = Font(bold=True, color="FFFFFF")
-_TITLE_FONT = Font(bold=True, size=12)
+_TITLE_FONT = Font(bold=True, size=11)
 _BOLD = Font(bold=True)
 _SUBTOTAL_FILL = PatternFill("solid", fgColor="E8EEF6")
 _UNMAPPED_FILL = PatternFill("solid", fgColor="FFF1D6")
@@ -155,8 +155,15 @@ def _write_summary(ws, figures: MonthFigures, as_of: datetime,
     """Summary sheet; returns {coordinate: value} for every formula cell."""
     values: dict[str, float] = {}
     month_label = datetime.strptime(figures.month, "%Y-%m").strftime("%B- %Y")
-    ws["B1"] = f"Cash Flow as of {_ordinal(as_of.day)} {as_of:%B, %Y}                      Amt in Lacs"
-    ws["B1"].font = _TITLE_FONT
+    # Row 1 is left empty; row 2 is the title band: the heading centred over B:H and
+    # the unit right-aligned in the last column; the table header sits on row 3.
+    ws.merge_cells(start_row=2, start_column=2, end_row=2, end_column=LAST_COL - 1)
+    ws["B2"] = f"Cash Flow as of {_ordinal(as_of.day)} {as_of:%B, %Y}"
+    ws["B2"].font = _TITLE_FONT
+    ws["B2"].alignment = Alignment(horizontal="center", vertical="center")
+    ws.cell(row=2, column=LAST_COL, value="Amt in Lacs")
+    ws.cell(row=2, column=LAST_COL).font = _TITLE_FONT
+    ws.cell(row=2, column=LAST_COL).alignment = Alignment(horizontal="right", vertical="center")
     # "Payable (80 % Of Collection)": the heading names the percentage most rows use;
     # the odd location paying out a different share still shows its own figure below it.
     pct_counts = Counter(r.payable_pct for r in figures.rows)
@@ -167,13 +174,14 @@ def _write_summary(ws, figures: MonthFigures, as_of: datetime,
     headers = ["Sr.No.", "Location", "Authorized Person", "Op. Balance", f"Collection {month_label}",
                payable_header, "Actual Paid", "Cl. Balance"]
     for offset, header in enumerate(headers):
-        ws.cell(row=2, column=2 + offset, value=header)
-    _style_header(ws, 2, 2, LAST_COL)
+        ws.cell(row=3, column=2 + offset, value=header)
+    _style_header(ws, 3, 2, LAST_COL)
+    ws.row_dimensions[3].height = 30
 
     receipts = f"Receipts!$G$4:$G${rec_last}", f"Receipts!$E$4:$E${rec_last}"
     payments = f"Payments!$H$4:$H${pay_last}", f"Payments!$E$4:$E${pay_last}"
 
-    row = 2
+    row = 3
     leaf_rows: list[int] = []        # ungrouped rows counted in the grand total
     group_members: list = []         # rows of the group being built
     subtotal_rows: list[int] = []
