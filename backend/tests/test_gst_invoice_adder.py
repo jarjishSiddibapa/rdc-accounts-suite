@@ -8,7 +8,7 @@ from openpyxl import load_workbook
 
 from app.services.gst_invoice_adder.processor import (
     COL_GST_NEW, COL_INV_DATE, COL_INV_NO,
-    _bulk_query, _extract_pairs_vectorized, _fetch_batch_pooled,
+    _bulk_query, _extract_pairs_vectorized, _fetch_batch_pooled, fetch_gst_for_pairs,
     build_gst_report_pure_python,
 )
 
@@ -225,6 +225,96 @@ class _FakePool:
 
     def acquire(self):
         return _FakeAcquireContext(_FakeConnection(self._cursor))
+
+
+class _SetBasedPool:
+    """A pool whose cursor answers the open-items query with ``open_rows`` and
+    any batched look-up with ``batch_rows``; records which queries ran."""
+
+    def __init__(self, open_rows, batch_rows=(), fail_open_query=False):
+        self.open_rows, self.batch_rows, self.fail = list(open_rows), list(batch_rows), fail_open_query
+        self.queries = []
+
+    def acquire(self):
+        pool = self
+
+        class Cursor:
+            arraysize = 100
+            prefetchrows = 2
+
+            def execute(self, sql, *args, **kwargs):
+                is_open = "oi.trx_number" in sql
+                pool.queries.append("open" if is_open else "batch")
+                if is_open and pool.fail:
+                    raise RuntimeError("ORA-01555")
+                self._rows = list(pool.open_rows if is_open else pool.batch_rows)
+
+            def fetchmany(self, n):
+                rows, self._rows = self._rows[:n], self._rows[n:]
+                return rows
+
+            def fetchall(self):
+                rows, self._rows = self._rows, []
+                return rows
+
+            def close(self):
+                pass
+
+        class Conn:
+            def cursor(self):
+                return Cursor()
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *_):
+                return False
+
+        return Conn()
+
+
+class _Log:
+    def __init__(self):
+        self.items = []
+
+    def put(self, item):
+        self.items.append(item)
+
+
+class FetchGstForPairsTests(unittest.TestCase):
+    PAIRS = [(f"INV{i}", "01-Jan-26") for i in range(3000)]
+
+    def test_open_items_resolved_in_one_query_and_the_rest_looked_up_in_batches(self):
+        rows = [(f"INV{i}", datetime(2026, 1, 1), f"G{i}") for i in range(2990)]
+        batch = [(f"INV{i}", "01-Jan-26", None) for i in range(2990, 3000)]
+        pool = _SetBasedPool(rows, batch)
+        result = fetch_gst_for_pairs(self.PAIRS, pool, _Log())
+        self.assertEqual(len(result), 3000)
+        self.assertEqual(result[("INV5", "01-Jan-26")], "G5")
+        self.assertEqual(result[("INV2995", "01-Jan-26")], "")
+        self.assertEqual(pool.queries, ["open", "batch"])
+
+    def test_everything_covered_means_no_batched_query(self):
+        rows = [(f"INV{i}", datetime(2026, 1, 1), f"G{i}") for i in range(3000)]
+        pool = _SetBasedPool(rows)
+        self.assertEqual(len(fetch_gst_for_pairs(self.PAIRS, pool, _Log())), 3000)
+        self.assertEqual(pool.queries, ["open"])
+
+    def test_a_failed_open_items_query_falls_back_to_the_batched_lookup(self):
+        batch = [(f"INV{i}", "01-Jan-26", f"B{i}") for i in range(3000)]
+        pool = _SetBasedPool([], batch, fail_open_query=True)
+        log = _Log()
+        result = fetch_gst_for_pairs(self.PAIRS, pool, log)
+        self.assertEqual(result[("INV7", "01-Jan-26")], "B7")
+        self.assertIn("open", pool.queries)
+        self.assertIn("batch", pool.queries)
+        self.assertTrue(any(level == "warn" for level, _ in log.items))
+
+    def test_small_inputs_skip_the_open_items_query(self):
+        pool = _SetBasedPool([], [("A1", "01-Jan-26", "G")])
+        result = fetch_gst_for_pairs([("A1", "01-Jan-26")], pool, _Log())
+        self.assertEqual(result, {("A1", "01-Jan-26"): "G"})
+        self.assertEqual(pool.queries, ["batch"])
 
 
 class FetchBatchPooledFallbackTests(unittest.TestCase):

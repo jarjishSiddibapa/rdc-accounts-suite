@@ -69,7 +69,7 @@ def build_report(output_path: str, download_name: str, progress_cb=None, cancel_
     processor.init_oracle_client(oracle_cfg.instant_client_dir)
     pool = processor._make_pool(oracle_cfg, log_q)
     try:
-        gst_map = processor._fetch_all_parallel(
+        gst_map = processor.fetch_gst_for_pairs(
             pairs_unique,
             pool,
             log_q,
