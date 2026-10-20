@@ -536,7 +536,16 @@ def process_report(input_path: str, log_q, as_on_date: _dt.date = None, *,
         df["Due Days"]      = ""
         df["Ageing Bucket"] = ""
     else:
-        parsed_dates   = df[pay_date_col].apply(_parse_date)
+        # a register repeats its dates thousands of times, and _parse_date only
+        # looks at the trimmed text: parse each distinct text once
+        parsed_by_text = {}
+        parsed_list    = []
+        for value in df[pay_date_col]:
+            text = str(value).strip()
+            if text not in parsed_by_text:
+                parsed_by_text[text] = _parse_date(value)
+            parsed_list.append(parsed_by_text[text])
+        parsed_dates   = pd.to_datetime(pd.Series(parsed_list, index=df.index))
         as_on_ts       = pd.Timestamp(as_on_date)
         df["Due Days"] = (as_on_ts - parsed_dates).dt.days
 
