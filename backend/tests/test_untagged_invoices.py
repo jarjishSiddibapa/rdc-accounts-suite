@@ -269,16 +269,16 @@ class PivotTests(unittest.TestCase):
 class ErpFrameTests(unittest.TestCase):
     _COLUMNS = [
         "CUSTOMER_NAME", "CUSTOMER_ACCOUNT", "LOCATION", "TRX_NUMBER", "INVOICE_RCPT_CLASS",
-        "CREDITLIMIT", "PAYMENT_TERM", "OUTSTANDING_AMOUNT", "UNAPPLIED_AMOUNT", "DUE_DATE",
+        "CREDITLIMIT", "PAYMENT_TERM", "OUTSTANDING_AMOUNT", "DUE_DATE",
         "OVER_DUE_DAYS", "SALESPERSON",
     ]
 
     def _rows(self):
         d = dt.datetime(2026, 1, 1)
         return [
-            ("Acme", "1001", " Pune ", "INV1", "Invoice", None, 30, 500, 0, d, 10, "Ravi"),
-            ("Acme", "1001", "Pune", "CM1", "Credit Memo", None, 30, -250.5, 0, d, 10, None),
-            ("Acme", "1001", None, "RCT1", "Receipts", None, None, -90, 0, d, 10, None),
+            ("Acme", "1001", " Pune ", "INV1", "Invoice", None, 30, 500, d, 10, "Ravi"),
+            ("Acme", "1001", "Pune", "CM1", "Credit Memo", None, 30, -250.5, d, 10, None),
+            ("Acme", "1001", None, "RCT1", "Receipts", None, None, -90, d, 10, None),
         ]
 
     def test_columns_match_what_the_pipeline_reads(self):

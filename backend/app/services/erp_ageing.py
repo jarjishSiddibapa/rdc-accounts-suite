@@ -115,8 +115,6 @@ SELECT
 
     apsa.acctd_amount_due_remaining outstanding_amount,
 
-    0 unapplied_amount,
-
     apsa.trx_date due_date,
 
     TRUNC(SYSDATE) - apsa.trx_date over_due_days,
@@ -201,7 +199,6 @@ _ERP_COLUMNS = {
     "DUE_DATE": "Invoice/ Receipt Date",
     "INVOICE_RCPT_CLASS": "Invoice Type",
     "OUTSTANDING_AMOUNT": "Accounted Outstanding",
-    "UNAPPLIED_AMOUNT": "Sum of Unapplied Amount",
     "OVER_DUE_DAYS": DAYS_OS_COL,
 }
 _FETCH_SIZE = 5000
