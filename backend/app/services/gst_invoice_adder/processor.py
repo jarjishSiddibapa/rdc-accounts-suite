@@ -906,17 +906,22 @@ def _fetch_all_parallel(
     return merged
 
 
-def _fetch_open_items_gst(pool, log_q, progress_cb=None, cancel_event=None) -> dict | None:
-    """GST number for every open ageing item in a single set-based query.
-    Returns {(trx_number, 'DD-Mon-YY'): gst}, or None when the query failed (the
-    caller then falls back to the batched look-up)."""
-    if progress_cb:
-        progress_cb(0.10, "Fetching GST numbers for all open items...")
-    holder: dict = {}
+class OpenItemsGst:
+    """The GST number of every open ageing item, fetched by one set-based query
+    on a background thread. Start it as early as possible: it does not depend
+    on the ageing, so it can run while the ageing itself is being fetched.
+    ``result()`` waits for it and returns {(trx_number, 'DD-Mon-YY'): gst}, or
+    None when the query failed (the caller then falls back to the batched
+    look-up)."""
 
-    def run() -> dict:
+    def __init__(self, pool):
+        self._conn = None
+        self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="gst-open-items")
+        self._future = self._executor.submit(self._run, pool)
+
+    def _run(self, pool) -> dict:
         with pool.acquire() as conn:
-            holder["conn"] = conn
+            self._conn = conn
             cursor = conn.cursor()
             cursor.arraysize = 5000
             cursor.execute(OPEN_ITEMS_GST_QUERY)
@@ -934,38 +939,48 @@ def _fetch_open_items_gst(pool, log_q, progress_cb=None, cancel_event=None) -> d
             cursor.close()
             return found
 
-    executor = ThreadPoolExecutor(max_workers=1)
-    future = executor.submit(run)
-    try:
-        while True:
-            if cancel_event is not None and cancel_event.is_set():
-                conn = holder.get("conn")
-                if conn is not None:
-                    try:
-                        conn.cancel()
-                    except Exception:
-                        pass
-                raise JobCancelled("Oracle lookup cancelled after browser tab closed")
-            done, _ = wait({future}, timeout=0.25, return_when=FIRST_COMPLETED)
-            if done:
-                break
+    def cancel(self) -> None:
+        """Stop the query now (job cancelled) and release the thread."""
+        conn = self._conn
+        if conn is not None:
+            try:
+                conn.cancel()
+            except Exception:
+                pass
+        self._executor.shutdown(wait=False, cancel_futures=True)
+
+    def result(self, log_q, progress_cb=None, cancel_event=None) -> dict | None:
+        if progress_cb:
+            progress_cb(0.10, "Fetching GST numbers for all open items...")
         try:
-            return future.result()
-        except Exception as exc:
-            log_q.put(("warn", f"Set-based GST lookup failed, using batched lookup: {exc}"))
-            return None
-    finally:
-        executor.shutdown(wait=False, cancel_futures=True)
+            while True:
+                if cancel_event is not None and cancel_event.is_set():
+                    self.cancel()
+                    raise JobCancelled("Oracle lookup cancelled after browser tab closed")
+                done, _ = wait({self._future}, timeout=0.25, return_when=FIRST_COMPLETED)
+                if done:
+                    break
+            try:
+                return self._future.result()
+            except Exception as exc:
+                log_q.put(("warn", f"Set-based GST lookup failed, using batched lookup: {exc}"))
+                return None
+        finally:
+            self._executor.shutdown(wait=False, cancel_futures=True)
 
 
-def fetch_gst_for_pairs(pairs_unique: list, pool, log_q, progress_cb=None, cancel_event=None) -> dict:
+def fetch_gst_for_pairs(pairs_unique: list, pool, log_q, progress_cb=None, cancel_event=None,
+                        open_items: OpenItemsGst | None = None) -> dict:
     """GST numbers for the (invoice no, date) pairs of a freshly fetched ERP
     ageing: one set-based query for every open item, then the batched look-up
     only for pairs it did not cover (so the result equals the batched look-up's
     for every pair). Small inputs, or a failed set-based query, use the batched
-    look-up throughout."""
-    if len(pairs_unique) >= SET_BASED_MIN_PAIRS:
-        open_map = _fetch_open_items_gst(pool, log_q, progress_cb, cancel_event)
+    look-up throughout. ``open_items`` is a set-based query already started by
+    the caller (see OpenItemsGst); without one it is started here."""
+    if open_items is None and len(pairs_unique) >= SET_BASED_MIN_PAIRS:
+        open_items = OpenItemsGst(pool)
+    if open_items is not None:
+        open_map = open_items.result(log_q, progress_cb, cancel_event)
         if open_map is not None:
             result = {pair: open_map[pair] for pair in pairs_unique if pair in open_map}
             rest = [pair for pair in pairs_unique if pair not in open_map]

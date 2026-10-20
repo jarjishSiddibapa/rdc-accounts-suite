@@ -52,33 +52,44 @@ def build_report(output_path: str, download_name: str, progress_cb=None, cancel_
     oracle_cfg = erp_ageing.oracle_config()
 
     if progress_cb:
-        progress_cb(0.02, "Fetching the ageing from the ERP...")
-    # the fetch reports 0.05-0.25; squeeze that into this job's 0.02-0.09
-    fetch_progress = (
-        (lambda frac, msg: progress_cb(0.02 + (frac - 0.05) / 0.2 * 0.07, msg)) if progress_cb else None
-    )
-    df = erp_ageing.fetch_ageing_from_erp(
-        oracle_cfg, log_q, progress_cb=fetch_progress, cancel_event=cancel_event,
-    )
-    pairs_unique = processor._extract_pairs_vectorized(df, processor.COL_INV_NO, processor.COL_INV_DATE)
-    log_q.put(("info", f"{len(df)} data rows found"))
-    log_q.put(("info", f"{len(pairs_unique)} unique (invoice no, date) pairs"))
-
-    if progress_cb:
-        progress_cb(0.09, "Connecting to Oracle...")
+        progress_cb(0.02, "Connecting to Oracle...")
     processor.init_oracle_client(oracle_cfg.instant_client_dir)
     pool = processor._make_pool(oracle_cfg, log_q)
+    cancelled = lambda: bool(cancel_event is not None and cancel_event.is_set())   # noqa: E731
+    open_items = None
+    consumed = False
     try:
+        # The GST numbers of all open items do not depend on the ageing, so
+        # that query runs while the ageing is being fetched.
+        open_items = processor.OpenItemsGst(pool)
+
+        if progress_cb:
+            progress_cb(0.03, "Fetching the ageing from the ERP...")
+        # the fetch reports 0.05-0.25; squeeze that into this job's 0.03-0.09
+        fetch_progress = (
+            (lambda frac, msg: progress_cb(0.03 + (frac - 0.05) / 0.2 * 0.06, msg)) if progress_cb else None
+        )
+        df = erp_ageing.fetch_ageing_from_erp(
+            oracle_cfg, log_q, progress_cb=fetch_progress, cancel_event=cancel_event,
+        )
+        pairs_unique = processor._extract_pairs_vectorized(df, processor.COL_INV_NO, processor.COL_INV_DATE)
+        log_q.put(("info", f"{len(df)} data rows found"))
+        log_q.put(("info", f"{len(pairs_unique)} unique (invoice no, date) pairs"))
+
+        consumed = len(pairs_unique) >= processor.SET_BASED_MIN_PAIRS
         gst_map = processor.fetch_gst_for_pairs(
             pairs_unique,
             pool,
             log_q,
             progress_cb,
             cancel_event=cancel_event,
+            open_items=open_items if consumed else None,
         )
     finally:
+        if open_items is not None and not consumed:
+            open_items.cancel()     # failed or cancelled early, or too few pairs to need it
         try:
-            pool.close(force=bool(cancel_event is not None and cancel_event.is_set()))
+            pool.close(force=cancelled())
         except TypeError:
             pool.close()
         except Exception:

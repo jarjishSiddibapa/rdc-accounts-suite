@@ -9,6 +9,7 @@ from openpyxl import load_workbook
 from app.services.gst_invoice_adder.processor import (
     COL_GST_NEW, COL_INV_DATE, COL_INV_NO,
     _bulk_query, _extract_pairs_vectorized, _fetch_batch_pooled, fetch_gst_for_pairs,
+    OpenItemsGst,
     build_gst_report_pure_python,
 )
 
@@ -309,6 +310,14 @@ class FetchGstForPairsTests(unittest.TestCase):
         self.assertIn("open", pool.queries)
         self.assertIn("batch", pool.queries)
         self.assertTrue(any(level == "warn" for level, _ in log.items))
+
+    def test_a_query_started_earlier_is_the_one_used(self):
+        rows = [(f"INV{i}", datetime(2026, 1, 1), f"G{i}") for i in range(3000)]
+        pool = _SetBasedPool(rows)
+        started = OpenItemsGst(pool)            # as the report job does, before the ageing is fetched
+        result = fetch_gst_for_pairs(self.PAIRS, pool, _Log(), open_items=started)
+        self.assertEqual(result[("INV42", "01-Jan-26")], "G42")
+        self.assertEqual(pool.queries, ["open"])
 
     def test_small_inputs_skip_the_open_items_query(self):
         pool = _SetBasedPool([], [("A1", "01-Jan-26", "G")])
