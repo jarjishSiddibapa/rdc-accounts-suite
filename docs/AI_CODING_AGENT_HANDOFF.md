@@ -887,19 +887,25 @@ Gmail rejects messages over 25 MB, and the full report is ~26 MB as openpyxl
 writes it. `app/services/xlsx_compact.py` rewrites the same workbook without the
 redundant per-cell addresses (11 MB, still a normal .xlsx that Excel opens with
 no repair; verified in real Excel). The mail attaches that complete workbook;
-only if even it is too big (over 17 MB) is the report split into numbered parts, in
-both mails, and NEVER with data left out: the Untagged mail sends the four
-summary/detail sheets as part 1 and the rows of the full Ageing sheet in as few
-further workbooks as fit (`auto_mail._split_without_loss`); the GST mail splits its
-rows. In a write-only openpyxl sheet the column
+only if even it is too big (over 17 MB) is the same workbook converted to ONE
+`.xlsb` (`app/services/xlsb_convert.py`: Excel COM, but in a separate worker
+process with its own Excel instance and a hard 10-minute kill that also kills
+that Excel; any failure just returns False). Only if Excel is unavailable or the
+.xlsb is still too big is the report split into numbered parts, in both mails, and
+NEVER with data left out: the Untagged mail sends the four summary/detail sheets
+as part 1 and the rows of the full Ageing sheet in as few further workbooks as
+fit (`auto_mail._split_without_loss`); the GST mail splits its rows. Order:
+.xlsx, compacted .xlsx, .xlsb, split. A file that fits never touches Excel. In a write-only openpyxl sheet the column
 widths and frozen header must be set BEFORE the first row, or they are silently
 ignored (numbers then show as #######).
 
 The Untagged mail states the unit once, as a bold "Note: All amounts in Lakhs
 (÷ 1,00,000)" line right after the mail text (`MailPayload.intro_note`). The mail's
 summary tables carry no footnote row; the report workbook's own Untagged Summary
-sheet keeps it. `.xlsb` output is deliberately not produced: no Python library
-writes it, and Excel COM was removed because it hung server processes.
+sheet keeps it. `.xlsb` can only be written by Excel (no Python library does), so
+it is produced solely by the guarded last-resort converter above; Excel COM was
+removed elsewhere because it hung server processes, which is why the converter is
+isolated and time-limited.
 
 Normal production update sequence:
 

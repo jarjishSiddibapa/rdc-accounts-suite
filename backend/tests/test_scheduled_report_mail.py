@@ -35,6 +35,16 @@ GOOD = {
 }
 
 
+def _xlsb_stub(succeeds: bool, size: int = 1000):
+    """Stands in for Excel: writes a small file, or fails."""
+    def convert(source, destination, timeout=None):
+        if not succeeds:
+            return False
+        Path(destination).write_bytes(b"x" * size)
+        return True
+    return convert
+
+
 class _DbCase(unittest.TestCase):
     def setUp(self):
         engine = create_engine("sqlite://")
@@ -499,8 +509,9 @@ class UntaggedMailBuilderTests(unittest.TestCase):
             xlsx_compact.compact_xlsx(full, compact)
             return full.stat().st_size, compact.stat().st_size
 
-    def _build(self, limit):
+    def _build(self, limit, xlsb=None):
         with patch.object(untagged_mail.report_job, "build_report", self._built(None)), \
+                patch.object(untagged_mail.xlsb_convert, "convert_to_xlsb", xlsb or _xlsb_stub(False)), \
                 patch.object(mail, "MAX_ATTACHMENT_BYTES", limit):
             payload = untagged_mail.build(self.SNAPSHOT)
         self.addCleanup(lambda: [shutil.rmtree(p, ignore_errors=True) for p in payload.cleanup])
@@ -521,6 +532,22 @@ class UntaggedMailBuilderTests(unittest.TestCase):
         self.assertEqual(sheet["B4001"].value, "INV0003999")
         self.assertEqual(payload.downloads, [("Untagged Invoices Report", attached)])
 
+    def test_a_file_still_too_big_after_compacting_goes_as_one_xlsb(self):
+        full, compact = self._sizes()
+        payload = self._build(compact // 2, xlsb=_xlsb_stub(True, size=compact // 4))
+        self.assertEqual(len(payload.attachment_groups), 1)
+        self.assertTrue(payload.attachment_groups[0][0].endswith(".xlsb"))
+        self.assertIn("xlsb", payload.detail["attachment"])
+        self.assertEqual(payload.notes, [])
+        self.assertTrue(payload.downloads[0][1].endswith(".xlsx"))   # the download stays the normal workbook
+
+    def test_a_file_that_fits_is_never_converted(self):
+        full, compact = self._sizes()
+        convert = MagicMock(side_effect=AssertionError("Excel must not be used"))
+        payload = self._build((full + compact) // 2, xlsb=convert)
+        convert.assert_not_called()
+        self.assertTrue(payload.attachment_groups[0][0].endswith(".xlsx"))
+
     def test_if_even_the_compact_file_is_too_big_it_is_split_and_no_row_is_lost(self):
         full, compact = self._sizes()
         ageing = pd.DataFrame({"Customer": [f"C{i}" for i in range(4000)], "Amount": [i * 1.37 for i in range(4000)]})
@@ -536,6 +563,7 @@ class UntaggedMailBuilderTests(unittest.TestCase):
 
         limit = compact * 6 // 10                                 # forces the split
         with patch.object(untagged_mail.report_job, "build_report", fake_build), \
+                patch.object(untagged_mail.xlsb_convert, "convert_to_xlsb", _xlsb_stub(False)), \
                 patch.object(mail, "MAX_ATTACHMENT_BYTES", limit):
             payload = untagged_mail.build(self.SNAPSHOT)
         self.addCleanup(lambda: [shutil.rmtree(p, ignore_errors=True) for p in payload.cleanup])
@@ -582,10 +610,11 @@ class GstMailBuilderTests(unittest.TestCase):
             )
         return build_report
 
-    def _run(self, rows, limit):
+    def _run(self, rows, limit, xlsb=None):
         direct = lambda fn, *a, **k: fn(*a, **k)
         with patch.object(gst_mail.report_job, "build_report", self._fake_build(rows)), \
                 patch.object(gst_mail, "run_cpu_phase", direct), \
+                patch.object(gst_mail.xlsb_convert, "convert_to_xlsb", xlsb or _xlsb_stub(False)), \
                 patch.object(mail, "MAX_ATTACHMENT_BYTES", limit), \
                 patch.object(gst_mail, "_TARGET_PART_BYTES", int(limit * 0.85)):
             payload = gst_mail.build({"send_when_unmapped": True})
@@ -618,6 +647,13 @@ class GstMailBuilderTests(unittest.TestCase):
         self.assertEqual(len(payload.attachment_groups), 1)
         self.assertIn("compacted", payload.detail["attachment"])
         self.assertEqual(openpyxl.load_workbook(payload.attachment_groups[0][0]).active.max_row, 3001)
+
+    def test_a_report_still_too_big_after_compacting_goes_as_one_xlsb(self):
+        standard, compact = self._whole_sizes()
+        payload = self._run(3000, int(compact * 0.6), xlsb=_xlsb_stub(True, size=compact // 4))
+        self.assertEqual(len(payload.attachment_groups), 1)
+        self.assertTrue(payload.attachment_groups[0][0].endswith(".xlsb"))
+        self.assertEqual(len(payload.downloads), 1)
 
     def test_only_if_even_the_compact_file_is_too_big_is_it_split_into_parts(self):
         standard, compact = self._whole_sizes()

@@ -17,7 +17,7 @@ from app.config import SCRATCH_DIR
 from app.jobs import run_cpu_phase
 from app.services import report_mail_preview
 from app.services import scheduled_report_mail as mail
-from app.services import xlsx_compact
+from app.services import xlsb_convert, xlsx_compact
 from app.services.gst_invoice_adder import report_job
 
 APP_KEY = "gst-invoice-adder"
@@ -97,11 +97,23 @@ def build(snapshot: dict, progress_cb=None, cancel_event=None) -> mail.MailPaylo
         xlsx_compact.compact_xlsx_in_place(whole_path)
         whole_size = whole_path.stat().st_size
         payload.detail["attachment"] = "complete workbook (compacted to fit the email limit)"
+    binary_path = whole_path.with_suffix(".xlsb")
+    if whole_size > mail.MAX_ATTACHMENT_BYTES:
+        # Still too big: the same complete workbook as .xlsb, one file.
+        if progress_cb:
+            progress_cb(0.915, "Converting the workbook to .xlsb to fit an email...")
+        if xlsb_convert.convert_to_xlsb(whole_path, binary_path) \
+                and binary_path.stat().st_size <= mail.MAX_ATTACHMENT_BYTES:
+            payload.attachment_groups = [[str(binary_path)]]
+            payload.downloads = [("GST Invoice Number report", str(whole_path))]
+            payload.detail["attachment"] = "complete workbook (as .xlsb to fit the email limit)"
+            return payload
+        binary_path.unlink(missing_ok=True)
     if whole_size <= mail.MAX_ATTACHMENT_BYTES:
         payload.attachment_groups = [[str(whole_path)]]
         payload.downloads = [("GST Invoice Number report", str(whole_path))]
     else:
-        # Last resort, only if even the compact file does not fit.
+        # Excel unavailable or the file still does not fit: split, nothing left out.
         if progress_cb:
             progress_cb(0.92, "Splitting the report into parts that fit in an email...")
         parts = _write_parts(built.df, built.gst_map, work_dir, stem, whole_size)

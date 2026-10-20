@@ -14,7 +14,7 @@ from pathlib import Path
 from app.config import SCRATCH_DIR
 from app.services import report_mail_preview
 from app.services import scheduled_report_mail as mail
-from app.services import xlsx_compact
+from app.services import xlsb_convert, xlsx_compact
 from app.services.mailer_shared import sheet_to_html
 from app.services.untagged_invoices import processor, report_job
 
@@ -119,8 +119,16 @@ def build(snapshot: dict, progress_cb=None, cancel_event=None) -> mail.MailPaylo
     else:
         payload.detail["attachment"] = "complete workbook"
     if report_path.stat().st_size > mail.MAX_ATTACHMENT_BYTES:
-        # Last resort, only if even the compact file does not fit: the same
-        # data in several workbooks, one per mail. Nothing is left out.
+        # Still too big: the same complete workbook as .xlsb, one file.
+        binary_path = report_path.with_suffix(".xlsb")
+        if xlsb_convert.convert_to_xlsb(report_path, binary_path) \
+                and binary_path.stat().st_size <= mail.MAX_ATTACHMENT_BYTES:
+            payload.attachment_groups = [[str(binary_path)]]
+            payload.detail["attachment"] = "complete workbook (as .xlsb to fit the email limit)"
+            return payload
+        binary_path.unlink(missing_ok=True)
+        # Excel unavailable or the file still does not fit: the same data in
+        # several workbooks, one per mail. Nothing is left out.
         parts = _split_without_loss(built.frames, work_dir, as_on)
         payload.attachment_groups = [[str(path)] for path in parts]
         payload.detail["attachment"] = f"complete report in {len(parts)} workbooks (size limit)"
