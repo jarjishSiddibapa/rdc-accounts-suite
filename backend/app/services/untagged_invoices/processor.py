@@ -41,9 +41,7 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from openpyxl import Workbook
-from openpyxl.styles import Alignment, Font, NamedStyle, PatternFill, Border, Side
-from openpyxl.cell import WriteOnlyCell
+import xlsxwriter
 from openpyxl.utils import get_column_letter
 
 from app.jobs import JobUserError
@@ -450,11 +448,6 @@ _ROW_ODD  = "FFFFFF"
 _ROW_EVEN = "EDF2FB"
 
 
-def _thin_border() -> Border:
-    s = Side(style="thin", color="D0D8E4")
-    return Border(left=s, right=s, top=s, bottom=s)
-
-
 def _snap_to_zero(value: float) -> float:
     """An amount below half a paisa (in the Lakhs summary: a few rupees) would
     show as -0.00; it is zero for every purpose, so it shows as "-"."""
@@ -471,67 +464,41 @@ def _is_numeric_col(col_name: str) -> bool:
     return any(m in low for m in _CURRENCY_MARKERS)
 
 
-# Fixed named styles for _write_detail_sheet, registered once per workbook.
-# Assigning `cell.style = "some_name"` is a cheap dict lookup by string; the
-# original code assigned shared Font/Fill/Border/Alignment *objects* to each
-# cell instead, which sounds equally cheap but isn't - openpyxl deduplicates
-# style objects into a workbook-level table, so every `cell.font = obj`
-# triggers a deep equality/hash comparison of `obj` against everything
-# already registered there. Profiling a 50k-row slice of this sheet showed
-# that machinery (openpyxl.descriptors.serialisable Serialisable.__eq__/
-# __hash__, called ~80M times) accounted for 87% of total write time -
-# dwarfing the actual XML writing. Pre-registering a small fixed set of
-# named styles and referencing them by name avoids that entirely.
-_STYLE_HDR          = "uir_header"
-_STYLE_NUM_INT_ODD  = "uir_num_int_odd"
-_STYLE_NUM_INT_EVEN = "uir_num_int_even"
-_STYLE_NUM_DEC_ODD  = "uir_num_dec_odd"
-_STYLE_NUM_DEC_EVEN = "uir_num_dec_even"
-_STYLE_TXT_ODD      = "uir_txt_odd"
-_STYLE_TXT_EVEN     = "uir_txt_even"
-_STYLE_DATE_ODD     = "uir_date_odd"
-_STYLE_DATE_EVEN    = "uir_date_even"
+# The workbook is written with xlsxwriter in constant-memory mode: rows go
+# straight to disk and a styled cell costs a dict lookup, which makes the
+# 200k-row Ageing sheet several times faster than openpyxl's write-only cells
+# (whose per-cell style handling dominated the run time).
+_XW_BORDER = "#D0D8E4"
 
 
-def _ensure_detail_named_styles(wb: Workbook) -> None:
-    """Register the named styles above on `wb`, once. Both detail sheets
-    (Ageing, Untagged Detailed Ageing) share the same workbook, so the
-    second call is a no-op."""
-    if _STYLE_HDR in wb.named_styles:
-        return
+class _Formats:
+    """The cell formats of this report, created once per workbook."""
 
-    bdr = _thin_border()
-    wb.add_named_style(NamedStyle(
-        name=_STYLE_HDR,
-        font=Font(name="Segoe UI", bold=True, size=10, color="FFFFFF"),
-        fill=PatternFill("solid", fgColor=_HDR_BG),
-        border=bdr,
-        alignment=Alignment(horizontal="center", vertical="center", wrap_text=True),
-    ))
+    def __init__(self, wb):
+        def fmt(font="Segoe UI", **props):
+            return wb.add_format({"font_name": font, "font_size": 10, "border": 1,
+                                  "border_color": _XW_BORDER, "valign": "vcenter", **props})
 
-    num_font = Font(name="Consolas", size=10)
-    align_right = Alignment(horizontal="right", vertical="center")
-    for name, fill, number_format in (
-        (_STYLE_NUM_INT_ODD,  PatternFill("solid", fgColor=_ROW_ODD),  _FMT_INT),
-        (_STYLE_NUM_INT_EVEN, PatternFill("solid", fgColor=_ROW_EVEN), _FMT_INT),
-        (_STYLE_NUM_DEC_ODD,  PatternFill("solid", fgColor=_ROW_ODD),  _FMT_DEC),
-        (_STYLE_NUM_DEC_EVEN, PatternFill("solid", fgColor=_ROW_EVEN), _FMT_DEC),
-    ):
-        wb.add_named_style(NamedStyle(name=name, font=num_font, fill=fill,
-                                       border=bdr, alignment=align_right,
-                                       number_format=number_format))
+        white_on_navy = {"bold": True, "font_color": "#FFFFFF", "bg_color": "#" + _HDR_BG}
+        self.header = fmt(**white_on_navy, align="center", text_wrap=True)
+        self.grand = fmt(**white_on_navy)
+        self.grand_text = fmt(**white_on_navy, align="left", indent=1)
+        self.grand_int = fmt(**white_on_navy, align="right", num_format=_FMT_INT)
+        self.grand_dec = fmt(**white_on_navy, align="right", num_format=_FMT_DEC)
+        self.note = wb.add_format({"font_name": "Segoe UI", "font_size": 9, "italic": True,
+                                   "font_color": "#808080"})
 
-    txt_font = Font(name="Segoe UI", size=10)
-    align_left = Alignment(horizontal="left", vertical="center", indent=1)
-    for name, fill, number_format in (
-        (_STYLE_TXT_ODD,   PatternFill("solid", fgColor=_ROW_ODD),  "General"),
-        (_STYLE_TXT_EVEN,  PatternFill("solid", fgColor=_ROW_EVEN), "General"),
-        (_STYLE_DATE_ODD,  PatternFill("solid", fgColor=_ROW_ODD),  "DD-MMM-YYYY"),
-        (_STYLE_DATE_EVEN, PatternFill("solid", fgColor=_ROW_EVEN), "DD-MMM-YYYY"),
-    ):
-        wb.add_named_style(NamedStyle(name=name, font=txt_font, fill=fill,
-                                       border=bdr, alignment=align_left,
-                                       number_format=number_format))
+        def striped(**props):    # [odd row, even row]
+            return [fmt(bg_color="#" + fill, **props) for fill in (_ROW_ODD, _ROW_EVEN)]
+
+        self.num_int = striped(font="Consolas", align="right", num_format=_FMT_INT)
+        self.num_dec = striped(font="Consolas", align="right", num_format=_FMT_DEC)
+        self.text = striped(align="left", indent=1)
+        self.date = striped(align="left", indent=1, num_format="DD-MMM-YYYY")
+
+
+def _width(chars: float) -> float:
+    return chars - 0.71   # xlsxwriter adds 0.71 of padding to every column width
 
 
 _WIDTH_SAMPLE_ROWS = 200
@@ -551,18 +518,13 @@ def _display_length(val, numeric: bool, is_days: bool) -> int:
     return len(str(val))
 
 
-def _write_detail_sheet(wb: Workbook, title: str, df: pd.DataFrame, tab_color: str,
+def _write_detail_sheet(wb, fmts: _Formats, title: str, df: pd.DataFrame, tab_color: str,
                         log_q=None, progress_cb=None, base: float = 0.0, span: float = 0.3) -> None:
     """Write a full-detail sheet (Ageing / Untagged Detailed Ageing) - every
-    original column plus Location. `wb` is a write-only workbook: rows are
-    streamed straight to disk via ws.append() instead of building a normal
-    openpyxl Cell object per cell that stays resident in memory - at 200k+
-    rows x ~25 columns that's several million long-lived cell objects, which
-    is what actually made this sheet slow (and memory-hungry) to write."""
-    ws = wb.create_sheet(title=title)
-    ws.sheet_properties.tabColor = tab_color
-    ws.sheet_view.showGridLines = False
-    _ensure_detail_named_styles(wb)
+    original column plus Location."""
+    ws = wb.add_worksheet(title)
+    ws.set_tab_color("#" + tab_color)
+    ws.hide_gridlines(2)
 
     cols = list(df.columns)
     n_cols = len(cols)
@@ -572,64 +534,50 @@ def _write_detail_sheet(wb: Workbook, title: str, df: pd.DataFrame, tab_color: s
     numeric_cols = [_is_numeric_col(c) for c in cols]
     days_os_idx  = cols.index(_DAYS_OS_COL) if _DAYS_OS_COL in cols else -1
 
-    # In a write-only sheet the column widths and the frozen header row are
-    # written ahead of the first data row, so both must be set before it: set
-    # afterwards they are silently ignored (numbers then show as ####### and
-    # the header scrolls away). Widths come from the header and the first 200
-    # rows.
+    # Widths come from the header and the first 200 rows.
     col_max_len = [len(str(col_name).strip()) for col_name in cols]
-    for sample in df.head(_WIDTH_SAMPLE_ROWS).itertuples(index=False):
+    for sample in df.head(_WIDTH_SAMPLE_ROWS).itertuples(index=False, name=None):
         for ci, val in enumerate(sample):
             length = _display_length(val, numeric_cols[ci], ci == days_os_idx)
             if length > col_max_len[ci]:
                 col_max_len[ci] = length
-    for ci in range(1, n_cols + 1):
-        ws.column_dimensions[get_column_letter(ci)].width = min(max(col_max_len[ci - 1] + 3, 10), 45)
-    ws.freeze_panes = "A2"
+    for ci in range(n_cols):
+        ws.set_column(ci, ci, _width(min(max(col_max_len[ci] + 3, 10), 45)))
+    ws.freeze_panes(1, 0)
+    ws.set_row(0, 32)
+    for ci, col_name in enumerate(cols):
+        ws.write_string(0, ci, str(col_name).strip(), fmts.header)
 
-    ws.row_dimensions[1].height = 32
-    header_cells = []
-    for col_name in cols:
-        c = WriteOnlyCell(ws, value=str(col_name).strip())
-        c.style = _STYLE_HDR
-        header_cells.append(c)
-    ws.append(header_cells)
-
-    for ri, row_vals in enumerate(df.itertuples(index=False), 2):
-        is_even_row = (ri % 2 == 0)
-        row_cells = []
-        for ci, val in enumerate(row_vals, 1):
-            c = WriteOnlyCell(ws)
-            is_blank = _is_blank(val)
-            if not is_blank and isinstance(val, _dt.datetime):
+    num_int, num_dec, text, date = fmts.num_int, fmts.num_dec, fmts.text, fmts.date
+    for ri, row_vals in enumerate(df.itertuples(index=False, name=None), 1):
+        parity = 1 if (ri + 1) % 2 == 0 else 0     # stripe by the sheet row, as before
+        for ci, val in enumerate(row_vals):
+            blank = _is_blank(val)
+            if not blank and isinstance(val, _dt.datetime):
                 # a date is never a number, whatever its column is called
-                c.value = val
-                c.style = _STYLE_DATE_EVEN if is_even_row else _STYLE_DATE_ODD
-            elif numeric_cols[ci - 1]:
-                is_days = (ci - 1) == days_os_idx
-                if is_blank:
-                    c.value = _DASH
-                else:
-                    try:
-                        c.value = int(val) if is_days else float(val)
-                    except (TypeError, ValueError):
-                        c.value = val
-                if is_days:
-                    c.style = _STYLE_NUM_INT_EVEN if is_even_row else _STYLE_NUM_INT_ODD
-                else:
-                    c.style = _STYLE_NUM_DEC_EVEN if is_even_row else _STYLE_NUM_DEC_ODD
+                ws.write_datetime(ri, ci, val, date[parity])
+            elif numeric_cols[ci]:
+                is_days = ci == days_os_idx
+                cell_fmt = (num_int if is_days else num_dec)[parity]
+                if blank:
+                    ws.write_string(ri, ci, _DASH, cell_fmt)
+                    continue
+                try:
+                    number = int(val) if is_days else float(val)
+                    if number != number or number in (float("inf"), float("-inf")):
+                        raise ValueError
+                    ws.write_number(ri, ci, number, cell_fmt)
+                except (TypeError, ValueError, OverflowError):
+                    ws.write_string(ri, ci, str(val), cell_fmt)
             else:
-                c.value = _DASH if is_blank else str(val)
-                c.style = _STYLE_TXT_EVEN if is_even_row else _STYLE_TXT_ODD
-            row_cells.append(c)
-        ws.append(row_cells)
-        report_row(ri - 1)
+                ws.write_string(ri, ci, _DASH if blank else str(val), text[parity])
+        report_row(ri)
 
     if n_rows:
-        ws.auto_filter.ref = f"A1:{get_column_letter(n_cols)}{n_rows + 1}"
+        ws.autofilter(0, 0, n_rows, n_cols - 1)
 
 
-def _write_pivot_sheet(wb: Workbook, title: str, df: pd.DataFrame, tab_color: str,
+def _write_pivot_sheet(wb, fmts: _Formats, title: str, df: pd.DataFrame, tab_color: str,
                        location_col_header: str, amount_col: str, above_30_formula,
                        footnote: str | None = None) -> None:
     """Write a Location-wise pivot sheet (Below 1k Summary / Untagged
@@ -643,146 +591,83 @@ def _write_pivot_sheet(wb: Workbook, title: str, df: pd.DataFrame, tab_color: st
     above_30_formula(amount_ref, bucket_refs) -> the Excel formula string
     for that sheet's own "Above 30 Days" column, built from cell refs so it
     (and the Grand Total row's own copy of it) recalculates live in Excel.
+    Each formula is also written with its current value (Total minus the
+    first two buckets, which is what both sheets' formula computes), so a
+    reader that does not recalculate still shows the numbers.
     """
-    ws = wb.create_sheet(title=title)
-    ws.sheet_properties.tabColor = tab_color
-    ws.sheet_view.showGridLines = False
+    ws = wb.add_worksheet(title)
+    ws.set_tab_color("#" + tab_color)
+    ws.hide_gridlines(2)
 
     cols = [LOCATION_COL, "Account Incharges", COUNT_COL, amount_col, *BUCKET_COLS, "Above 30 Days"]
-    header_labels = {
-        LOCATION_COL: location_col_header,
-    }
-    bdr = _thin_border()
+    header_labels = {LOCATION_COL: location_col_header}
     n_cols = len(cols)
     n_rows = len(df)
 
-    # widths and the frozen header go in ahead of the first row (see
-    # _write_detail_sheet): set afterwards they are ignored
-    ws.column_dimensions["A"].width = 26
-    ws.column_dimensions["B"].width = 18
-    for ci in range(3, n_cols + 1):
-        ws.column_dimensions[get_column_letter(ci)].width = 15
-    ws.freeze_panes = "A2"
+    ws.set_column(0, 0, _width(26))
+    ws.set_column(1, 1, _width(18))
+    ws.set_column(2, n_cols - 1, _width(15))
+    ws.freeze_panes(1, 0)
+    ws.set_row(0, 32)
+    for ci, col_name in enumerate(cols):
+        ws.write_string(0, ci, header_labels.get(col_name, col_name.strip()), fmts.header)
 
-    hdr_font  = Font(name="Segoe UI", bold=True, size=10, color="FFFFFF")
-    hdr_fill  = PatternFill("solid", fgColor=_HDR_BG)
-    hdr_align = Alignment(horizontal="center", vertical="center", wrap_text=True)
-    ws.row_dimensions[1].height = 32
-    header_cells = []
-    for col_name in cols:
-        label = header_labels.get(col_name, col_name.strip())
-        c = WriteOnlyCell(ws, value=label)
-        c.font = hdr_font
-        c.fill = hdr_fill
-        c.alignment = hdr_align
-        c.border = bdr
-        header_cells.append(c)
-    ws.append(header_cells)
-
-    txt_font    = Font(name="Segoe UI", size=10)
-    num_font    = Font(name="Consolas", size=10)
-    fill_odd    = PatternFill("solid", fgColor=_ROW_ODD)
-    fill_even   = PatternFill("solid", fgColor=_ROW_EVEN)
-    align_right = Alignment(horizontal="right", vertical="center")
-    align_left  = Alignment(horizontal="left", vertical="center", indent=1)
-
-    amount_col_idx = cols.index(amount_col) + 1
+    amount_col_idx = cols.index(amount_col) + 1          # 1-based column numbers
     bucket_first_idx = amount_col_idx + 1
     bucket_last_idx = bucket_first_idx + len(BUCKET_COLS) - 1
-    above30_idx = n_cols
 
     # Plain positional tuples (name=None) rather than itertuples' namedtuple
     # form - several of these column names ("Account Incharges", "Above 30
-    # Days") aren't valid Python identifiers, and relying on pandas' name-
-    # mangling for them would be fragile.
+    # Days") aren't valid Python identifiers.
     data_cols = [LOCATION_COL, "Account Incharges", COUNT_COL, amount_col, *BUCKET_COLS]
+    amount_pos = 3                                        # position of the amount in data_cols
+    column_sums = [0.0] * len(data_cols)
     for ri, row_vals in enumerate(df[data_cols].itertuples(index=False, name=None), 2):
-        row_fill = fill_even if ri % 2 == 0 else fill_odd
-        row_cells = []
-        for col_name, val in zip(data_cols, row_vals):
-            c = WriteOnlyCell(ws)
-            c.border = bdr
-            c.fill = row_fill
+        parity = 1 if ri % 2 == 0 else 0
+        row_numbers = [0.0] * len(data_cols)
+        for pos, (col_name, val) in enumerate(zip(data_cols, row_vals)):
             if col_name in (LOCATION_COL, "Account Incharges"):
-                c.value = _DASH if _is_blank(val) else str(val)
-                c.font = txt_font
-                c.alignment = align_left
+                ws.write_string(ri - 1, pos, _DASH if _is_blank(val) else str(val), fmts.text[parity])
+                continue
+            is_count = col_name == COUNT_COL
+            cell_fmt = (fmts.num_int if is_count else fmts.num_dec)[parity]
+            if _is_blank(val):
+                ws.write_string(ri - 1, pos, _DASH, cell_fmt)
             else:
-                c.font = num_font
-                c.alignment = align_right
-                is_count = col_name == COUNT_COL
-                c.number_format = _FMT_INT if is_count else _FMT_DEC
-                if _is_blank(val):
-                    c.value = _DASH
-                else:
-                    c.value = int(val) if is_count else _snap_to_zero(float(val))
-            row_cells.append(c)
+                number = int(val) if is_count else _snap_to_zero(float(val))
+                ws.write_number(ri - 1, pos, number, cell_fmt)
+                row_numbers[pos] = float(number)
+                column_sums[pos] += number
 
-        report_amount_ref = f"{get_column_letter(amount_col_idx)}{ri}"
+        amount_ref = f"{get_column_letter(amount_col_idx)}{ri}"
         bucket_refs = [f"{get_column_letter(i)}{ri}" for i in range(bucket_first_idx, bucket_last_idx + 1)]
-        above_cell = WriteOnlyCell(ws, value=above_30_formula(report_amount_ref, bucket_refs))
-        above_cell.font = num_font
-        above_cell.alignment = align_right
-        above_cell.number_format = _FMT_DEC
-        above_cell.border = bdr
-        above_cell.fill = row_fill
-        row_cells.append(above_cell)
+        above_value = round(row_numbers[amount_pos] - row_numbers[amount_pos + 1] - row_numbers[amount_pos + 2], 2)
+        ws.write_formula(ri - 1, n_cols - 1, above_30_formula(amount_ref, bucket_refs),
+                         fmts.num_dec[parity], above_value)
 
-        ws.append(row_cells)
-
-    grand_row = n_rows + 2
-    gt_font = Font(name="Segoe UI", bold=True, size=10, color="FFFFFF")
-    gt_fill = PatternFill("solid", fgColor=_HDR_BG)
-    ws.row_dimensions[grand_row].height = 22
-
-    grand_cells = []
-    gt = WriteOnlyCell(ws, value="Grand Total")
-    gt.font = gt_font
-    gt.fill = gt_fill
-    gt.alignment = align_left
-    gt.border = bdr
-    grand_cells.append(gt)
-
-    inc_cell = WriteOnlyCell(ws, value="")
-    inc_cell.font = gt_font
-    inc_cell.fill = gt_fill
-    inc_cell.border = bdr
-    grand_cells.append(inc_cell)
-
-    for ci in range(3, n_cols):  # count + amount + bucket cols (excludes Above 30 Days)
-        col_letter = get_column_letter(ci)
-        c = WriteOnlyCell(ws)
+    grand_row = n_rows + 2                                # 1-based sheet row
+    ws.set_row(grand_row - 1, 22)
+    ws.write_string(grand_row - 1, 0, "Grand Total", fmts.grand_text)
+    ws.write_blank(grand_row - 1, 1, None, fmts.grand)
+    for pos in range(2, n_cols - 1):  # count + amount + bucket cols (excludes Above 30 Days)
+        grand_fmt = fmts.grand_int if cols[pos] == COUNT_COL else fmts.grand_dec
         if n_rows:
-            c.value = f"=SUBTOTAL(9,{col_letter}2:{col_letter}{n_rows + 1})"
+            letter = get_column_letter(pos + 1)
+            ws.write_formula(grand_row - 1, pos, f"=SUBTOTAL(9,{letter}2:{letter}{n_rows + 1})",
+                             grand_fmt, column_sums[pos])
         else:
-            c.value = 0
-        c.number_format = _FMT_INT if cols[ci - 1] == COUNT_COL else _FMT_DEC
-        c.font = gt_font
-        c.fill = gt_fill
-        c.alignment = align_right
-        c.border = bdr
-        grand_cells.append(c)
-
-    grand_amount_ref = f"{get_column_letter(amount_col_idx)}{grand_row}"
+            ws.write_number(grand_row - 1, pos, 0, grand_fmt)
+    grand_above = round(column_sums[amount_pos] - column_sums[amount_pos + 1] - column_sums[amount_pos + 2], 2)
     grand_bucket_refs = [f"{get_column_letter(i)}{grand_row}" for i in range(bucket_first_idx, bucket_last_idx + 1)]
-    grand_above = WriteOnlyCell(ws, value=above_30_formula(grand_amount_ref, grand_bucket_refs))
-    grand_above.font = gt_font
-    grand_above.fill = gt_fill
-    grand_above.alignment = align_right
-    grand_above.number_format = _FMT_DEC
-    grand_above.border = bdr
-    grand_cells.append(grand_above)
+    ws.write_formula(grand_row - 1, n_cols - 1,
+                     above_30_formula(f"{get_column_letter(amount_col_idx)}{grand_row}", grand_bucket_refs),
+                     fmts.grand_dec, grand_above)
 
-    ws.append(grand_cells)
-
-    if footnote:
-        ws.append([])  # blank spacer row
-        note_cell = WriteOnlyCell(ws, value=footnote)
-        note_cell.font = Font(name="Segoe UI", size=9, italic=True, color="808080")
-        ws.append([note_cell])
+    if footnote:   # one blank row below the Grand Total
+        ws.write_string(grand_row + 1, 0, footnote, fmts.note)
 
     if n_rows:
-        ws.auto_filter.ref = f"A1:{get_column_letter(n_cols)}{n_rows + 1}"
+        ws.autofilter(0, 0, n_rows, n_cols - 1)
 
 
 LAKHS_NOTE = "All amounts in Lakhs (÷ 1,00,000)"
@@ -795,18 +680,18 @@ def _above_30_formula(amount_ref, bucket_refs) -> str:
     return f"=ROUND({amount_ref}-{bucket_refs[0]}-{bucket_refs[1]},2)"
 
 
-def _untagged_summary_sheet(wb: Workbook, df: pd.DataFrame, footnote: bool = True) -> None:
+def _untagged_summary_sheet(wb, fmts: _Formats, df: pd.DataFrame, footnote: bool = True) -> None:
     _write_pivot_sheet(
-        wb, "Untagged Summary", df, "6A1B9A",
+        wb, fmts, "Untagged Summary", df, "6A1B9A",
         location_col_header="Location Name", amount_col="Accounted Outstanding",
         above_30_formula=_above_30_formula,
         footnote=LAKHS_NOTE if footnote else None,
     )
 
 
-def _below_1k_summary_sheet(wb: Workbook, df: pd.DataFrame) -> None:
+def _below_1k_summary_sheet(wb, fmts: _Formats, df: pd.DataFrame) -> None:
     _write_pivot_sheet(
-        wb, "Below 1k Summary", df, "00897B",
+        wb, fmts, "Below 1k Summary", df, "00897B",
         location_col_header="Location Name", amount_col="Total O/S",
         above_30_formula=_above_30_formula,
     )
@@ -816,11 +701,12 @@ def write_summary_workbook(df_untagged_summary: pd.DataFrame, df_below_1k_summar
                            output_path: str | Path) -> None:
     """A small workbook holding only the two summary sheets, formatted exactly
     as in the report - the source of the tables shown in the automatic mail."""
-    wb = Workbook(write_only=True)
+    wb = xlsxwriter.Workbook(str(output_path), {"constant_memory": True})
+    fmts = _Formats(wb)
     # the mail states the unit once in its text, so the table carries no footnote
-    _untagged_summary_sheet(wb, df_untagged_summary, footnote=False)
-    _below_1k_summary_sheet(wb, df_below_1k_summary)
-    wb.save(Path(output_path))
+    _untagged_summary_sheet(wb, fmts, df_untagged_summary, footnote=False)
+    _below_1k_summary_sheet(wb, fmts, df_below_1k_summary)
+    wb.close()
 
 
 def write_report(
@@ -843,33 +729,34 @@ def write_report(
     the four other sheets, and ``only_full_ageing=True`` writes just the
     Ageing sheet (pass a slice of its rows to split it further).
 
-    Built as a write-only workbook: every sheet is streamed row-by-row via
-    ws.append() rather than kept as normal openpyxl Cell objects, which is
-    what makes this practical at 200k+ rows (see _write_detail_sheet).
+    Built with xlsxwriter in constant-memory mode: every sheet is streamed
+    row by row, which is what makes this practical at 200k+ rows.
     "Ageing" is written last since it's by far the largest sheet - most of
     the write-phase progress span belongs to it."""
-    wb = Workbook(write_only=True)
+    output_path = Path(output_path)
+    wb = xlsxwriter.Workbook(str(output_path), {"constant_memory": True})
+    fmts = _Formats(wb)
 
     if not only_full_ageing:
         if progress_cb:
             progress_cb(0.55, "Writing Untagged Summary...")
-        _untagged_summary_sheet(wb, df_untagged_summary)
+        _untagged_summary_sheet(wb, fmts, df_untagged_summary)
 
         if progress_cb:
             progress_cb(0.60, "Writing Untagged Ageing...")
         _write_detail_sheet(
-            wb, "Untagged Ageing", df_untagged_ageing, "37474F",
+            wb, fmts, "Untagged Ageing", df_untagged_ageing, "37474F",
             log_q=log_q, progress_cb=progress_cb, base=0.60, span=0.03,
         )
 
         if progress_cb:
             progress_cb(0.65, "Writing Below 1k Summary...")
-        _below_1k_summary_sheet(wb, df_below_1k_summary)
+        _below_1k_summary_sheet(wb, fmts, df_below_1k_summary)
 
         if progress_cb:
             progress_cb(0.68, "Writing Below 1k Ageing...")
         _write_detail_sheet(
-            wb, "Below 1k Ageing", df_below_1k_ageing, "C0CA33",
+            wb, fmts, "Below 1k Ageing", df_below_1k_ageing, "C0CA33",
             log_q=log_q, progress_cb=progress_cb, base=0.68, span=0.05,
         )
 
@@ -877,12 +764,11 @@ def write_report(
         if progress_cb:
             progress_cb(0.73, "Writing Ageing (full detail)...")
         _write_detail_sheet(
-            wb, "Ageing", df_ageing, "1F3864",
+            wb, fmts, "Ageing", df_ageing, "1F3864",
             log_q=log_q, progress_cb=progress_cb, base=0.73, span=0.25,
         )
 
-    output_path = Path(output_path)
-    wb.save(output_path)
+    wb.close()
     if log_q:
         log_q.put(("success", f"Saved -> {output_path}"))
     if progress_cb:
