@@ -471,7 +471,7 @@ class UntaggedMailBuilderTests(unittest.TestCase):
         self.addCleanup(lambda: [shutil.rmtree(p, ignore_errors=True) for p in payload.cleanup])
         self.assertEqual([title for title, _ in payload.sections], ["Untagged Summary", "Below 1k Summary"])
         self.assertEqual(len(payload.attachment_groups), 1)
-        self.assertTrue(payload.attachment_groups[0][0].endswith("Untagged_Invoices_Report_As_On_2026-10-19.xlsx"))
+        self.assertTrue(payload.attachment_groups[0][0].endswith(f"Untagged_Invoices_Report_As_On_{dt.date.today().isoformat()}.xlsx"))
         self.assertEqual(payload.values["date"], "19-Oct-2026")
         self.assertEqual(payload.notes, [])
         html = mail._wrap_html("Hi", payload.sections, payload.notes, "", payload.css, payload.intro_note)
@@ -511,7 +511,7 @@ class UntaggedMailBuilderTests(unittest.TestCase):
         self.assertLess(compact, full * 0.7)
         payload = self._build((full + compact) // 2)
         attached = payload.attachment_groups[0][0]
-        self.assertTrue(attached.endswith("Untagged_Invoices_Report_As_On_2026-10-19.xlsx"))
+        self.assertTrue(attached.endswith(f"Untagged_Invoices_Report_As_On_{dt.date.today().isoformat()}.xlsx"))
         self.assertNotIn("Without_Full_Ageing", attached)
         self.assertEqual(payload.notes, [])                       # nothing was left out, so no apology
         self.assertIn("compacted", payload.detail["attachment"])
@@ -521,13 +521,39 @@ class UntaggedMailBuilderTests(unittest.TestCase):
         self.assertEqual(sheet["B4001"].value, "INV0003999")
         self.assertEqual(payload.downloads, [("Untagged Invoices Report", attached)])
 
-    def test_only_if_even_the_compact_file_is_too_big_is_the_full_ageing_sheet_dropped(self):
+    def test_if_even_the_compact_file_is_too_big_it_is_split_and_no_row_is_lost(self):
         full, compact = self._sizes()
-        payload = self._build(compact // 2)
-        attached = payload.attachment_groups[0][0]
-        self.assertIn("Without_Full_Ageing", attached)
-        self.assertTrue(any("full" in note.lower() for note in payload.notes))
-        self.assertNotIn("Ageing", openpyxl.load_workbook(attached).sheetnames)
+        ageing = pd.DataFrame({"Customer": [f"C{i}" for i in range(4000)], "Amount": [i * 1.37 for i in range(4000)]})
+        untagged, below = _frames()
+        small = pd.DataFrame({"x": [1]})
+
+        def fake_build(output_path, allow_unmapped=False, progress_cb=None, cancel_event=None):
+            _big_workbook(output_path)
+            return BuiltReport(
+                result={"needs_mapping_fix": False, "total_rows": 4000, "validation_warnings": []},
+                as_on_date=dt.date(2026, 10, 19), frames=(ageing, untagged, small, below, small),
+            )
+
+        limit = compact * 6 // 10                                 # forces the split
+        with patch.object(untagged_mail.report_job, "build_report", fake_build), \
+                patch.object(mail, "MAX_ATTACHMENT_BYTES", limit):
+            payload = untagged_mail.build(self.SNAPSHOT)
+        self.addCleanup(lambda: [shutil.rmtree(p, ignore_errors=True) for p in payload.cleanup])
+
+        files = [group[0] for group in payload.attachment_groups]
+        self.assertGreaterEqual(len(files), 2)
+        self.assertTrue(all(Path(f).stat().st_size <= limit for f in files))
+        self.assertEqual(
+            openpyxl.load_workbook(files[0]).sheetnames,
+            ["Untagged Summary", "Untagged Ageing", "Below 1k Summary", "Below 1k Ageing"],
+        )
+        seen = []
+        for path in files[1:]:
+            sheet = openpyxl.load_workbook(path)["Ageing"]
+            seen += [row[0].value for row in sheet.iter_rows(min_row=2)]
+        self.assertEqual(seen, [f"C{i}" for i in range(4000)])    # every Ageing row, once, in order
+        self.assertTrue(any("nothing has been left out" in note.lower() for note in payload.notes))
+        self.assertEqual(payload.downloads[0][0], "Untagged Invoices Report")   # the complete file stays downloadable
 
     def test_missing_mappings_hold_the_mail_when_that_is_the_setting(self):
         with patch.object(untagged_mail.report_job, "build_report", self._built(None, unmapped=True)):

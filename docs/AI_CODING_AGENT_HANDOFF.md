@@ -887,8 +887,11 @@ Gmail rejects messages over 25 MB, and the full report is ~26 MB as openpyxl
 writes it. `app/services/xlsx_compact.py` rewrites the same workbook without the
 redundant per-cell addresses (11 MB, still a normal .xlsx that Excel opens with
 no repair; verified in real Excel). The mail attaches that complete workbook;
-only if even it is too big does the Untagged mail drop the "Ageing" sheet, or the
-GST mail split into numbered parts. In a write-only openpyxl sheet the column
+only if even it is too big (over 17 MB) is the report split into numbered parts, in
+both mails, and NEVER with data left out: the Untagged mail sends the four
+summary/detail sheets as part 1 and the rows of the full Ageing sheet in as few
+further workbooks as fit (`auto_mail._split_without_loss`); the GST mail splits its
+rows. In a write-only openpyxl sheet the column
 widths and frozen header must be set BEFORE the first row, or they are silently
 ignored (numbers then show as #######).
 

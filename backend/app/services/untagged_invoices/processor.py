@@ -834,12 +834,14 @@ def write_report(
     log_q=None,
     progress_cb=None,
     include_full_ageing: bool = True,
+    only_full_ageing: bool = False,
 ) -> None:
     """Write the 5-sheet workbook, in the required order:
     Untagged Summary, Untagged Ageing, Below 1k Summary, Below 1k
-    Ageing, Ageing. With ``include_full_ageing=False`` the last (and by far
-    the largest) sheet is left out - used when the complete workbook is too
-    big to attach to an email.
+    Ageing, Ageing. For an email too big for one attachment the same data is
+    written in pieces, nothing left out: ``include_full_ageing=False`` writes
+    the four other sheets, and ``only_full_ageing=True`` writes just the
+    Ageing sheet (pass a slice of its rows to split it further).
 
     Built as a write-only workbook: every sheet is streamed row-by-row via
     ws.append() rather than kept as normal openpyxl Cell objects, which is
@@ -848,29 +850,30 @@ def write_report(
     the write-phase progress span belongs to it."""
     wb = Workbook(write_only=True)
 
-    if progress_cb:
-        progress_cb(0.55, "Writing Untagged Summary...")
-    _untagged_summary_sheet(wb, df_untagged_summary)
+    if not only_full_ageing:
+        if progress_cb:
+            progress_cb(0.55, "Writing Untagged Summary...")
+        _untagged_summary_sheet(wb, df_untagged_summary)
 
-    if progress_cb:
-        progress_cb(0.60, "Writing Untagged Ageing...")
-    _write_detail_sheet(
-        wb, "Untagged Ageing", df_untagged_ageing, "37474F",
-        log_q=log_q, progress_cb=progress_cb, base=0.60, span=0.03,
-    )
+        if progress_cb:
+            progress_cb(0.60, "Writing Untagged Ageing...")
+        _write_detail_sheet(
+            wb, "Untagged Ageing", df_untagged_ageing, "37474F",
+            log_q=log_q, progress_cb=progress_cb, base=0.60, span=0.03,
+        )
 
-    if progress_cb:
-        progress_cb(0.65, "Writing Below 1k Summary...")
-    _below_1k_summary_sheet(wb, df_below_1k_summary)
+        if progress_cb:
+            progress_cb(0.65, "Writing Below 1k Summary...")
+        _below_1k_summary_sheet(wb, df_below_1k_summary)
 
-    if progress_cb:
-        progress_cb(0.68, "Writing Below 1k Ageing...")
-    _write_detail_sheet(
-        wb, "Below 1k Ageing", df_below_1k_ageing, "C0CA33",
-        log_q=log_q, progress_cb=progress_cb, base=0.68, span=0.05,
-    )
+        if progress_cb:
+            progress_cb(0.68, "Writing Below 1k Ageing...")
+        _write_detail_sheet(
+            wb, "Below 1k Ageing", df_below_1k_ageing, "C0CA33",
+            log_q=log_q, progress_cb=progress_cb, base=0.68, span=0.05,
+        )
 
-    if include_full_ageing:
+    if include_full_ageing or only_full_ageing:
         if progress_cb:
             progress_cb(0.73, "Writing Ageing (full detail)...")
         _write_detail_sheet(

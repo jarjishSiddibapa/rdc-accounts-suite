@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import date
+from pathlib import Path
 
 from app.config import SCRATCH_DIR
 from app.services import report_mail_preview
@@ -19,15 +20,45 @@ from app.services.untagged_invoices import processor, report_job
 
 APP_KEY = "untagged-invoices-report"
 
-_NO_FULL_AGEING_NOTE = (
-    "Even compacted, the complete workbook is too large to attach to an email, so the full \"Ageing\" "
-    "sheet (every open item) is left out of this attachment. Download the complete report from the "
-    "Untagged Invoices Report page in the application."
+_SPLIT_NOTE = (
+    "Nothing has been left out. Part 1 holds the Untagged Summary, Untagged Ageing, Below 1k Summary and "
+    "Below 1k Ageing sheets; the other parts hold the rows of the full Ageing sheet, in order."
 )
-_NO_ATTACHMENT_NOTE = (
-    "The report is too large to attach to an email. Download it from the Untagged Invoices Report "
-    "page in the application."
-)
+
+
+def _split_without_loss(frames, work_dir: Path, as_on: date) -> list[Path]:
+    """The complete report as several workbooks that each fit one email: the
+    four summary/detail sheets first, then the rows of the full Ageing sheet in
+    as few pieces as will fit. Every row of every sheet is in exactly one."""
+    df, untagged_summary, untagged_ageing, below_summary, below_ageing = frames
+    stem = f"Untagged_Invoices_Report_As_On_{as_on.isoformat()}"
+    first = work_dir / f"{stem}_Part_1_Summaries_and_Detail.xlsx"
+    processor.write_report(
+        df, untagged_summary, untagged_ageing, below_summary, below_ageing,
+        first, as_on, include_full_ageing=False,
+    )
+    xlsx_compact.compact_xlsx_in_place(first)
+
+    pieces = 1
+    while True:
+        size = -(-len(df) // pieces)                       # rows per piece, rounded up
+        written: list[Path] = []
+        for index in range(pieces):
+            label = "Ageing" if pieces == 1 else f"Ageing_Part_{index + 1}_of_{pieces}"
+            path = work_dir / f"{stem}_{label}.xlsx"
+            processor.write_report(
+                df.iloc[index * size:(index + 1) * size], untagged_summary, untagged_ageing,
+                below_summary, below_ageing, path, as_on, only_full_ageing=True,
+            )
+            xlsx_compact.compact_xlsx_in_place(path)
+            written.append(path)
+            if path.stat().st_size > mail.MAX_ATTACHMENT_BYTES and pieces < len(df):
+                break
+        else:
+            return [first, *written]
+        for path in written:
+            path.unlink(missing_ok=True)
+        pieces += 1
 
 
 def _hold_reason(warnings: list[dict]) -> str:
@@ -88,22 +119,15 @@ def build(snapshot: dict, progress_cb=None, cancel_event=None) -> mail.MailPaylo
     else:
         payload.detail["attachment"] = "complete workbook"
     if report_path.stat().st_size > mail.MAX_ATTACHMENT_BYTES:
-        # Last resort, only if even the compact file does not fit.
-        df, untagged_summary, untagged_ageing, below_summary, below_ageing = built.frames
-        attachment = work_dir / f"Untagged_Invoices_Report_As_On_{as_on.isoformat()}_Without_Full_Ageing.xlsx"
-        processor.write_report(
-            df, untagged_summary, untagged_ageing, below_summary, below_ageing,
-            attachment, as_on, include_full_ageing=False,
-        )
-        payload.detail["attachment"] = "without the full Ageing sheet (size limit)"
-        if attachment.stat().st_size > mail.MAX_ATTACHMENT_BYTES:
-            payload.notes.append(_NO_ATTACHMENT_NOTE)
-            payload.detail["attachment"] = "none (size limit)"
-            attachment = None
-        else:
-            payload.notes.append(_NO_FULL_AGEING_NOTE)
+        # Last resort, only if even the compact file does not fit: the same
+        # data in several workbooks, one per mail. Nothing is left out.
+        parts = _split_without_loss(built.frames, work_dir, as_on)
+        payload.attachment_groups = [[str(path)] for path in parts]
+        payload.detail["attachment"] = f"complete report in {len(parts)} workbooks (size limit)"
+        payload.notes.append(_SPLIT_NOTE)
+        return payload
 
-    payload.attachment_groups = [[str(attachment)]] if attachment else [[]]
+    payload.attachment_groups = [[str(report_path)]]
     return payload
 
 
