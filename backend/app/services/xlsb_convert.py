@@ -1,70 +1,42 @@
-"""Convert a finished .xlsx report to .xlsb (Excel Binary Workbook), safely.
+"""Convert a finished .xlsx report to .xlsb (Excel Binary Workbook).
 
 .xlsb holds exactly the same sheets, values, formulas and formats in a much
-smaller file, but only Excel itself can write it. Excel automation proved
-unreliable on the server (it could hang), so it is used here only as a last
-resort for an email attachment that is still too big, and only like this:
+smaller file, which is what lets a report that is still over the email limit
+go out as one attachment. It is written by app.services.xlsb_writer in pure
+Python: no Excel, no COM and no other software is involved. The work runs on
+the CPU process pool, so it never holds up the web server.
 
-- Excel runs in a separate process (xlsb_convert_worker.py) with its own
-  Excel instance, never the user's.
-- There is a hard time limit. When it passes, the worker and that Excel are
-  killed, and the caller falls back to something that needs no Excel.
-- Any failure (no Excel, no pywin32, a crash, an empty file) just returns
-  False; nothing is raised and no half-written file is left behind.
+Anything the writer does not convert (a feature of a workbook this application
+does not produce) or any failure just returns False with no half-written file
+left behind; the caller then falls back to splitting the report into several
+mails, which loses nothing either.
 """
 
 from __future__ import annotations
 
 import logging
-import os
-import subprocess
-import sys
 from pathlib import Path
+
+from app.jobs import JobCancelled, run_cpu_phase
+from app.services import xlsb_writer
 
 logger = logging.getLogger(__name__)
 
-CONVERT_TIMEOUT_SECONDS = 600
-_WORKER = Path(__file__).with_name("xlsb_convert_worker.py")
 
-
-def _kill_tree(pid: int) -> None:
-    subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)], capture_output=True, check=False)
-
-
-def convert_to_xlsb(source: str | Path, destination: str | Path, timeout: int | None = None) -> bool:
+def convert_to_xlsb(source: str | Path, destination: str | Path) -> bool:
     """Write ``source`` (.xlsx) as ``destination`` (.xlsb). True only if a
-    non-empty file was produced in time."""
-    if os.name != "nt":
-        return False
-    source, destination = Path(source).resolve(), Path(destination).resolve()
-    pid_file = destination.with_suffix(".excelpid")
-    destination.unlink(missing_ok=True)
+    non-empty file was produced."""
+    destination = Path(destination)
     try:
-        proc = subprocess.Popen(
-            [sys.executable, "-I", str(_WORKER), str(source), str(destination), str(pid_file)],
-            stdout=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=subprocess.CREATE_NO_WINDOW,
-        )
-        try:
-            _, err = proc.communicate(timeout=timeout or CONVERT_TIMEOUT_SECONDS)
-        except subprocess.TimeoutExpired:
-            _kill_tree(proc.pid)
-            if pid_file.exists():
-                try:
-                    _kill_tree(int(pid_file.read_text().strip()))
-                except ValueError:
-                    pass
-            proc.communicate()
-            logger.warning("xlsb conversion timed out; Excel was stopped")
-            destination.unlink(missing_ok=True)
-            return False
-        if proc.returncode != 0 or not destination.exists() or destination.stat().st_size == 0:
-            logger.warning("xlsb conversion failed: %s", (err or b"").decode(errors="replace")[-500:])
-            destination.unlink(missing_ok=True)
-            return False
-        return True
+        run_cpu_phase(xlsb_writer.convert, str(source), str(destination))
+    except JobCancelled:
+        raise
+    except xlsb_writer.Unsupported as exc:
+        logger.warning("xlsb conversion skipped: %s", exc)
     except Exception:
-        logger.exception("xlsb conversion could not run")
-        destination.unlink(missing_ok=True)
-        return False
-    finally:
-        pid_file.unlink(missing_ok=True)
+        logger.exception("xlsb conversion failed")
+    else:
+        if destination.exists() and destination.stat().st_size > 0:
+            return True
+    destination.unlink(missing_ok=True)
+    return False

@@ -113,7 +113,7 @@ def build(snapshot: dict, progress_cb=None, cancel_event=None) -> mail.MailPaylo
         payload.attachment_groups = [[str(whole_path)]]
         payload.downloads = [("GST Invoice Number report", str(whole_path))]
     else:
-        # Excel unavailable or the file still does not fit: split, nothing left out.
+        # The .xlsb could not be made or is still too big: split, nothing left out.
         if progress_cb:
             progress_cb(0.92, "Splitting the report into parts that fit in an email...")
         parts = _write_parts(built.df, built.gst_map, work_dir, stem, whole_size)

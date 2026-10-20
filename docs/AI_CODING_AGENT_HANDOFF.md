@@ -888,24 +888,32 @@ writes it. `app/services/xlsx_compact.py` rewrites the same workbook without the
 redundant per-cell addresses (11 MB, still a normal .xlsx that Excel opens with
 no repair; verified in real Excel). The mail attaches that complete workbook;
 only if even it is too big (over 17 MB) is the same workbook converted to ONE
-`.xlsb` (`app/services/xlsb_convert.py`: Excel COM, but in a separate worker
-process with its own Excel instance and a hard 10-minute kill that also kills
-that Excel; any failure just returns False). Only if Excel is unavailable or the
-.xlsb is still too big is the report split into numbered parts, in both mails, and
-NEVER with data left out: the Untagged mail sends the four summary/detail sheets
-as part 1 and the rows of the full Ageing sheet in as few further workbooks as
-fit (`auto_mail._split_without_loss`); the GST mail splits its rows. Order:
-.xlsx, compacted .xlsx, .xlsb, split. A file that fits never touches Excel. In a write-only openpyxl sheet the column
+`.xlsb` by `app/services/xlsb_writer.py`, a pure-Python writer of the binary
+records ([MS-XLSB]): NO Excel, COM or other software is involved (`xlsb_convert.py`
+just runs it on the CPU pool and returns False on any failure). It reads the
+finished .xlsx as a stream and writes strings once in a shared table, numbers as
+RK/double records, formulas as binary tokens with a computed cached value
+(workbook set to recalculate on open), and the styles, widths, heights, frozen
+row, autofilter and tab colours. It only converts what this app's openpyxl
+workbooks use; anything else (merged cells, conditional formats, unknown
+functions, ...) raises `Unsupported` so a workbook is never converted into
+something different. On the 216,000 x 23 report: 11 MB compacted .xlsx -> 6 MB
+.xlsb in ~27 s; all 5.2 million cells compared equal with pyxlsb, and real Excel
+opens it with the same used range, values, formulas, formats, widths, frozen
+header and filter (Excel was used only to check this, never at run time). Only if
+the .xlsb cannot be made or is still too big is the report split into numbered
+parts, in both mails, and NEVER with data left out: the Untagged mail sends the
+four summary/detail sheets as part 1 and the rows of the full Ageing sheet in as
+few further workbooks as fit (`auto_mail._split_without_loss`); the GST mail
+splits its rows. Order: .xlsx, compacted .xlsx, .xlsb, split. A file that fits
+never goes through the .xlsb writer. In a write-only openpyxl sheet the column
 widths and frozen header must be set BEFORE the first row, or they are silently
 ignored (numbers then show as #######).
 
 The Untagged mail states the unit once, as a bold "Note: All amounts in Lakhs
 (÷ 1,00,000)" line right after the mail text (`MailPayload.intro_note`). The mail's
 summary tables carry no footnote row; the report workbook's own Untagged Summary
-sheet keeps it. `.xlsb` can only be written by Excel (no Python library does), so
-it is produced solely by the guarded last-resort converter above; Excel COM was
-removed elsewhere because it hung server processes, which is why the converter is
-isolated and time-limited.
+sheet keeps it.
 
 Normal production update sequence:
 

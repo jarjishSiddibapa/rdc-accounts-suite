@@ -127,7 +127,7 @@ def build(snapshot: dict, progress_cb=None, cancel_event=None) -> mail.MailPaylo
             payload.detail["attachment"] = "complete workbook (as .xlsb to fit the email limit)"
             return payload
         binary_path.unlink(missing_ok=True)
-        # Excel unavailable or the file still does not fit: the same data in
+        # The .xlsb could not be made or is still too big: the same data in
         # several workbooks, one per mail. Nothing is left out.
         parts = _split_without_loss(built.frames, work_dir, as_on)
         payload.attachment_groups = [[str(path)] for path in parts]

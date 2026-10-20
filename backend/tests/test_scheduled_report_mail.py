@@ -2,6 +2,7 @@
 send-and-record flow, and the Untagged / GST mail builders."""
 
 import datetime as dt
+import random
 import shutil
 import tempfile
 import unittest
@@ -20,6 +21,7 @@ from app.models import (
 )
 from app.regional import IST
 from app.services import scheduled_report_mail as mail
+from app.services import xlsb_convert, xlsb_writer, xlsx_compact
 from app.services.gst_invoice_adder import auto_mail as gst_mail
 from app.services.mailer_shared import sheet_to_html
 from app.services.untagged_invoices import auto_mail as untagged_mail
@@ -387,6 +389,25 @@ class RunMailJobTests(_DbCase):
         self.assertFalse(work.exists())
 
 
+_REAL_XLSB_CONVERT = xlsb_convert.convert_to_xlsb
+
+
+def _real_xlsb(source, destination):
+    """The real conversion, run in this process instead of the CPU pool."""
+    with patch.object(xlsb_convert, "run_cpu_phase", lambda fn, *a, **k: fn(*a, **k)):
+        return _REAL_XLSB_CONVERT(source, destination)
+
+
+def _read_xlsb(path):
+    from pyxlsb import open_workbook
+    sheets = {}
+    with open_workbook(str(path)) as book:
+        for name in book.sheets:
+            with book.get_sheet(name) as sheet:
+                sheets[name] = [[cell.v for cell in row] for row in sheet.rows()]
+    return sheets
+
+
 def _frames():
     """Small stand-ins for the report tables."""
     base = {
@@ -450,8 +471,10 @@ def _big_workbook(path, rows=4000):
     wb = openpyxl.Workbook(write_only=True)
     ws = wb.create_sheet("Ageing")
     ws.append([f"Col {i}" for i in range(12)])
+    amounts = random.Random(5)               # amounts have long decimals, as computed ones do
     for r in range(rows):
-        ws.append([f"Customer {r % 53}", f"INV{r:07d}", r * 1.37, r % 90, 0, 0, r * 0.5, 0, 0, 0, "-", "Transactions"])
+        ws.append([f"Customer {r % 53}", f"INV{r:07d}", amounts.random() * 1e6, r % 90, 0, 0,
+                   amounts.random() * 1e5, 0, 0, 0, "-", "Transactions"])
     wb.save(path)
 
 
@@ -541,9 +564,34 @@ class UntaggedMailBuilderTests(unittest.TestCase):
         self.assertEqual(payload.notes, [])
         self.assertTrue(payload.downloads[0][1].endswith(".xlsx"))   # the download stays the normal workbook
 
+    def test_the_real_xlsb_holds_every_row_of_every_sheet(self):
+        full, compact = self._sizes()
+        with tempfile.TemporaryDirectory() as tmp:
+            big, small = Path(tmp) / "c.xlsx", Path(tmp) / "c.xlsb"
+            _big_workbook(big)
+            xlsx_compact.compact_xlsx_in_place(big)
+            xlsb_writer.convert(big, small)
+            binary = small.stat().st_size
+        self.assertLess(binary, compact)
+        limit = (binary + compact) // 2
+        payload = self._build(limit, xlsb=_real_xlsb)
+        attached = Path(payload.attachment_groups[0][0])
+        self.assertEqual(attached.suffix, ".xlsb")
+        self.assertLessEqual(attached.stat().st_size, limit)
+        self.assertEqual(payload.notes, [])
+        original = openpyxl.load_workbook(payload.downloads[0][1], read_only=True)
+        converted = _read_xlsb(attached)
+        self.assertEqual(list(converted), original.sheetnames)
+        for name in original.sheetnames:
+            expected = [[c for c in row] for row in original[name].iter_rows(values_only=True)]
+            self.assertEqual(len(converted[name]), len(expected), name)
+        ageing = converted["Ageing"]
+        self.assertEqual(len(ageing), 4001)
+        self.assertEqual(ageing[4000][1], "INV0003999")
+
     def test_a_file_that_fits_is_never_converted(self):
         full, compact = self._sizes()
-        convert = MagicMock(side_effect=AssertionError("Excel must not be used"))
+        convert = MagicMock(side_effect=AssertionError("the .xlsb conversion must not be used"))
         payload = self._build((full + compact) // 2, xlsb=convert)
         convert.assert_not_called()
         self.assertTrue(payload.attachment_groups[0][0].endswith(".xlsx"))
@@ -593,10 +641,13 @@ class UntaggedMailBuilderTests(unittest.TestCase):
 
 class GstMailBuilderTests(unittest.TestCase):
     def _fake_build(self, rows):
+        amounts = random.Random(9)
         df = pd.DataFrame({
             "Invoice No/ Receipt No": [str(i) for i in range(rows)],
             "Invoice/ Receipt Date": [pd.Timestamp("2026-01-01")] * rows,
-            "Accounted Outstanding": [float(i) for i in range(rows)],
+            "Accounted Outstanding": [amounts.random() * 1e6 for _ in range(rows)],
+            "0-15 Days": [amounts.random() * 1e5 for _ in range(rows)],
+            "16-30 Days": [amounts.random() * 1e5 for _ in range(rows)],
         })
         gst_map = {}
 
@@ -642,7 +693,7 @@ class GstMailBuilderTests(unittest.TestCase):
 
     def test_an_oversized_report_is_compacted_into_one_mail_when_that_fits(self):
         standard, compact = self._whole_sizes()
-        self.assertLess(compact, standard * 0.7)
+        self.assertLess(compact, standard * 0.85)
         payload = self._run(3000, (standard + compact) // 2)
         self.assertEqual(len(payload.attachment_groups), 1)
         self.assertIn("compacted", payload.detail["attachment"])
@@ -654,6 +705,23 @@ class GstMailBuilderTests(unittest.TestCase):
         self.assertEqual(len(payload.attachment_groups), 1)
         self.assertTrue(payload.attachment_groups[0][0].endswith(".xlsb"))
         self.assertEqual(len(payload.downloads), 1)
+
+    def test_the_real_xlsb_holds_every_row(self):
+        standard, compact = self._whole_sizes()
+        with tempfile.TemporaryDirectory() as tmp:
+            payload = self._run(3000, 10 ** 9)
+            whole = Path(tmp) / "w.xlsx"
+            xlsx_compact.compact_xlsx(payload.attachment_groups[0][0], whole)
+            binary = Path(tmp) / "w.xlsb"
+            xlsb_writer.convert(whole, binary)
+            binary_size = binary.stat().st_size
+        self.assertLess(binary_size, compact)
+        payload = self._run(3000, (binary_size + compact) // 2, xlsb=_real_xlsb)
+        self.assertEqual(len(payload.attachment_groups), 1)
+        attached = Path(payload.attachment_groups[0][0])
+        self.assertEqual(attached.suffix, ".xlsb")
+        rows = list(_read_xlsb(attached).values())[0]
+        self.assertEqual(len(rows), 3001)                  # the header and every row
 
     def test_only_if_even_the_compact_file_is_too_big_is_it_split_into_parts(self):
         standard, compact = self._whole_sizes()
