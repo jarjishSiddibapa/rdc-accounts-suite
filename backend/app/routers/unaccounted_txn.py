@@ -193,10 +193,7 @@ def _job_unaccounted(
         df, total_rows, input_cols, matched, log_messages = run_cpu_phase(
             _cpu_phase_process_unaccounted, paths,
         )
-        unmapped = sorted(
-            df[df["Location"].astype(str).str.strip() == ""]["Supplier Site"]
-            .astype(str).unique().tolist()
-        )
+        unmapped = processing.unmapped_site_labels(df)
         if unmapped:
             log_messages.append(("warn", f"Unmapped supplier sites: {len(unmapped)}"))
             if not allow_unmapped:
@@ -529,7 +526,12 @@ def fix_site_mapping(body: SiteFixBody, user=Depends(get_current_user), db: Sess
     soft-deleted every other fix an in-flight request had just saved.
     """
     incharge = mappings._load_location_incharge(db).get(body.location, "")
-    mappings._upsert_site_override(body.supplier_site, body.location, incharge, db)
+    site, sep, creator = body.supplier_site.partition(processing.CREATOR_LABEL_SEP)
+    if sep and creator.strip() and site.strip() in processing.SPECIAL_SITES:
+        # OFFICE / HOME / TDS TAX Authori resolve through Created By
+        mappings._upsert_creator_mapping(creator, body.location, incharge, db)
+    else:
+        mappings._upsert_site_override(body.supplier_site, body.location, incharge, db)
     return {
         "supplier_site": body.supplier_site,
         "location": body.location,
@@ -871,10 +873,7 @@ def _job_mail_send(
     try:
         if include_ua and ua_paths:
             df_ua, *_ = processing.process_report_multi(ua_paths, log_q)
-            unmapped = sorted(
-                df_ua[df_ua["Location"].astype(str).str.strip() == ""]["Supplier Site"]
-                .astype(str).unique().tolist()
-            )
+            unmapped = processing.unmapped_site_labels(df_ua)
             if unmapped:
                 unmapped_all["unaccounted"] = unmapped
             ua_out = str(output_dir / f"Unaccounted {safe_month_ua} as on {safe_date}.xlsx")

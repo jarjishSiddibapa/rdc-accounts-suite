@@ -49,6 +49,27 @@ def _effective_site_map(site_overrides: dict) -> dict:
     return {**SITE_MAPPING, **usable}
 
 
+# A SPECIAL_SITES row has no location of its own, so the thing to map is the
+# person who created it. The fix list shows "<site> - created by <name>" and
+# /mappings/fix saves that as a Created By mapping (a site override for these
+# sites is ignored, so fixing the bare site name could never take effect).
+CREATOR_LABEL_SEP = " - created by "
+
+
+def unmapped_site_labels(df: "pd.DataFrame") -> list:
+    """Sorted unique fix-list entries for the rows that still have no Location."""
+    open_rows = df[df["Location"].astype(str).str.strip() == ""]
+    labels = set()
+    creators = open_rows["Created By"] if "Created By" in open_rows.columns else [""] * len(open_rows)
+    for site, creator in zip(open_rows["Supplier Site"].astype(str), pd.Series(creators).astype(str)):
+        site, creator = site.strip(), creator.strip()
+        if site in SPECIAL_SITES and creator and creator.lower() != "nan":
+            labels.add(f"{site}{CREATOR_LABEL_SEP}{creator}")
+        else:
+            labels.add(site)
+    return sorted(labels)
+
+
 def _table_not_found(path: str, label: str, anchor: str) -> JobUserError:
     return JobUserError(
         f"'{tabular_input._name(path)}' is not the {label} report: no table with a '{anchor}' column "
