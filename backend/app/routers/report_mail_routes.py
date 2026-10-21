@@ -15,6 +15,7 @@ with access to that application - exactly like the Unaccounted / MRN / PO mail:
                                   (Settings), and logs it.
 """
 
+import re
 import smtplib
 from datetime import UTC, datetime
 from pathlib import Path
@@ -41,6 +42,7 @@ class PreviewBody(BaseModel):
     subject: str
     intro: str
     allow_unmapped: bool = False
+    month: str | None = None    # only for a report built per month (the cashflow)
 
 
 class ConfirmBody(BaseModel):
@@ -69,14 +71,17 @@ def _finished_preview(job_id: str, user) -> dict:
     return result
 
 
-def make_report_mail_router(app_key: str, preview_job) -> APIRouter:
+def make_report_mail_router(app_key: str, preview_job, per_month: bool = False) -> APIRouter:
+    """``per_month``: the report is one month's (the request names it, and the
+    preview job receives it as ``month=``)."""
     router = APIRouter(prefix="/mail")
     spec = mail.SPECS[app_key]
 
     @router.get("/defaults")
     def get_defaults(db: Session = Depends(get_db), user=Depends(get_current_user)):
         settings = mail.get_or_create_settings(db, app_key)
-        recipients = mailer_shared.get_report_recipient_defaults(db, app_key)
+        # To / Cc start from the last mail that was sent, else the admin defaults
+        recipients = mailer_shared.get_prefill_recipients(db, app_key)
         sender = mailer_shared.get_email_settings(user.id)
         return {
             "to": recipients["to"],
@@ -107,8 +112,14 @@ def make_report_mail_router(app_key: str, preview_job) -> APIRouter:
             mail.validate_template(intro, spec.placeholders)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
+        extra = {}
+        if per_month:
+            if not body.month or not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", body.month):
+                raise HTTPException(status_code=400, detail="Month must look like 2026-09.")
+            extra["month"] = body.month
         job_id = submit_job(
-            preview_job, user.id, to_list, cc_list, subject, intro, body.allow_unmapped, owner_id=user.id,
+            preview_job, user.id, to_list, cc_list, subject, intro, body.allow_unmapped,
+            owner_id=user.id, **extra,
         )
         return {"job_id": job_id}
 
@@ -176,6 +187,7 @@ def make_report_mail_router(app_key: str, preview_job) -> APIRouter:
 
         finish_job_action(body.job_id, owner_id=user.id, action="confirm-send", succeeded=True)
         mail.record_manual_send(app_key, user.email, started, "sent", None, recipients, sent, detail_log)
+        mailer_shared.remember_recipients(app_key, result["to"], result["cc"])
         return {"status": "sent", "to": result["to"], "cc": result["cc"], "messages": sent}
 
     return router

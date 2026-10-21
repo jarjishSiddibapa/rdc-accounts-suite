@@ -570,9 +570,13 @@ def process_report(input_path: str, log_q, as_on_date: _dt.date = None, *,
     return df, before, removed, df_unidentified, erp_ok
 
 
-def classify_advance_customers(df: pd.DataFrame, ageing_path: str, log_q) -> tuple:
+def classify_advance_customers(df: pd.DataFrame, ageing_path: str | None, log_q,
+                               ageing_frame: pd.DataFrame | None = None) -> tuple:
     """
     Split df into (df_main, df_advance).
+
+    The ageing is either an uploaded export (`ageing_path`) or the open ageing
+    fetched live from the ERP (`ageing_frame`, see app.services.erp_ageing).
 
     Manual-equivalent steps:
       1. Read ageing file (header at row 13).
@@ -583,8 +587,12 @@ def classify_advance_customers(df: pd.DataFrame, ageing_path: str, log_q) -> tup
          (meaning the customer has NO transaction entries at all).
       6. Rows in File 1 whose Customer Number matches → moved to Advance sheet.
     """
-    log_q.put(("info", f"Reading ageing file ({os.path.splitext(ageing_path)[1].lower()}) …"))
-    ageing = _read_ageing(ageing_path)
+    if ageing_frame is not None:
+        ageing = ageing_frame.copy()
+        log_q.put(("info", "Using the open ageing fetched from the ERP …"))
+    else:
+        log_q.put(("info", f"Reading ageing file ({os.path.splitext(ageing_path)[1].lower()}) …"))
+        ageing = _read_ageing(ageing_path)
 
     # ── find the key columns by name ─────────────────────────────────────────
     type_col  = next((c for c in ageing.columns if "Type" in str(c)), None)

@@ -81,7 +81,30 @@ function formatSentTime(value: string): string {
  * download from right there), and send only when "Confirm & send" is clicked.
  * It sends from the signed-in person's own email identity (Settings).
  */
-export function ReportMailPanel({ baseUrl, reportName }: { baseUrl: string; reportName: string }) {
+export function ReportMailPanel({
+  baseUrl,
+  reportName,
+  month,
+  title = 'Mail this report',
+  description,
+  unmappedHint,
+  onClose,
+  onChanged,
+}: {
+  baseUrl: string
+  reportName: string
+  /** For a report built per month (the cashflow): the month, sent with the preview request. */
+  month?: string
+  title?: string
+  /** Replaces the sentence under the title. */
+  description?: string
+  /** Replaces the hint under the unmapped values. */
+  unmappedHint?: string
+  /** Shows a Close button, for a panel that is opened on demand. */
+  onClose?: () => void
+  /** Called when a preview finished or a mail was sent (building the report can change stored data). */
+  onChanged?: () => void
+}) {
   const [defaults, setDefaults] = useState<Defaults | null>(null)
   const [toText, setToText] = useState('')
   const [ccText, setCcText] = useState('')
@@ -140,6 +163,7 @@ export function ReportMailPanel({ baseUrl, reportName }: { baseUrl: string; repo
         subject,
         intro,
         allow_unmapped: allowUnmapped,
+        ...(month ? { month } : {}),
       })
       setJobId(res.job_id)
     } catch (err) {
@@ -173,6 +197,7 @@ export function ReportMailPanel({ baseUrl, reportName }: { baseUrl: string; repo
       setSent(res.messages)
       setResult(null)
       setJobId(null)
+      onChanged?.()
     } catch (err) {
       if (err instanceof ApiError && err.status === 408) {
         // The server keeps sending after the browser gives up, so the mail may still go out.
@@ -213,14 +238,23 @@ export function ReportMailPanel({ baseUrl, reportName }: { baseUrl: string; repo
         <div>
           <p className="text-sm font-semibold text-accent">Email</p>
           <h2 className="mt-1.5 font-display text-xl font-semibold tracking-[-0.025em] text-ink">
-            Mail this report
+            {title}
           </h2>
           <p className="mt-1 text-sm leading-6 text-ink-dim">
-            Builds the {reportName} from the latest ERP data and shows you exactly how the email will
-            look. Nothing is sent until you click Confirm &amp; send, and you can download the report
-            from the preview.
+            {description ?? (
+              <>
+                Builds the {reportName} from the latest ERP data and shows you exactly how the email will
+                look. Nothing is sent until you click Confirm &amp; send, and you can download the report
+                from the preview.
+              </>
+            )}
           </p>
         </div>
+        {onClose && (
+          <Button variant="ghost" className="ml-auto" onClick={onClose}>
+            Close
+          </Button>
+        )}
       </div>
 
       {!defaults.sender_configured && (
@@ -278,7 +312,10 @@ export function ReportMailPanel({ baseUrl, reportName }: { baseUrl: string; repo
         <ProgressPanel
           jobId={jobId}
           poller={pollPreview}
-          onDone={(res) => setResult(res ?? null)}
+          onDone={(res) => {
+            setResult(res ?? null)
+            onChanged?.()
+          }}
           onError={(message) => { setError(message); setJobId(null) }}
           onCancel={() => post(`${baseUrl}/jobs/${jobId}/cancel`)}
         />
@@ -316,7 +353,7 @@ export function ReportMailPanel({ baseUrl, reportName }: { baseUrl: string; repo
             </p>
           ))}
           <p className="text-sm text-ink-dim">
-            Add them in the mapping tables on this page and preview again, or preview anyway - they show as "-".
+            {unmappedHint ?? 'Add them in the mapping tables on this page and preview again, or preview anyway - they show as "-".'}
           </p>
           <div className="flex justify-end">
             <Button variant="secondary" loading={starting} onClick={() => void handlePreview(true)}>

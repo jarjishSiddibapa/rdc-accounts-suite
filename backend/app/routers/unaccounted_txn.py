@@ -812,12 +812,13 @@ def remove_excluded_po(po_number: str, user=Depends(get_current_user), db: Sessi
 def get_mail_defaults(db: Session = Depends(get_db)):
     """Return the desktop mailer's original editable starting values.
 
-    Recipient rows remain admin-managed in the centralized database; the
+    To / Cc start from the last mail that was sent (else the admin-managed
+    defaults in the centralized database); the
     subject and intro are generated with the same helpers used for the final
     email so the compose form and send-time preview cannot drift apart.
     """
     default_month = now_ist().strftime("%b-%y")
-    recipients = mailer_shared.get_report_recipient_defaults(db, "unaccounted")
+    recipients = mailer_shared.get_prefill_recipients(db, "unaccounted")
     return {
         "to": recipients["to"],
         "cc": recipients["cc"],
@@ -1089,6 +1090,8 @@ def mail_confirm_send(
         action="confirm-send",
         succeeded=True,
     )
+    # the next mail starts from the To / Cc that was just used
+    mailer_shared.remember_recipients("unaccounted", result["to"], result["cc"])
 
     return {
         "status": "sent",

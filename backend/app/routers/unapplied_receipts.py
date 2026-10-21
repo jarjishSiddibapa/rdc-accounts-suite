@@ -5,8 +5,8 @@ Ports the desktop app's flow onto the shared FastAPI backend (see
 docstring):
 
   1. POST /process          – upload the Unapplied Receipts Register export
-                               + the Ageing export (+ an optional "as on"
-                               date), run process_report -> classify_advance
+                               (+ an optional "as on" date; the ageing is
+                               fetched from the ERP), run process_report -> classify_advance
                                _customers -> _validate_before_save ->
                                write_formatted_excel as a background job.
   2. GET  /jobs/{job_id}     – poll job status/progress.
@@ -46,6 +46,7 @@ from app.database import SessionLocal, get_db
 from app.jobs import cancel_job, get_job, run_cpu_phase, submit_job
 from app.models import User
 from app.permissions import require_app_access
+from app.services.erp_ageing import fetch_ageing_from_erp
 from app.services.unapplied_receipts import mapping_store, processor
 from app.uploads import save_upload
 
@@ -119,7 +120,8 @@ class _CollectingLogQueue:
         self.messages.append(item)
 
 
-def _cpu_phase_classify_and_validate(df, ageing_path, incharge_map, supplier_site_map):
+def _cpu_phase_classify_and_validate(df, ageing_path, incharge_map, supplier_site_map,
+                                     ageing_frame=None):
     """Classify + validate only - pure pandas CPU work with no I/O, so this
     runs on the CPU process pool. Split out from the write step below so the
     caller can skip the (much more expensive) workbook write entirely when
@@ -127,7 +129,7 @@ def _cpu_phase_classify_and_validate(df, ageing_path, incharge_map, supplier_sit
     classify/validate itself."""
     log_q = _CollectingLogQueue()
     df_main, df_advance, _salesperson_map = processor.classify_advance_customers(
-        df, ageing_path, log_q,
+        df, ageing_path, log_q, ageing_frame=ageing_frame,
     )
     validation_errors = processor._validate_before_save(df_main, incharge_map, supplier_site_map)
     validation_warnings = [
@@ -151,7 +153,7 @@ def _cpu_phase_write_report(df_main, df_advance, output_path, as_on_date, df_uni
 
 # ── /process job pipeline ───────────────────────────────────────────────────
 
-def _run_process_job(input_path: str, ageing_path: str, output_path: str,
+def _run_process_job(input_path: str, ageing_path: Optional[str], output_path: str,
                       as_on_date_str: Optional[str], allow_unmapped: bool = False,
                       progress_cb=None, cancel_event=None) -> dict:
     """Runs in the background job pool (a plain thread, not tied to any
@@ -179,13 +181,23 @@ def _run_process_job(input_path: str, ageing_path: str, output_path: str,
             cancel_event=cancel_event,
         )
 
+        # No ageing file uploaded: the open ageing comes straight from the ERP, so the
+        # advance-customer check is always against today's data.
+        ageing_frame = None
+        if not ageing_path:
+            if progress_cb:
+                progress_cb(0.45, "Fetching the open ageing from the ERP...")
+            ageing_frame = fetch_ageing_from_erp(
+                _ORACLE_CFG, log_q=log_q, cancel_event=cancel_event, include_buckets=False,
+            )
+
         if progress_cb:
             progress_cb(0.55, "Classifying and validating...")
         # Pure pandas CPU work, no Oracle/DB - runs on the CPU process pool
         # for real multi-core throughput.
         df_main, df_advance, validation_warnings, cpu_log_messages = run_cpu_phase(
             _cpu_phase_classify_and_validate,
-            df, ageing_path, incharge_map, supplier_site_map,
+            df, ageing_path, incharge_map, supplier_site_map, ageing_frame,
         )
         log_q.messages.extend(cpu_log_messages)
 
@@ -214,7 +226,8 @@ def _run_process_job(input_path: str, ageing_path: str, output_path: str,
         log_q.messages.extend(cpu_log_messages)
     finally:
         Path(input_path).unlink(missing_ok=True)
-        Path(ageing_path).unlink(missing_ok=True)
+        if ageing_path:
+            Path(ageing_path).unlink(missing_ok=True)
 
     filename = f"Unapplied_Receipts_Report_As_On_{as_on_date.isoformat()}.xlsx"
     log_q.put(("ok", f"Done - {filename}"))
@@ -240,7 +253,7 @@ def _run_process_job(input_path: str, ageing_path: str, output_path: str,
 @router.post("/process")
 async def submit_process(
     file: UploadFile = File(...),
-    ageing_file: UploadFile = File(...),
+    ageing_file: Optional[UploadFile] = File(None),
     as_on_date: Optional[str] = Form(None),
     allow_unmapped: bool = Form(False),
     user: User = Depends(get_current_user),
@@ -248,8 +261,9 @@ async def submit_process(
     """Real signature behind this: processor.process_report(input_path,
     log_q, as_on_date, oracle_cfg=, supplier_site_map=) followed by
     processor.classify_advance_customers(df, ageing_path, log_q) — ``file``
-    is the Unapplied Receipts Register export, ``ageing_file`` is the
-    Ageing export classify_advance_customers reads, and ``as_on_date`` is an
+    is the Unapplied Receipts Register export, ``ageing_file`` is an optional
+    Ageing export (when it is left out, the open ageing is fetched live from
+    the ERP), and ``as_on_date`` is an
     optional ISO (YYYY-MM-DD) form field that defaults server-side to today
     (IST), same as process_report's own default when as_on_date is None."""
     if as_on_date:
@@ -259,13 +273,15 @@ async def submit_process(
             raise HTTPException(status_code=400, detail="as_on_date must be an ISO date (YYYY-MM-DD)")
 
     input_path = await save_upload(file, SCRATCH_DIR)
-    ageing_path = await save_upload(ageing_file, SCRATCH_DIR)
+    ageing_path = (
+        await save_upload(ageing_file, SCRATCH_DIR) if ageing_file is not None and ageing_file.filename else None
+    )
     output_path = SCRATCH_DIR / f"{input_path.stem}_Unapplied_Receipts_Report.xlsx"
 
     job_id = submit_job(
         _run_process_job,
         str(input_path),
-        str(ageing_path),
+        str(ageing_path) if ageing_path else None,
         str(output_path),
         as_on_date,
         allow_unmapped=allow_unmapped,

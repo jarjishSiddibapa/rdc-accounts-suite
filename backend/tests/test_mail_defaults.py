@@ -44,7 +44,7 @@ class MailTemplateDefaultsTests(unittest.TestCase):
         }
         with patch.object(
             mailer_shared,
-            "get_report_recipient_defaults",
+            "get_prefill_recipients",
             return_value=recipients,
         ):
             defaults = unaccounted_txn.get_mail_defaults(db=object())

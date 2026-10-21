@@ -5,6 +5,7 @@ import {
   Download,
   FileSpreadsheet,
   ListChecks,
+  Mail,
   RefreshCw,
   Settings2,
   Trash2,
@@ -19,6 +20,7 @@ import { CreatableCombobox } from "@/components/CreatableCombobox";
 import { LoadingNotice } from "@/components/LoadingNotice";
 import { Modal } from "@/components/Modal";
 import { Pagination } from "@/components/Pagination";
+import { ReportMailPanel } from "@/components/ReportMailPanel";
 import { usePagination } from "@/hooks/usePagination";
 import { ApiError, apiUrl, del, get, post, postForm } from "@/lib/api";
 import { formatIndianDateTime, formatIndianNumber } from "@/lib/regional";
@@ -626,6 +628,12 @@ export function UploadPanel({
   );
   const [genOutcome, setGenOutcome] = useState<GenerateOutcome | null>(null);
   const [fixMonth, setFixMonth] = useState<string | null>(null);
+  const [mailMonth, setMailMonth] = useState<string | null>(null);
+  const mailPanelRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    // the mail panel opens below the table, so bring it into view
+    if (mailMonth) mailPanelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [mailMonth]);
   const [historyKey, setHistoryKey] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const autoDownload = useRef<string | null>(null); // month to save as soon as "Download anyway" finishes
@@ -973,6 +981,17 @@ export function UploadPanel({
                           <Button
                             variant="ghost"
                             className="min-h-9 px-3 py-1.5"
+                            icon={<Mail className="h-4 w-4" />}
+                            disabled={Boolean(genJob)}
+                            onClick={() => setMailMonth(row.month)}
+                          >
+                            Regenerate &amp; mail
+                          </Button>
+                        )}
+                        {row.transactions > 0 && (
+                          <Button
+                            variant="ghost"
+                            className="min-h-9 px-3 py-1.5"
                             icon={<ListChecks className="h-4 w-4" />}
                             onClick={() => onReview(row.month)}
                           >
@@ -1021,6 +1040,22 @@ export function UploadPanel({
           />
         )}
       </GlassCard>
+
+      {mailMonth && (
+        <div ref={mailPanelRef}>
+        <ReportMailPanel
+          key={mailMonth}
+          baseUrl={BASE}
+          reportName="cashflow"
+          month={mailMonth}
+          title={`Regenerate & mail the ${monthLabel(mailMonth)} cashflow`}
+          description="Rebuilds the cashflow of this month from the stored bank lines and the current mappings, then shows you exactly how the email will look, with the workbook attached. Nothing is sent until you click Confirm & send."
+          unmappedHint="Fix them under Fix mappings or Review lines and preview again, or preview anyway - those lines are highlighted in the workbook and left out of the table."
+          onClose={() => setMailMonth(null)}
+          onChanged={() => void reloadMonths()}
+        />
+        </div>
+      )}
 
       <StatementHistory refreshKey={historyKey} onRemoved={() => void reloadMonths()} />
     </div>

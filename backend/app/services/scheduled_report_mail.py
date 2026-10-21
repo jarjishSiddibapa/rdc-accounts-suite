@@ -67,6 +67,7 @@ class MailSpec:
     default_subject: str
     default_intro: str
     placeholders: tuple[str, ...]
+    scheduled: bool = True      # False: only ever mailed by hand (preview, then confirm)
 
 
 SPECS: dict[str, MailSpec] = {
@@ -90,6 +91,17 @@ SPECS: dict[str, MailSpec] = {
             "Please find attached the receivable ageing as on {date} with the GST invoice numbers added."
         ),
         placeholders=("date", "total", "found", "blank"),
+    ),
+    "ultrafine-cashflow": MailSpec(
+        app_key="ultrafine-cashflow",
+        label="Ultrafine Cashflow",
+        default_subject="UF - Cash Flow as of {date}",
+        default_intro=(
+            "Dear All,\n\n"
+            "Please find the cash flow details and summary as of {date_plain}."
+        ),
+        placeholders=("date", "date_plain", "month"),
+        scheduled=False,
     ),
 }
 
@@ -421,7 +433,8 @@ def _wrap_html(intro_text: str, sections: list[tuple[str, str]], notes: list[str
     if intro_note:
         parts.append('<p style="margin:0 0 12px 0;"><b>' + html.escape(intro_note) + "</b></p>")
     for heading, table_html in sections:
-        parts.append(f'<p style="margin:14px 0 4px 0;"><b>{html.escape(heading)}</b></p>\n{table_html}')
+        title = f'<p style="margin:14px 0 4px 0;"><b>{html.escape(heading)}</b></p>\n' if heading else ""
+        parts.append(f"{title}{table_html}")
     for note in notes:
         parts.append(
             '<p style="margin:12px 0 0 0;color:#7a4b00;"><i>' + html.escape(note) + "</i></p>"
@@ -599,7 +612,9 @@ def enqueue_due_checks() -> list[str]:
     from app.jobs import submit_job
 
     started: list[str] = []
-    for app_key in SPECS:
+    for app_key, spec in SPECS.items():
+        if not spec.scheduled:
+            continue
         db = SessionLocal()
         try:
             row = (

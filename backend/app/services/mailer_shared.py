@@ -18,12 +18,13 @@ import logging
 import os
 import re
 import time
+from datetime import datetime
 
 import openpyxl
 from openpyxl.utils.cell import range_boundaries
 
 from app.database import SessionLocal
-from app.models import ApplicationEmailRecipient, EmailSettings, ReportRecipientDefaults
+from app.models import ApplicationEmailRecipient, EmailSettings, LastMailRecipients, ReportRecipientDefaults
 from app.regional import format_indian_number
 from app.security import decrypt
 from app.validation import normalize_email
@@ -130,6 +131,47 @@ def get_report_recipient_defaults(db=None, app_key: str = "unaccounted") -> dict
     finally:
         if owns_session:
             db.close()
+
+
+def get_prefill_recipients(db, app_key: str) -> dict:
+    """To / Cc a new report mail starts with: those of the last mail this
+    application sent, else the admin-managed defaults. They stay editable."""
+    row = (
+        db.query(LastMailRecipients)
+        .filter(LastMailRecipients.app_key == app_key, LastMailRecipients.is_deleted == False)  # noqa: E712
+        .first()
+    )
+    if row is not None:
+        try:
+            to_list = json.loads(row.to_list) if row.to_list else []
+            cc_list = json.loads(row.cc_list) if row.cc_list else []
+        except (ValueError, TypeError):
+            to_list = cc_list = []
+        if to_list:
+            return {"to": to_list, "cc": cc_list}
+    return get_report_recipient_defaults(db, app_key)
+
+
+def remember_recipients(app_key: str, to_list: list[str], cc_list: list[str]) -> None:
+    """Keep the To / Cc of a mail that was just sent as the next mail's starting
+    point. Never raises: a failure here must not turn a sent mail into an error."""
+    if not to_list:
+        return
+    db = SessionLocal()
+    try:
+        row = db.query(LastMailRecipients).filter(LastMailRecipients.app_key == app_key).first()
+        if row is None:
+            row = LastMailRecipients(app_key=app_key)
+            db.add(row)
+        row.to_list, row.cc_list = json.dumps(list(to_list)), json.dumps(list(cc_list))
+        row.is_deleted = False
+        row.updated_at = datetime.utcnow()
+        db.commit()
+    except Exception:  # noqa: BLE001 - see docstring
+        db.rollback()
+        logger.exception("Could not remember the recipients of the %s mail", app_key)
+    finally:
+        db.close()
 
 
 # ── Credential helpers ────────────────────────────────────────────────────────

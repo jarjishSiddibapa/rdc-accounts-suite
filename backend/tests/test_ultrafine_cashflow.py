@@ -682,6 +682,39 @@ class ApiTests(unittest.TestCase):
         half = store.find_named(db, Party, "Half Done")
         self.assertIsNotNone(half.cf_location_id)
 
+    def test_regenerate_and_mail_builds_the_table_and_attaches_the_workbook(self):
+        from app.services.ultrafine_cashflow import auto_mail
+
+        r, db = self.router, self.db
+        r._job_ingest([str(self._write_statement())], ["stmt.csv"], 1)
+        scratch = self.tmp / "scratch"
+        spec = auto_mail.mail.SPECS["ultrafine-cashflow"]
+        snapshot = {"subject_template": spec.default_subject, "intro_template": spec.default_intro,
+                    "signature": "Thanks & Regards,\nHitanshi", "send_when_unmapped": False}
+        with patch.object(auto_mail, "SessionLocal", self.session_factory), \
+                patch.object(auto_mail, "SCRATCH_DIR", scratch):
+            held = auto_mail.build(snapshot, month="2026-09")
+            self.assertIn("not mapped", held.hold_reason)
+            self.assertTrue(held.detail["unmapped"])
+
+            payload = auto_mail.build({**snapshot, "send_when_unmapped": True}, month="2026-09")
+        self.assertIsNone(payload.hold_reason)
+        self.assertEqual(payload.values["date"], "4th September, 2026")
+        message = auto_mail.mail.compose_messages(snapshot, payload)[0]
+        self.assertEqual(message["subject"], "UF - Cash Flow as of 4th September, 2026")
+        self.assertIn("Cash Flow as of 4th September, 2026", message["html_body"])
+        self.assertIn("Amt in Lacs", message["html_body"])
+        self.assertIn("Payable (80 % Of Collection)", message["html_body"])
+        self.assertIn("as of 4th September 2026.", message["html_body"])
+        self.assertIn("Hitanshi", message["html_body"])
+        self.assertEqual([Path(p).name for p in message["attachments"]], ["UF_Cashflow_Sep_26.xlsx"])
+        self.assertTrue(Path(message["attachments"][0]).is_file())
+
+    def test_lakhs_are_whole_numbers_with_brackets_for_negatives(self):
+        from app.services.ultrafine_cashflow.auto_mail import _lakhs
+
+        self.assertEqual([_lakhs(1042.4), _lakhs(-369.6), _lakhs(0.2), _lakhs(None)], ["1,042", "(370)", "-", "-"])
+
     def test_a_name_or_location_in_use_by_a_hand_made_line_cannot_be_archived(self):
         r, db = self.router, self.db
         r._job_ingest([str(self._write_statement())], ["s.csv"], 1)

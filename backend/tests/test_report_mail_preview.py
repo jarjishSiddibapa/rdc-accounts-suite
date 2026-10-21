@@ -112,7 +112,8 @@ class RoutesTests(_DbCase):
         self.addCleanup(self.tmp.cleanup)
         for target, value in (
             ("get_email_settings", lambda uid: SENDER),
-            ("get_report_recipient_defaults", lambda db, key: {"to": ["a@rdc.in"], "cc": ["b@rdc.in"]}),
+            ("get_prefill_recipients", lambda db, key: {"to": ["a@rdc.in"], "cc": ["b@rdc.in"]}),
+            ("remember_recipients", lambda *args: None),
         ):
             patcher = patch.object(report_mail_routes.mailer_shared, target, value)
             patcher.start()

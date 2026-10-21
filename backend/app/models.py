@@ -121,6 +121,24 @@ class ApplicationEmailRecipient(Base):
     is_deleted = Column(Boolean, default=False, nullable=False)
 
 
+class LastMailRecipients(Base):
+    """The To / Cc of the last report mail an application actually sent, so
+    the next mail starts from them. Separate from the admin-managed defaults
+    (ApplicationEmailRecipient), which the automatic mails keep using."""
+
+    __tablename__ = "last_mail_recipients"
+    __table_args__ = (
+        UniqueConstraint("app_key", name="uq_last_mail_recipients_app_key"),
+    )
+
+    id = Column(Integer, primary_key=True)
+    app_key = Column(String(64), nullable=False)
+    to_list = Column(Text, nullable=True)  # JSON-encoded list[str]
+    cc_list = Column(Text, nullable=True)  # JSON-encoded list[str]
+    updated_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    is_deleted = Column(Boolean, default=False, nullable=False)
+
+
 class SystemEmailSettings(Base):
     """The single application-level sender identity (distinct from each
     user's own EmailSettings above) — used for password-reset emails and

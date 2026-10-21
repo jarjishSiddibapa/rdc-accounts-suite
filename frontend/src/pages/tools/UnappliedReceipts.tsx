@@ -433,7 +433,6 @@ function MappingSection({ config }: { config: MappingConfig }) {
 
 export default function UnappliedReceipts() {
   const [mainFile, setMainFile] = useState<File | null>(null)
-  const [ageingFile, setAgeingFile] = useState<File | null>(null)
   const [asOnDate, setAsOnDate] = useState('')
 
   const [submitting, setSubmitting] = useState(false)
@@ -472,12 +471,8 @@ export default function UnappliedReceipts() {
     setMainFile(files[0] ?? null)
   }
 
-  function handleAgeingFileSelected(files: File[]) {
-    setAgeingFile(files[0] ?? null)
-  }
-
   async function handleProcess(allowUnmapped = false) {
-    if (!mainFile || !ageingFile) return
+    if (!mainFile) return
     autoDownload.current = allowUnmapped
     setSubmitting(true)
     setProcessError(null)
@@ -487,7 +482,6 @@ export default function UnappliedReceipts() {
     try {
       const fd = new FormData()
       fd.append('file', mainFile)
-      fd.append('ageing_file', ageingFile)
       if (asOnDate) fd.append('as_on_date', asOnDate)
       if (allowUnmapped) fd.append('allow_unmapped', 'true')
       const res = await postForm<{ job_id: string }>(`${BASE}/process`, fd)
@@ -513,7 +507,7 @@ export default function UnappliedReceipts() {
     a.remove()
   }
 
-  const canProcess = Boolean(mainFile && ageingFile)
+  const canProcess = Boolean(mainFile)
   const validationWarnings = result?.validation_warnings ?? []
 
   return (
@@ -533,34 +527,22 @@ export default function UnappliedReceipts() {
                 Generate unapplied receipts report
               </h2>
               <p className="mt-1 text-sm leading-6 text-ink-dim">
-                Upload the Unapplied Receipts Register export and the Ageing export, then generate
-                the formatted workbook (Summary, Unapplied Receipts, Advance of Customers and
-                Unidentified Customers sheets).
+                Upload the Unapplied Receipts Register export, then generate the formatted workbook
+                (Summary, Unapplied Receipts, Advance of Customers and Unidentified Customers
+                sheets). The ageing is fetched from the ERP, so there is no ageing file to upload.
               </p>
             </div>
           </div>
 
-          <div className="grid gap-5 lg:grid-cols-2">
-            <div className="flex flex-col gap-2">
-              <span className="text-sm font-medium text-ink-dim">Unapplied Receipts Register export</span>
-              <FileDropzone
-                accept={EXCEL_ACCEPT}
-                label="Drag & drop the register export here, or click to browse"
-                files={mainFile ? [mainFile] : []}
-                onFilesSelected={handleMainFileSelected}
-                onRemove={() => setMainFile(null)}
-              />
-            </div>
-            <div className="flex flex-col gap-2">
-              <span className="text-sm font-medium text-ink-dim">Ageing export</span>
-              <FileDropzone
-                accept={EXCEL_ACCEPT}
-                label="Drag & drop the ageing export here, or click to browse"
-                files={ageingFile ? [ageingFile] : []}
-                onFilesSelected={handleAgeingFileSelected}
-                onRemove={() => setAgeingFile(null)}
-              />
-            </div>
+          <div className="flex flex-col gap-2">
+            <span className="text-sm font-medium text-ink-dim">Unapplied Receipts Register export</span>
+            <FileDropzone
+              accept={EXCEL_ACCEPT}
+              label="Drag & drop the register export here, or click to browse"
+              files={mainFile ? [mainFile] : []}
+              onFilesSelected={handleMainFileSelected}
+              onRemove={() => setMainFile(null)}
+            />
           </div>
 
           <label className="flex flex-col gap-2 sm:max-w-xs">
