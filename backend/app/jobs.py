@@ -107,6 +107,20 @@ _DETACHED_TASKS = frozenset(
 )
 
 
+# Customer-facing mail batches. If a worker dies partway through one, running
+# the whole job again would e-mail the recipients that were already reached a
+# second time, so recovery marks it failed instead of re-queueing it.
+_NO_RERUN_AFTER_CRASH = frozenset(
+    {
+        "app.routers.unaccounted_txn:_job_mail_send",
+        "app.routers.ultrafine_balance_confirmation:_job_send",
+        "app.routers.ultrafine_payment_reminder:_job_send",
+        "app.routers.ultrafine_fse_reminder:_job_send_rows",
+        "app.routers.ultrafine_fse_reminder:_job_send_broadcast",
+    }
+)
+
+
 class _NoopLogQueue:
     def put(self, item) -> None:
         pass
@@ -718,6 +732,14 @@ def _recover_stale_jobs(db, now: datetime) -> None:
         if job.cancel_requested:
             job.status = "cancelled"
             job.phase = "Cancelled"
+            job.finished_at = now
+        elif job.task_name in _NO_RERUN_AFTER_CRASH:
+            job.status = "error"
+            job.error = (
+                "The server stopped while these emails were being sent, so the batch was not "
+                "repeated (some recipients may already have received theirs). Check the Sent "
+                "folder before sending again."
+            )
             job.finished_at = now
         elif job.attempts >= config.JOB_MAX_ATTEMPTS:
             job.status = "error"

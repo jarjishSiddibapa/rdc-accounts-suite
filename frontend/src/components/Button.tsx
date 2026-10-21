@@ -11,7 +11,7 @@ interface ButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
 }
 
 const base =
-  'relative inline-flex min-h-11 w-full items-center justify-center gap-2 whitespace-nowrap rounded-xl px-5 py-2.5 text-sm font-semibold tracking-[-0.01em] transition duration-200 hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.985] disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0 disabled:active:scale-100 focus-visible:outline-2 focus-visible:outline-accent sm:w-auto'
+  'relative inline-flex min-h-11 w-full items-center justify-center gap-2 whitespace-nowrap rounded-xl px-5 py-2.5 text-sm font-semibold tracking-[-0.01em] transition duration-200 hover:-translate-y-0.5 active:translate-y-0 active:scale-[0.985] disabled:cursor-not-allowed disabled:opacity-50 disabled:shadow-none disabled:hover:translate-y-0 disabled:active:scale-100 focus-visible:outline-2 focus-visible:outline-accent sm:w-auto'
 
 const variants: Record<Variant, string> = {
   primary:
@@ -19,7 +19,7 @@ const variants: Record<Variant, string> = {
   secondary:
     'border border-border bg-surface text-ink shadow-[inset_0_1px_0_var(--surface-highlight),0_8px_20px_-18px_rgba(var(--shadow-rgb),0.45)] hover:border-accent/40 hover:text-accent',
   ghost: 'border border-transparent text-ink-dim hover:border-border hover:bg-bg-soft/80 hover:text-ink',
-  danger: 'border border-red-600 bg-red-600 text-white shadow-[0_12px_24px_-16px_rgba(220,38,38,0.72)] hover:bg-red-700 hover:border-red-700',
+  danger: 'border border-red-600 bg-red-600 text-white shadow-[0_12px_24px_-16px_rgba(220,38,38,0.72)] hover:bg-red-700 hover:border-red-700 disabled:saturate-50',
 }
 
 export function Button({
