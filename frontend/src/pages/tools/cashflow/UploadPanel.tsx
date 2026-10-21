@@ -30,6 +30,7 @@ import {
   type MappingOptions,
   type MonthRow,
   type Unmapped,
+  type UnmappedOther,
 } from "./shared";
 import { EXCEL_ACCEPT } from '@/lib/fileTypes'
 
@@ -77,6 +78,94 @@ interface KnownParty {
   location: string;
   effective_cf_location: string;
   sharing_group: string;
+}
+
+/** One "other" issue: a name still missing its location / CF location is fixed right here. */
+function OtherIssue({
+  item,
+  options,
+  onFixed,
+}: {
+  item: UnmappedOther;
+  options: MappingOptions;
+  onFixed: () => void;
+}) {
+  const [location, setLocation] = useState("");
+  const [cf, setCf] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const lines = `${formatIndianNumber(item.count)} line${item.count === 1 ? "" : "s"}`;
+  const needsLocation = item.issue === "no_location";
+  const fixableHere =
+    item.source === "party" &&
+    Boolean(item.name) &&
+    (needsLocation || item.issue === "no_cf_location");
+
+  async function save() {
+    setBusy(true);
+    setError(null);
+    try {
+      await post(`${BASE}/mappings/fix-party`, {
+        party: item.name,
+        location: needsLocation ? location || null : null,
+        cf_location: cf || null,
+      });
+      onFixed();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not save the mapping.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const where =
+    item.source === "split"
+      ? "Fix the typed split under Review lines."
+      : item.source === "ratio"
+        ? "Fix the sharing ratio's CF location under Mappings → Sharing ratios."
+        : "Fix it under Mappings.";
+
+  return (
+    <div className="flex flex-col gap-2">
+      <p className="text-sm text-ink">
+        <strong>{item.name || item.sample}</strong> — {ISSUE_TEXT[item.issue] ?? item.issue} ({lines})
+        {fixableHere ? "" : `. ${where}`}
+      </p>
+      {error && <ErrorBanner>{error}</ErrorBanner>}
+      {fixableHere && (
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+          {needsLocation && (
+            <CreatableCombobox
+              placeholder="Location"
+              ariaLabel={`Location for ${item.name}`}
+              value={location}
+              options={options.locations}
+              suggestionLabel="Existing locations"
+              onChange={setLocation}
+              className="w-full sm:w-64"
+            />
+          )}
+          <CreatableCombobox
+            placeholder="CF location"
+            ariaLabel={`CF location for ${item.name}`}
+            value={cf}
+            options={options.cf_locations}
+            suggestionLabel="CF locations"
+            onChange={setCf}
+            className="w-full sm:w-64"
+          />
+          <Button
+            variant="secondary"
+            loading={busy}
+            disabled={!cf.trim() || (needsLocation && !location.trim())}
+            onClick={() => void save()}
+          >
+            Save
+          </Button>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function FixPanel({
@@ -299,20 +388,20 @@ function FixPanel({
       )}
 
       {(data.other ?? []).length > 0 && (
-        <div className="subpanel flex flex-col gap-2 p-3">
+        <div className="subpanel flex flex-col gap-3 p-3">
           <span className="text-xs font-bold tracking-[0.08em] text-amber-600 uppercase">
             Other things to fix
           </span>
           {data.other.map((item) => (
-            <p
-              key={`${item.issue}-${item.name}-${item.sample}`}
-              className="text-sm text-ink"
-            >
-              <strong>{item.name || item.sample}</strong> —{" "}
-              {ISSUE_TEXT[item.issue] ?? item.issue} (
-              {formatIndianNumber(item.count)} line{item.count === 1 ? "" : "s"}
-              ). Fix it under Mappings.
-            </p>
+            <OtherIssue
+              key={`${item.issue}-${item.name}-${item.sample}-${item.source}`}
+              item={item}
+              options={options}
+              onFixed={() => {
+                void load();
+                onChanged();
+              }}
+            />
           ))}
         </div>
       )}
@@ -320,8 +409,8 @@ function FixPanel({
       <p className="text-xs text-ink-faint">
         Not everything is known yet? <strong>Download anyway</strong> builds the
         workbook now. Lines that are still unmapped are highlighted with a
-        Remark and shown on a "Not mapped" row of the Summary, so the totals
-        still add up. Map them later and regenerate.
+        Remark on the Payments / Receipts sheets and are left out of the Summary
+        figures until they are mapped. Map them later and regenerate.
       </p>
 
       <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">

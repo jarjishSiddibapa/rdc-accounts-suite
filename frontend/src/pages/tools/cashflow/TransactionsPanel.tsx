@@ -43,6 +43,18 @@ interface TxnPage {
   items: Txn[]
 }
 
+interface KnownParty {
+  name: string
+  location: string
+  effective_cf_location: string
+  sharing_group: string
+}
+
+interface LocationRow {
+  name: string
+  cf_location: string
+}
+
 interface SplitDraft {
   location: string
   cf_location: string
@@ -62,27 +74,66 @@ function OverrideModal({
 }) {
   const [party, setParty] = useState('')
   const [partyLocation, setPartyLocation] = useState('')
+  const [partyCf, setPartyCf] = useState('')
   const [splits, setSplits] = useState<SplitDraft[]>([])
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [knownParties, setKnownParties] = useState<KnownParty[]>([])
+  const [locationRows, setLocationRows] = useState<LocationRow[]>([])
 
   useEffect(() => {
     if (!txn) return
     setParty(txn.party_override ? txn.name : '')
     setPartyLocation('')
+    setPartyCf('')
     setSplits(
       txn.splits.map((s) => ({ location: s.location, cf_location: s.cf_location, amount: String(s.amount) })),
     )
     setError(null)
+    // what each name and location already has decides which boxes are needed below
+    void (async () => {
+      try {
+        setKnownParties(await get<KnownParty[]>(`${BASE}/mappings/parties`))
+        setLocationRows(await get<LocationRow[]>(`${BASE}/mappings/locations`))
+      } catch {
+        // not critical: the server still validates and explains what is missing
+      }
+    })()
   }, [txn])
 
   const total = useMemo(
     () => splits.reduce((sum, s) => sum + (Number.parseFloat(s.amount) || 0), 0),
     [splits],
   )
+
+  /** The CF location a location rolls up to by itself: its default, or a CF location of the same name. */
+  function defaultCfFor(location: string): string {
+    const typed = location.trim().toLowerCase()
+    if (!typed) return ''
+    const row = locationRows.find((l) => l.name.trim().toLowerCase() === typed)
+    if (row?.cf_location) return row.cf_location
+    return options.cf_locations.find((c) => c.trim().toLowerCase() === typed) ?? ''
+  }
+
+  /** What the typed name still needs: nothing for a complete, known name. */
+  function partyNeeds(): { location: boolean; cf: boolean } {
+    const typed = party.trim().toLowerCase()
+    if (!typed) return { location: false, cf: false }
+    const known = knownParties.find((p) => p.name.trim().toLowerCase() === typed)
+    if (!known) return { location: true, cf: true }
+    if (known.sharing_group) return { location: false, cf: false }
+    if (!known.location) return { location: true, cf: true }
+    return { location: false, cf: !known.effective_cf_location }
+  }
+
   if (!txn) return null
   const difference = Math.round((txn.amount - total) * 100) / 100
-  const splitInvalid = splits.length > 0 && (difference !== 0 || splits.some((s) => !s.location.trim()))
+  const needs = partyNeeds()
+  const splitNeedsCf = (s: SplitDraft) => !s.cf_location.trim() && !defaultCfFor(s.location)
+  const splitInvalid =
+    splits.length > 0 &&
+    (difference !== 0 || splits.some((s) => !s.location.trim() || splitNeedsCf(s)))
+  const partyInvalid = (needs.location && !partyLocation.trim()) || (needs.cf && !partyCf.trim())
 
   async function save(clear = false) {
     if (!txn) return
@@ -91,7 +142,8 @@ function OverrideModal({
     try {
       await put(`${BASE}/transactions/${txn.id}/override`, {
         party: clear ? null : party.trim() || null,
-        party_location: clear ? null : partyLocation.trim() || null,
+        party_location: clear || !needs.location ? null : partyLocation.trim() || null,
+        party_cf_location: clear || !needs.cf ? null : partyCf.trim() || null,
         splits: clear
           ? []
           : splits.map((s) => ({
@@ -133,16 +185,47 @@ function OverrideModal({
             for several customers).
           </span>
         </label>
-        <label className="flex flex-col gap-1.5 text-sm">
-          <span className="font-medium text-ink-dim">Location (only if the name is new)</span>
-          <CreatableCombobox
-            value={partyLocation}
-            options={options.locations}
-            onChange={setPartyLocation}
-            placeholder="Location of the new name"
-            suggestionLabel="Existing locations"
-          />
-        </label>
+        {(needs.location || needs.cf) && (
+          <div className="subpanel flex flex-col gap-3 p-3">
+            <p className="text-xs text-ink-dim">
+              {needs.location
+                ? `"${party.trim()}" is not placed yet - choose its location and CF location. It is remembered for every line with this name.`
+                : `"${party.trim()}" has a location but no CF location - choose one.`}
+            </p>
+            <div className="flex flex-col gap-3 sm:flex-row">
+              {needs.location && (
+                <label className="flex flex-1 flex-col gap-1.5 text-sm">
+                  <span className="font-medium text-ink-dim">Location</span>
+                  <CreatableCombobox
+                    value={partyLocation}
+                    options={options.locations}
+                    onChange={(location) => {
+                      setPartyLocation(location)
+                      const fallback = defaultCfFor(location)
+                      if (fallback && !partyCf.trim()) setPartyCf(fallback)
+                    }}
+                    placeholder="Location of this name"
+                    ariaLabel="Location of this name"
+                    suggestionLabel="Existing locations"
+                  />
+                </label>
+              )}
+              {needs.cf && (
+                <label className="flex flex-1 flex-col gap-1.5 text-sm">
+                  <span className="font-medium text-ink-dim">CF location</span>
+                  <CreatableCombobox
+                    value={partyCf}
+                    options={options.cf_locations}
+                    onChange={setPartyCf}
+                    placeholder="CF location of this name"
+                    ariaLabel="CF location of this name"
+                    suggestionLabel="CF locations"
+                  />
+                </label>
+              )}
+            </div>
+          </div>
+        )}
 
         <div className="flex flex-col gap-2">
           <div className="flex items-center justify-between">
@@ -186,7 +269,13 @@ function OverrideModal({
               <CreatableCombobox
                 value={split.cf_location}
                 options={options.cf_locations}
-                placeholder="CF location (optional)"
+                placeholder={
+                  split.location.trim() && !defaultCfFor(split.location)
+                    ? 'CF location (required for this location)'
+                    : defaultCfFor(split.location)
+                      ? `CF location (default: ${defaultCfFor(split.location)})`
+                      : 'CF location'
+                }
                 ariaLabel={`CF location of split line ${index + 1}`}
                 onChange={(cf_location) =>
                   setSplits((previous) => previous.map((s, i) => (i === index ? { ...s, cf_location } : s)))
@@ -237,7 +326,7 @@ function OverrideModal({
             <Button variant="secondary" onClick={onClose}>
               Cancel
             </Button>
-            <Button loading={busy} disabled={splitInvalid} onClick={() => void save()}>
+            <Button loading={busy} disabled={splitInvalid || partyInvalid} onClick={() => void save()}>
               Save
             </Button>
           </div>

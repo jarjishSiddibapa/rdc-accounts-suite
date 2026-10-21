@@ -616,6 +616,65 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(r.month_transactions("2026-09", direction="C", db=db, user=None)["total"], 1)
         self.assertEqual(self._http_error(r.set_override, 999999, r.OverrideIn(), db=db, user=None).status_code, 404)
 
+    def test_line_override_needs_the_cf_location_of_a_new_name_and_of_a_split_line(self):
+        r, db = self.router, self.db
+        r._job_ingest([str(self._write_statement())], ["s.csv"], 1)
+        txn_id = r.month_transactions("2026-09", status="issues", db=db, user=None)["items"][0]["id"]
+
+        # a new name with only a location used to be saved and then reported as "no CF location"
+        bad = self._http_error(r.set_override, txn_id,
+                               r.OverrideIn(party="Hand Made Co", party_location="Brand New Site"), db=db, user=None)
+        self.assertEqual(bad.status_code, 400)
+        self.assertIn("CF location", bad.detail)
+        self.assertIsNone(store.find_named(db, Party, "Hand Made Co"))
+
+        r.set_override(txn_id, r.OverrideIn(party="Hand Made Co", party_location="Brand New Site",
+                                            party_cf_location="Flyash Business"), db=db, user=None)
+        row = r.month_transactions("2026-09", q="mystery", db=db, user=None)["items"][0]
+        self.assertEqual((row["issues"], row["allocations"][0]["cf_location"]), ([], "Flyash Business"))
+
+        # a split on a location with no default CF location must say which CF location
+        store.save_location(db, None, "Loose End", None)
+        db.commit()
+        split = [r.SplitIn(location="Loose End", amount=5000)]
+        bad = self._http_error(r.set_override, txn_id, r.OverrideIn(splits=split), db=db, user=None)
+        self.assertEqual(bad.status_code, 400)
+        self.assertIn("Loose End", bad.detail)
+        r.set_override(txn_id, r.OverrideIn(splits=[r.SplitIn(location="Loose End", cf_location="Main Operation",
+                                                              amount=5000)]), db=db, user=None)
+        self.assertEqual(r.month_transactions("2026-09", status="issues", db=db, user=None)["total"], 0)
+
+    def test_an_existing_name_without_a_cf_location_can_be_completed_from_the_fix_panel(self):
+        r, db = self.router, self.db
+        store.save_party(db, None, "Half Done", "Loose Site", None, None)     # location only, no default CF
+        store.save_alias(db, None, "MYSTERY PAYEE", "Half Done")
+        db.commit()
+        r._job_ingest([str(self._write_statement())], ["s.csv"], 1)
+        other = r.month_unmapped("2026-09", db=db, user=None)["other"]
+        self.assertEqual([(o["issue"], o["name"], o["source"]) for o in other],
+                         [("no_cf_location", "Half Done", "party")])
+        self.assertEqual(self._http_error(r.fix_party, r.FixPartyIn(party="Half Done"), db=db, user=None).status_code, 400)
+        r.fix_party(r.FixPartyIn(party="Half Done", cf_location="Flyash Business"), db=db, user=None)
+        self.assertEqual(r.month_unmapped("2026-09", db=db, user=None)["other"], [])
+
+    def test_a_name_or_location_in_use_by_a_hand_made_line_cannot_be_archived(self):
+        r, db = self.router, self.db
+        r._job_ingest([str(self._write_statement())], ["s.csv"], 1)
+        txn_id = r.month_transactions("2026-09", status="issues", db=db, user=None)["items"][0]["id"]
+        r.set_override(txn_id, r.OverrideIn(party="Wada Vendor", party_location="Wada",
+                                            party_cf_location="Main Operation"), db=db, user=None)
+        party = store.find_named(db, Party, "Wada Vendor")
+        self.assertEqual(self._http_error(r.remove_party, party.id, db=db, user=None).status_code, 400)
+        r.set_override(txn_id, r.OverrideIn(splits=[r.SplitIn(location="Flyash", amount=5000)]), db=db, user=None)
+        flyash = store.find_named(db, Location, "Flyash")
+        self.assertEqual(self._http_error(r.remove_location, flyash.id, db=db, user=None).status_code, 400)
+        main = store.find_named(db, CfLocation, "Main Operation")
+        r.save_setup("2026-09", r.SetupIn(inputs=[r.InputIn(cf_location="Flyash Business", opening_balance=1)]),
+                     db=db, user=None)
+        fly_cf = store.find_named(db, CfLocation, "Flyash Business")
+        self.assertEqual(self._http_error(r.remove_cf_location, fly_cf.id, db=db, user=None).status_code, 400)
+        self.assertIsNotNone(main)
+
     def test_a_date_or_time_cannot_be_saved_as_a_description_key(self):
         for junk in ("17:22:01", "08/10/2026 18:08:14"):
             error = self._http_error(self.router.add_alias,

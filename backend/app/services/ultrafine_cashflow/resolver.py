@@ -50,7 +50,7 @@ ISSUE_SPLIT_MISMATCH = "split_mismatch"
 ISSUE_TEXT = {
     ISSUE_NO_PARTY: "Description not mapped to a name",
     ISSUE_NO_LOCATION: "Name has no location",
-    ISSUE_NO_CF: "Location has no CF location",
+    ISSUE_NO_CF: "No CF location chosen",
     ISSUE_NO_RATIO: "No sharing ratio in force on this date",
     ISSUE_SPLIT_MISMATCH: "Typed split does not add up to the bank amount",
 }
@@ -118,6 +118,10 @@ class Allocation:
     location: str
     cf_location: str
     issues: list[str] = field(default_factory=list)
+    # where the line was placed: the name's own location ("party"), a typed
+    # split ("split") or a sharing-ratio line ("ratio"); only a "party" line
+    # can be fixed by completing the name itself
+    source: str = "party"
 
 
 def party_for(txn: Transaction, maps: Maps) -> Party | None:
@@ -147,12 +151,13 @@ def _split_evenly(total: Decimal, ratios: list[float]) -> list[Decimal]:
 
 
 def allocate(txn: Transaction, maps: Maps, splits: list[TransactionSplit]) -> list[Allocation]:
-    def make(name: str, amount: Decimal, location: str, cf: str, *issues: str) -> Allocation:
+    def make(name: str, amount: Decimal, location: str, cf: str, *issues: str,
+             source: str = "party") -> Allocation:
         return Allocation(
             txn_id=txn.id, txn_dt=txn.txn_dt, direction=txn.direction,
             description=txn.description, reference_no=txn.reference_no or "",
             txn_amount=Decimal(txn.amount), name=name, amount=amount,
-            location=location, cf_location=cf, issues=list(issues),
+            location=location, cf_location=cf, issues=list(issues), source=source,
         )
 
     party = party_for(txn, maps)
@@ -170,7 +175,7 @@ def allocate(txn: Transaction, maps: Maps, splits: list[TransactionSplit]) -> li
             elif cf is None:
                 issues.append(ISSUE_NO_CF)
             rows.append(make(name, Decimal(split.amount), location.name if location else "",
-                             cf.name if cf else "", *issues))
+                             cf.name if cf else "", *issues, source="split"))
         if sum((r.amount for r in rows), Decimal("0")) != total:
             for row in rows:
                 row.issues.append(ISSUE_SPLIT_MISMATCH)
@@ -182,7 +187,7 @@ def allocate(txn: Transaction, maps: Maps, splits: list[TransactionSplit]) -> li
     if party.sharing_group_id is not None and party.sharing_group_id in maps.groups:
         lines = ratio_lines_for(maps, party.sharing_group_id, txn.txn_dt)
         if not lines:
-            return [make(name, total, "", "", ISSUE_NO_RATIO)]
+            return [make(name, total, "", "", ISSUE_NO_RATIO, source="ratio")]
         rows = []
         for line, share in zip(lines, _split_evenly(total, [l.ratio for l in lines])):
             location = maps.locations.get(line.location_id)
@@ -193,7 +198,7 @@ def allocate(txn: Transaction, maps: Maps, splits: list[TransactionSplit]) -> li
             elif cf is None:
                 issues.append(ISSUE_NO_CF)
             rows.append(make(name, share, location.name if location else "",
-                             cf.name if cf else "", *issues))
+                             cf.name if cf else "", *issues, source="ratio"))
         return rows
 
     location = maps.locations.get(party.location_id) if party.location_id else None
@@ -264,8 +269,9 @@ def unmapped_summary(allocations: list[Allocation], maps: Maps) -> dict:
                 entry["total"] += row.amount
             else:
                 entry = other.setdefault(
-                    (issue, row.name or row.description[:60]),
-                    {"issue": issue, "name": row.name, "sample": row.description[:80], "count": 0},
+                    (issue, row.name or row.description[:60], row.source),
+                    {"issue": issue, "name": row.name, "sample": row.description[:80], "count": 0,
+                     "source": row.source},
                 )
                 entry["count"] += 1
     return {
@@ -273,5 +279,5 @@ def unmapped_summary(allocations: list[Allocation], maps: Maps) -> dict:
             {**v, "total": float(v["total"])}
             for v in sorted(no_party.values(), key=lambda v: -v["total"])
         ],
-        "other": sorted(other.values(), key=lambda v: (v["issue"], v["name"])),
+        "other": sorted(other.values(), key=lambda v: (v["issue"], v["name"], v["source"])),
     }

@@ -22,9 +22,12 @@ from .models import (
     Location,
     Party,
     SharingGroup,
+    MonthInput,
     SharingRatioLine,
     SharingRatioSet,
     SummaryGroup,
+    Transaction,
+    TransactionSplit,
 )
 
 
@@ -172,9 +175,13 @@ def archive_cf_location(db: Session, row_id: int) -> None:
         any(l.cf_location_id == row_id for l in _all(db, Location))
         or any(p.cf_location_id == row_id for p in _all(db, Party))
         or any(l.cf_location_id == row_id for l in _all(db, SharingRatioLine))
+        or any(s.cf_location_id == row_id for s in _all(db, TransactionSplit))
+        or any(m.cf_location_id == row_id for m in _all(db, MonthInput))
     )
     if used:
-        raise MappingError("This CF location is still used by a location, party or sharing ratio.")
+        raise MappingError(
+            "This CF location is still used by a location, name, sharing ratio, typed split "
+            "or month setup.")
     _archive(db, CfLocation, row_id, "CF location")
 
 
@@ -199,9 +206,10 @@ def archive_location(db: Session, row_id: int) -> None:
     used = (
         any(p.location_id == row_id for p in _all(db, Party))
         or any(l.location_id == row_id for l in _all(db, SharingRatioLine))
+        or any(s.location_id == row_id for s in _all(db, TransactionSplit))
     )
     if used:
-        raise MappingError("This location is still used by a party or sharing ratio.")
+        raise MappingError("This location is still used by a name, sharing ratio or typed split.")
     _archive(db, Location, row_id, "Location")
 
 
@@ -363,7 +371,18 @@ def save_party(db: Session, row_id: int | None, name: str, location: str | None,
 def archive_party(db: Session, row_id: int) -> None:
     if any(a.party_id == row_id for a in _all(db, DescriptionAlias)):
         raise MappingError("Remove or re-point this party's description aliases first.")
+    if db.query(Transaction.id).filter(
+            Transaction.party_id == row_id, Transaction.is_deleted == False).first() is not None:  # noqa: E712
+        raise MappingError("This name is set by hand on one or more bank lines - remove those changes first.")
     _archive(db, Party, row_id, "Party")
+
+
+def location_has_cf(db: Session, location: Location | None) -> bool:
+    """True when money placed on `location` ends on a CF location without anything else
+    being chosen: its default, or a CF location of the same name."""
+    if location is None:
+        return False
+    return location.cf_location_id is not None or find_named(db, CfLocation, location.name) is not None
 
 
 def _cf_known(db: Session, party: Party) -> bool:
@@ -385,16 +404,21 @@ def get_or_create_party(db: Session, name: str, location: str | None = None,
     overwrites a mapping."""
     name = require_name(name, "Party name")
     row = find_named(db, Party, name)
-    location_id = _resolve(db, Location, location, "Location") if location else None
     cf_id = _resolve(db, CfLocation, cf_location, "CF location") if cf_location else None
+    # A typed location that does not exist yet is created (like Mappings > Names does), but only
+    # when this name actually takes it - an already-placed name ignores the field.
+    needs_location = row is None or (row.location_id is None and row.sharing_group_id is None)
+    location_given = bool(location and clean_name(location))
     if require_placement:
         # The fix panel: a name that is new, or has no location yet, needs its
         # location and CF location together; a fully known name needs neither.
-        if row is None or (row.location_id is None and row.sharing_group_id is None):
-            if location_id is None or cf_id is None:
+        if needs_location:
+            if not location_given or cf_id is None:
                 raise MappingError(f"'{name}' is a new name - choose its location and CF location.")
         elif row.sharing_group_id is None and not _cf_known(db, row) and cf_id is None:
             raise MappingError(f"'{row.name}' has no CF location - choose one.")
+    location_id = (_resolve(db, Location, location, "Location", create=True)
+                   if location_given and needs_location else None)
     if row is None:
         row = Party(name=name, location_id=location_id, cf_location_id=cf_id)
         db.add(row)
@@ -404,7 +428,8 @@ def get_or_create_party(db: Session, name: str, location: str | None = None,
             row.location_id = location_id
             if row.cf_location_id is None and cf_id is not None:
                 row.cf_location_id = cf_id
-        elif require_placement and row.sharing_group_id is None and row.cf_location_id is None                 and not _cf_known(db, row) and cf_id is not None:
+        elif require_placement and row.sharing_group_id is None and row.cf_location_id is None \
+                and not _cf_known(db, row) and cf_id is not None:
             row.cf_location_id = cf_id
     db.flush()
     return row

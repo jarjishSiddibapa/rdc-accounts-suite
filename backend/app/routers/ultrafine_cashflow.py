@@ -294,6 +294,7 @@ class SplitIn(BaseModel):
 class OverrideIn(BaseModel):
     party: Optional[str] = None
     party_location: Optional[str] = None
+    party_cf_location: Optional[str] = None
     splits: list[SplitIn] = []
 
 
@@ -305,8 +306,12 @@ def set_override(txn_id: int, body: OverrideIn, db: Session = Depends(get_db),
         raise HTTPException(status_code=404, detail="Transaction not found")
 
     def apply():
+        # A new name (or one still without a place) needs its location and CF location
+        # together, like the fix panel; a half-placed name would only come back as
+        # "no CF location".
         txn.party_id = (
-            store.get_or_create_party(db, body.party, body.party_location).id
+            store.get_or_create_party(db, body.party, body.party_location, body.party_cf_location,
+                                      require_placement=True).id
             if body.party and body.party.strip() else None
         )
         resolved = []
@@ -323,6 +328,10 @@ def set_override(txn_id: int, body: OverrideIn, db: Session = Depends(get_db),
                 amount = Decimal(str(line.amount)).quantize(Decimal("0.01"))
             except InvalidOperation as exc:
                 raise store.MappingError("Split amounts must be numbers.") from exc
+            if cf is None and not store.location_has_cf(db, location):
+                raise store.MappingError(
+                    f"Location '{location.name}' has no default CF location - choose a CF location "
+                    "for that split line.")
             resolved.append((location.id, cf.id if cf else None, amount))
         if resolved and sum(a for _, _, a in resolved) != Decimal(txn.amount):
             raise store.MappingError(
@@ -646,6 +655,20 @@ def resolve_key(body: ResolveKeyIn, db: Session = Depends(get_db), user: User = 
                                           require_placement=True)
         return store.save_alias(db_, None, body.desc_key, party.name)
     return _commit(db, apply)
+
+
+class FixPartyIn(BaseModel):
+    party: str
+    location: Optional[str] = None
+    cf_location: Optional[str] = None
+
+
+@router.post("/mappings/fix-party")
+def fix_party(body: FixPartyIn, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Fix panel: complete an existing name that still lacks a location or CF
+    location. Never overwrites what the name already has."""
+    return _commit(db, lambda db_: {"id": store.get_or_create_party(
+        db_, body.party, body.location, body.cf_location, require_placement=True).id})
 
 
 @router.get("/mappings/sharing-groups")

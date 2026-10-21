@@ -35,6 +35,8 @@ export interface UnmappedOther {
   name: string
   sample: string
   count: number
+  /** where the line was placed: the name's own location, a typed split, or a sharing-ratio line */
+  source?: 'party' | 'split' | 'ratio'
 }
 
 export interface Unmapped {
@@ -88,7 +90,7 @@ export function money(value: number, digits = 2): string {
 export const ISSUE_TEXT: Record<string, string> = {
   no_party: 'Description not mapped to a name',
   no_location: 'Name has no location',
-  no_cf_location: 'Location has no CF location',
+  no_cf_location: 'No CF location chosen',
   no_ratio: 'No sharing ratio in force on this date',
   split_mismatch: 'Typed split does not add up to the bank amount',
 }
