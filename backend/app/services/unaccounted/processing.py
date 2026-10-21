@@ -36,15 +36,17 @@ def _resolve_incharge(loc: str, stored_inc: str, loc_incharge_map: dict) -> str:
     return loc_incharge_map.get(loc, stored_inc) or stored_inc
 
 
-# Sites that carry no location of their own. Like the desktop app: a site mapping saved for one
-# of them (the missing-mapping popup does that) applies to all its rows; only rows still without
-# a Location are inferred from their Created By (see process_report).
+# Sites that carry no location of their own: the row's Location / Incharge is
+# always inferred from its Created By (see process_report). A saved site
+# override for one of these would short-circuit that inference for every row.
 SPECIAL_SITES = {"OFFICE", "HOME", "TDS TAX Authori"}
 
 
 def _effective_site_map(site_overrides: dict) -> dict:
-    """Built-in site table plus saved site overrides."""
-    return {**SITE_MAPPING, **site_overrides}
+    """Built-in site table plus saved site overrides, minus any override for a
+    SPECIAL_SITES name so those sites always resolve through Created By."""
+    usable = {k: v for k, v in site_overrides.items() if str(k).strip() not in SPECIAL_SITES}
+    return {**SITE_MAPPING, **usable}
 
 
 def _table_not_found(path: str, label: str, anchor: str) -> JobUserError:
