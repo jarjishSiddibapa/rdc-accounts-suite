@@ -86,22 +86,24 @@ interface KnownParty {
 function OtherIssue({
   item,
   options,
+  knownLocation,
   onFixed,
 }: {
   item: UnmappedOther;
   options: MappingOptions;
+  knownLocation: string;
   onFixed: () => void;
 }) {
-  const [location, setLocation] = useState("");
+  const [location, setLocation] = useState(knownLocation);
   const [cf, setCf] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const lines = `${formatIndianNumber(item.count)} line${item.count === 1 ? "" : "s"}`;
-  const needsLocation = item.issue === "no_location";
+  // a name is always placed with its location and CF location together
   const fixableHere =
     item.source === "party" &&
     Boolean(item.name) &&
-    (needsLocation || item.issue === "no_cf_location");
+    (item.issue === "no_location" || item.issue === "no_cf_location");
 
   async function save() {
     setBusy(true);
@@ -109,7 +111,7 @@ function OtherIssue({
     try {
       await post(`${BASE}/mappings/fix-party`, {
         party: item.name,
-        location: needsLocation ? location || null : null,
+        location: location || null,
         cf_location: cf || null,
       });
       onFixed();
@@ -136,17 +138,15 @@ function OtherIssue({
       {error && <ErrorBanner>{error}</ErrorBanner>}
       {fixableHere && (
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-          {needsLocation && (
-            <CreatableCombobox
-              placeholder="Location"
-              ariaLabel={`Location for ${item.name}`}
-              value={location}
-              options={options.locations}
-              suggestionLabel="Existing locations"
-              onChange={setLocation}
-              className="w-full sm:w-64"
-            />
-          )}
+          <CreatableCombobox
+            placeholder="Location"
+            ariaLabel={`Location for ${item.name}`}
+            value={location}
+            options={options.locations}
+            suggestionLabel="Existing locations"
+            onChange={setLocation}
+            className="w-full sm:w-64"
+          />
           <CreatableCombobox
             placeholder="CF location"
             ariaLabel={`CF location for ${item.name}`}
@@ -159,7 +159,7 @@ function OtherIssue({
           <Button
             variant="secondary"
             loading={busy}
-            disabled={!cf.trim() || (needsLocation && !location.trim())}
+            disabled={!cf.trim() || !location.trim()}
             onClick={() => void save()}
           >
             Save
@@ -399,6 +399,10 @@ function FixPanel({
               key={`${item.issue}-${item.name}-${item.sample}-${item.source}`}
               item={item}
               options={options}
+              knownLocation={
+                knownParties.find((p) => p.name.trim().toLowerCase() === item.name.trim().toLowerCase())
+                  ?.location ?? ""
+              }
               onFixed={() => {
                 void load();
                 onChanged();

@@ -99,20 +99,22 @@ function OverrideModal({
     [splits],
   )
 
-  /** What the typed name still needs: nothing for a complete, known name. */
-  function partyNeeds(): { location: boolean; cf: boolean } {
-    const typed = party.trim().toLowerCase()
-    if (!typed) return { location: false, cf: false }
-    const known = knownParties.find((p) => p.name.trim().toLowerCase() === typed)
-    if (!known) return { location: true, cf: true }
-    if (known.sharing_group) return { location: false, cf: false }
-    if (!known.location) return { location: true, cf: true }
-    return { location: false, cf: !known.effective_cf_location }
-  }
+  /** Whether the typed name must be placed here: always its location and CF location together. */
+  const typedParty = party.trim().toLowerCase()
+  const known = typedParty
+    ? knownParties.find((p) => p.name.trim().toLowerCase() === typedParty)
+    : undefined
+  const placeNeeded =
+    Boolean(typedParty) && !known?.sharing_group && !(known?.location && known.effective_cf_location)
+
+  // a name that has a location already offers it, so only the CF location is left to type
+  useEffect(() => {
+    setPartyLocation(placeNeeded ? (known?.location ?? '') : '')
+  }, [typedParty, placeNeeded, known?.location])
 
   if (!txn) return null
   const difference = Math.round((txn.amount - total) * 100) / 100
-  const needs = partyNeeds()
+  const needs = { location: placeNeeded, cf: placeNeeded }
   // a location never comes without its CF location
   const splitNeedsCf = (s: SplitDraft) => !s.cf_location.trim()
   const splitInvalid =
@@ -173,9 +175,7 @@ function OverrideModal({
         {(needs.location || needs.cf) && (
           <div className="subpanel flex flex-col gap-3 p-3">
             <p className="text-xs text-ink-dim">
-              {needs.location
-                ? `"${party.trim()}" is not placed yet - choose its location and CF location. It is remembered for every line with this name.`
-                : `"${party.trim()}" has a location but no CF location - choose one.`}
+              {`"${party.trim()}" is not placed yet - choose its location and CF location together. It is remembered for every line with this name.`}
             </p>
             <div className="flex flex-col gap-3 sm:flex-row">
               {needs.location && (

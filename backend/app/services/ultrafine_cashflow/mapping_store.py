@@ -405,7 +405,12 @@ def get_or_create_party(db: Session, name: str, location: str | None = None,
     # when this name actually takes it - an already-placed name ignores the field.
     needs_location = row is None or (row.location_id is None and row.sharing_group_id is None)
     location_given = bool(location and clean_name(location))
-    if needs_location and location_given and cf_id is None:
+    # A name that has a location but still no CF location is asked for both again, so its
+    # location may be corrected together with the CF location it is missing.
+    half_placed = (row is not None and not needs_location and row.sharing_group_id is None
+                   and not _cf_known(db, row))
+    takes_location = needs_location or half_placed
+    if takes_location and location_given and cf_id is None:
         # a location never comes without its CF location
         raise MappingError(f"'{name}' has a location - choose its CF location too.")
     if require_placement:
@@ -416,14 +421,19 @@ def get_or_create_party(db: Session, name: str, location: str | None = None,
                 raise MappingError(f"'{name}' is a new name - choose its location and CF location.")
         elif row.sharing_group_id is None and not _cf_known(db, row) and cf_id is None:
             raise MappingError(f"'{row.name}' has no CF location - choose one.")
+    if require_placement and half_placed and not location_given:
+        raise MappingError(f"'{row.name}' has no CF location - choose its location and CF location.")
     location_id = (_resolve(db, Location, location, "Location", create=True)
-                   if location_given and needs_location else None)
+                   if location_given and takes_location else None)
     if row is None:
         row = Party(name=name, location_id=location_id, cf_location_id=cf_id)
         db.add(row)
     else:
         row.is_deleted = False
-        if row.location_id is None and row.sharing_group_id is None and location_id is not None:
+        if half_placed and location_id is not None and cf_id is not None:
+            row.location_id = location_id
+            row.cf_location_id = cf_id
+        elif row.location_id is None and row.sharing_group_id is None and location_id is not None:
             row.location_id = location_id
             if row.cf_location_id is None and cf_id is not None:
                 row.cf_location_id = cf_id

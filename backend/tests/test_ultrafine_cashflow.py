@@ -661,8 +661,26 @@ class ApiTests(unittest.TestCase):
         self.assertEqual([(o["issue"], o["name"], o["source"]) for o in other],
                          [("no_cf_location", "Half Done", "party")])
         self.assertEqual(self._http_error(r.fix_party, r.FixPartyIn(party="Half Done"), db=db, user=None).status_code, 400)
-        r.fix_party(r.FixPartyIn(party="Half Done", cf_location="Flyash Business"), db=db, user=None)
+        # the CF location alone is not enough: both are asked for together
+        self.assertEqual(self._http_error(r.fix_party, r.FixPartyIn(party="Half Done", cf_location="Flyash Business"),
+                                          db=db, user=None).status_code, 400)
+        r.fix_party(r.FixPartyIn(party="Half Done", location="Loose Site", cf_location="Flyash Business"),
+                    db=db, user=None)
         self.assertEqual(r.month_unmapped("2026-09", db=db, user=None)["other"], [])
+
+    def test_line_override_asks_a_half_placed_name_for_location_and_cf_together(self):
+        r, db = self.router, self.db
+        store.save_location(db, None, "Loose Site", None)
+        db.add(Party(name="Half Done", location_id=store.find_named(db, Location, "Loose Site").id))
+        db.commit()
+        r._job_ingest([str(self._write_statement())], ["s.csv"], 1)
+        txn_id = r.month_transactions("2026-09", status="issues", db=db, user=None)["items"][0]["id"]
+        only_cf = r.OverrideIn(party="Half Done", party_cf_location="Flyash Business")
+        self.assertEqual(self._http_error(r.set_override, txn_id, only_cf, db=db, user=None).status_code, 400)
+        r.set_override(txn_id, r.OverrideIn(party="Half Done", party_location="Loose Site",
+                                            party_cf_location="Flyash Business"), db=db, user=None)
+        half = store.find_named(db, Party, "Half Done")
+        self.assertIsNotNone(half.cf_location_id)
 
     def test_a_name_or_location_in_use_by_a_hand_made_line_cannot_be_archived(self):
         r, db = self.router, self.db
