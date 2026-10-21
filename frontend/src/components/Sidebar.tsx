@@ -163,7 +163,7 @@ export function Sidebar({
       transition={{ layout: { type: 'spring', stiffness: 380, damping: 36, mass: 0.8 } }}
       style={isDesktop && !collapsed && width ? { width: `${width}px` } : undefined}
       className={cn(
-        'glass relative flex w-64 shrink-0 flex-col gap-5 overflow-hidden rounded-[1.25rem] p-3.5',
+        'glass flex w-72 shrink-0 flex-col gap-5 overflow-hidden rounded-[1.25rem] p-3.5',
         !resizing && 'transition-transform duration-300',
         'xl:translate-x-0',
         collapsed ? 'xl:w-20 xl:px-3' : 'xl:w-64',
