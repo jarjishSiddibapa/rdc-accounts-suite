@@ -36,6 +36,9 @@
   --color-accent-2: #3731a5;
   --color-accent-3: #746ce2;
   --color-warm: #d97706;
+
+  /* the small-control radius, shared by compact fields, pagination, badges and small buttons */
+  --radius-lg: 0.625rem;
 }
 
 :root {
@@ -192,6 +195,23 @@
     cursor: pointer;
   }
 
+  /* checkboxes, radios and sliders carry the suite accent wherever they appear */
+  input[type='checkbox'],
+  input[type='radio'],
+  input[type='range'],
+  progress {
+    accent-color: var(--color-accent);
+  }
+
+  /* taps register at once: no double-tap-zoom wait on touch screens */
+  button,
+  a,
+  select,
+  summary,
+  [role='button'] {
+    touch-action: manipulation;
+  }
+
   input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='file']),
   select,
   textarea {
@@ -221,13 +241,82 @@
       0 8px 24px -18px color-mix(in oklab, var(--color-accent) 48%, transparent);
   }
 
-  .temporal-picker-control {
+  /* One size for every text control. Search boxes, date pickers and some
+     selects used to drift to 16px text and 46-49px height next to the 14px /
+     44px rest; a fixed height also stops the native date inner padding
+     from making pickers taller than their neighbours. Textareas keep
+     their own height. */
+  input.field-control,
+  select.field-control {
+    height: 2.75rem;
+    padding-block: 0;
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+  }
+
+  textarea.field-control {
+    font-size: 0.875rem;
+    line-height: 1.375rem;
+  }
+
+  /* The smaller control family (pagination, table toolbars): same radius
+     language as the rest, 36px on desktop, back to a 44px touch target on phones. */
+  .field-control.field-control--compact {
+    min-height: 2.75rem;
+    height: 2.75rem;
+    border-radius: 0.625rem;
+    padding-inline: 0.75rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+  }
+
+  @media (min-width: 40rem) {
+    .field-control.field-control--compact {
+      min-height: 2.25rem;
+      height: 2.25rem;
+    }
+  }
+
+  /* Every dropdown looks like part of the suite instead of the OS control:
+     one chevron, one inset, light and dark. */
+  select:not([multiple]):not([size]) {
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none' stroke='%23687287' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m5 7.5 5 5 5-5'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 0.8rem center;
+    background-size: 1rem;
+    padding-inline-end: 2.5rem;
+    text-overflow: ellipsis;
+  }
+
+  [data-theme="dark"] select:not([multiple]):not([size]) {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none' stroke='%239ba3b7' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m5 7.5 5 5 5-5'/%3E%3C/svg%3E");
+  }
+
+  select.field-control.field-control--compact:not([multiple]):not([size]) {
+    background-position: right 0.55rem center;
+    background-size: 0.9rem;
+    padding-inline-end: 1.75rem;
+  }
+
+  /* Date, month and time inputs share one look wherever they appear, not
+     only where the picker component wraps them. */
+  .temporal-picker-control,
+  input[type='date'],
+  input[type='month'],
+  input[type='time'],
+  input[type='datetime-local'] {
     cursor: pointer;
     font-variant-numeric: tabular-nums;
     letter-spacing: 0.01em;
   }
 
-  .temporal-picker-control::-webkit-calendar-picker-indicator {
+  .temporal-picker-control::-webkit-calendar-picker-indicator,
+  input[type='date']::-webkit-calendar-picker-indicator,
+  input[type='month']::-webkit-calendar-picker-indicator,
+  input[type='time']::-webkit-calendar-picker-indicator,
+  input[type='datetime-local']::-webkit-calendar-picker-indicator {
     cursor: pointer;
     border-radius: 0.5rem;
     padding: 0.35rem;
@@ -238,7 +327,15 @@
   }
 
   .temporal-picker-control:hover::-webkit-calendar-picker-indicator,
-  .temporal-picker-control:focus::-webkit-calendar-picker-indicator {
+  .temporal-picker-control:focus::-webkit-calendar-picker-indicator,
+  input[type='date']:hover::-webkit-calendar-picker-indicator,
+  input[type='date']:focus::-webkit-calendar-picker-indicator,
+  input[type='month']:hover::-webkit-calendar-picker-indicator,
+  input[type='month']:focus::-webkit-calendar-picker-indicator,
+  input[type='time']:hover::-webkit-calendar-picker-indicator,
+  input[type='time']:focus::-webkit-calendar-picker-indicator,
+  input[type='datetime-local']:hover::-webkit-calendar-picker-indicator,
+  input[type='datetime-local']:focus::-webkit-calendar-picker-indicator {
     background-color: color-mix(in oklab, var(--color-accent) 10%, transparent);
     opacity: 1;
   }
@@ -356,6 +453,16 @@
       0 16px 45px -34px rgba(var(--shadow-rgb), 0.55);
   }
 
+  /* Every table row answers the pointer the same way (only background-color,
+     so nothing reflows). A row that sets its own background keeps it. */
+  .table-shell tbody tr {
+    transition: background-color 0.14s ease;
+  }
+
+  .table-shell tbody tr:hover {
+    background-color: color-mix(in oklab, var(--color-accent) 4.5%, transparent);
+  }
+
   .app-shell-frame {
     --shell-inset: 0.75rem;
     width: 100%;
@@ -439,63 +546,9 @@
 
   .auth-brand-surface {
     position: relative;
-    isolation: isolate;
     overflow: hidden;
-    border: 1px solid rgba(255, 255, 255, 0.1);
     border-radius: var(--radius-panel);
-    background:
-      linear-gradient(135deg, rgba(255, 255, 255, 0.05), transparent 42%),
-      linear-gradient(155deg, #10162e 0%, #20265b 58%, #5046d8 132%);
-    box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.12),
-      0 30px 70px -44px rgba(18, 35, 75, 0.78);
-  }
-
-  .auth-brand-surface::before,
-  .auth-brand-surface::after {
-    position: absolute;
-    content: '';
-    pointer-events: none;
-  }
-
-  .auth-brand-surface::before {
-    inset: 0;
-    background-image:
-      linear-gradient(rgba(255, 255, 255, 0.045) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(255, 255, 255, 0.045) 1px, transparent 1px);
-    background-size: 64px 64px;
-    mask-image: linear-gradient(135deg, black, transparent 80%);
-    -webkit-mask-image: linear-gradient(135deg, black, transparent 80%);
-  }
-
-  .auth-brand-surface::after {
-    width: 28rem;
-    height: 28rem;
-    right: -14rem;
-    bottom: -12rem;
-    border: 1px solid rgba(255, 255, 255, 0.15);
-    border-radius: 50%;
-    box-shadow:
-      0 0 0 5rem rgba(255, 255, 255, 0.022),
-      0 0 0 10rem rgba(255, 255, 255, 0.014);
-  }
-
-  .auth-form-zone {
-    position: relative;
-  }
-
-  .auth-form-zone::before {
-    position: absolute;
-    z-index: -1;
-    width: 24rem;
-    height: 24rem;
-    top: 6%;
-    right: -11rem;
-    content: '';
-    pointer-events: none;
-    border-radius: 50%;
-    background: color-mix(in oklab, var(--color-accent) 10%, transparent);
-    filter: blur(72px);
+    background: color-mix(in oklab, var(--color-accent-2) 86%, black);
   }
 
   .auth-card {
@@ -508,29 +561,6 @@
       inset 0 1px 0 var(--surface-highlight),
       0 2px 5px rgba(var(--shadow-rgb), 0.035),
       0 30px 72px -44px rgba(var(--shadow-rgb), calc(0.48 * var(--shadow-strength)));
-  }
-
-  .auth-workflow-list {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    gap: 0.75rem;
-  }
-
-  .auth-workflow-item {
-    display: flex;
-    align-items: center;
-    gap: 0.75rem;
-    min-height: 4rem;
-    border-top: 1px solid rgba(255, 255, 255, 0.13);
-    padding-top: 0.875rem;
-    color: rgba(255, 255, 255, 0.7);
-    font-size: 0.75rem;
-    font-weight: 650;
-    line-height: 1.35;
-  }
-
-  .auth-workflow-item:last-child:nth-child(odd) {
-    grid-column: 1 / -1;
   }
 
   .workspace-hero {
@@ -777,6 +807,13 @@
 }
 
 @media (prefers-reduced-motion: no-preference) {
+  /* A press is felt at once: the control sinks a hair on every button, not
+     only the shared Button component. */
+  button:not(:disabled):active,
+  [role='button']:not([aria-disabled='true']):active {
+    scale: 0.985;
+  }
+
   .workspace-hero::before {
     animation: accent-reveal 0.7s var(--ease-enter) both;
   }
@@ -882,33 +919,6 @@
   .app-shell-backdrop {
     backdrop-filter: none;
     -webkit-backdrop-filter: none;
-  }
-}
-
-@media (min-width: 64rem) and (max-height: 46rem) {
-  .auth-brand-surface {
-    padding-block: 1.25rem;
-  }
-
-  .auth-brand-copy {
-    padding-block: 1.25rem;
-  }
-
-  .auth-brand-title {
-    font-size: clamp(2.5rem, 4.5vw, 3.25rem);
-  }
-
-  .auth-workflow-list {
-    gap: 0.5rem;
-  }
-
-  .auth-workflow-item {
-    min-height: 3rem;
-    padding-top: 0.625rem;
-  }
-
-  .auth-security {
-    margin-top: 0.75rem;
   }
 }
 

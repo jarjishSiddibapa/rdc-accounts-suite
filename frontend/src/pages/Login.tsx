@@ -1,7 +1,8 @@
-import { useMemo, useState, type FormEvent } from 'react'
+import { useState, type FormEvent } from 'react'
 import { Navigate, useLocation, useNavigate } from 'react-router-dom'
 import { motion, useReducedMotion } from 'motion/react'
-import { Layers, LayoutGrid, Mail, ShieldCheck } from 'lucide-react'
+import { Mail } from 'lucide-react'
+import { LogoMark } from '@/components/Logo'
 import { Button } from '@/components/Button'
 import { ErrorBanner } from '@/components/ErrorBanner'
 import { Footer } from '@/components/Footer'
@@ -9,63 +10,9 @@ import { ThemeToggle } from '@/components/ThemeToggle'
 import { PasswordInput } from '@/components/PasswordInput'
 import { useAuth } from '@/lib/auth-context'
 import { ApiError, post } from '@/lib/api'
-import { TOOLS_CATALOG } from '@/lib/toolsCatalog'
-
-// Both the workflow bullets and the summary sentence below are derived from
-// TOOLS_CATALOG (the same list the Dashboard's tool grid reads) rather than
-// hand-written here, so adding, renaming, or removing a tool never requires
-// a separate edit on this page to keep it accurate.
-// Keeping this at 3 (+ 1 "N more" line = 4 items = 2 grid rows) matches the
-// original hand-picked bullet count that was verified to fit the fixed-height
-// branding panel (frontend/src/index.css's .auth-page uses overflow: clip, so
-// content that overflows gets cut off rather than scrolling) - raising it
-// clips the bottom rows on shorter viewports since the catalog now has 13
-// distinct categories.
-const MAX_WORKFLOW_BULLETS = 3
-
-function useWorkflowSummary() {
-  return useMemo(() => {
-    const categoriesInOrder: string[] = []
-    const iconByCategory = new Map<string, (typeof TOOLS_CATALOG)[number]['icon']>()
-    for (const tool of TOOLS_CATALOG) {
-      if (!iconByCategory.has(tool.category)) {
-        categoriesInOrder.push(tool.category)
-        iconByCategory.set(tool.category, tool.icon)
-      }
-    }
-
-    const shown = categoriesInOrder.slice(0, MAX_WORKFLOW_BULLETS)
-    const remaining = categoriesInOrder.length - shown.length
-    const workflows = shown.map((category) => ({
-      label: category,
-      icon: iconByCategory.get(category)!,
-    }))
-    if (remaining > 0) {
-      workflows.push({
-        label: `${remaining} more workflow${remaining === 1 ? '' : 's'} across the suite`,
-        icon: LayoutGrid,
-      })
-    }
-
-    const companies = [...new Set(TOOLS_CATALOG.map((tool) => tool.company))].sort()
-    const description =
-      categoriesInOrder.length === 0
-        ? 'All accounts workflows for RDC and Ultrafine, brought together in one place.'
-        : `${joinWithAnd(categoriesInOrder)}. All in one place, for ${joinWithAnd(companies)} alike.`
-
-    return { workflows, description }
-  }, [])
-}
-
-function joinWithAnd(items: string[]): string {
-  if (items.length <= 1) return items.join('')
-  if (items.length === 2) return `${items[0]} and ${items[1]}`
-  return `${items.slice(0, -1).join(', ')}, and ${items[items.length - 1]}`
-}
 
 export default function Login() {
   const reduceMotion = useReducedMotion()
-  const { workflows, description } = useWorkflowSummary()
   const { user, login } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
@@ -136,39 +83,14 @@ export default function Login() {
         transition={{ duration: 0.55, ease: [0.16, 1, 0.3, 1] }}
       >
         <div className="relative flex items-center gap-3">
-          <span className="grid h-11 w-11 place-items-center rounded-xl border border-white/18 bg-white/10 shadow-[inset_0_1px_0_rgba(255,255,255,0.18)]">
-            <Layers className="h-5 w-5" />
-          </span>
-          <div>
-            <p className="font-display text-base font-bold tracking-[-0.02em]">RDC Accounts Suite</p>
-            <p className="mt-0.5 text-xs font-medium text-white/55">Finance operations workspace</p>
-          </div>
+          <LogoMark className="h-11 w-11" tileClassName="fill-white/15" />
+          <p className="font-display text-base font-semibold tracking-[-0.01em]">RDC Accounts Suite</p>
         </div>
 
-        <div className="auth-brand-copy relative my-auto max-w-2xl py-8 xl:py-10">
-          <p className="mb-5 text-sm font-semibold text-white/65">
-            The central software suite for RDC's Accounts Department
-          </p>
-          <h1 className="auth-brand-title max-w-xl font-display text-5xl leading-[1.04] font-semibold tracking-[-0.04em] text-balance xl:text-6xl">
-            Every accounts workflow. One reliable workspace.
-          </h1>
-          <p className="mt-6 max-w-xl text-base leading-7 text-white/68 xl:text-lg">{description}</p>
-        </div>
-
-        <div className="relative">
-          <div className="auth-workflow-list">
-            {workflows.map((workflow) => (
-              <div key={workflow.label} className="auth-workflow-item">
-                <workflow.icon className="h-4 w-4 shrink-0 text-white/80" strokeWidth={1.8} />
-                <span>{workflow.label}</span>
-              </div>
-            ))}
-          </div>
-          <p className="auth-security mt-5 flex items-center gap-2 text-xs font-medium text-white/50">
-            <ShieldCheck className="h-4 w-4" strokeWidth={1.8} />
-            Secure internal access for authorized users
-          </p>
-        </div>
+        <h1 className="auth-brand-title relative my-auto max-w-2xl font-display text-4xl leading-[1.08] font-semibold tracking-[-0.035em] xl:text-5xl">
+          <span className="block">Every accounts workflow.</span>
+          <span className="block">One reliable workspace.</span>
+        </h1>
       </motion.section>
 
       <motion.section
@@ -184,24 +106,16 @@ export default function Login() {
       <div className="auth-card max-w-[29rem]">
         <div className="mb-7">
           <div className="mb-8 flex items-center gap-3 lg:hidden">
-            <span className="icon-tile grid h-11 w-11 place-items-center rounded-xl">
-              <Layers className="h-5 w-5" />
-            </span>
-            <div>
-              <p className="font-display text-sm font-bold tracking-tight text-ink">RDC Accounts Suite</p>
-              <p className="mt-0.5 text-xs text-ink-faint">Finance operations workspace</p>
-            </div>
+            <LogoMark className="h-11 w-11" />
+            <p className="font-display text-sm font-semibold tracking-tight text-ink">RDC Accounts Suite</p>
           </div>
-          <p className="text-sm font-semibold text-accent">
-            {forgotOpen ? 'Account recovery' : 'Welcome back'}
-          </p>
-          <h1 className="mt-2 font-display text-3xl font-semibold tracking-[-0.025em] text-ink sm:text-[2rem]">
+          <h1 className="font-display text-3xl font-semibold tracking-[-0.025em] text-ink sm:text-[2rem]">
             {forgotOpen ? 'Reset your password' : 'Sign in'}
           </h1>
           <p className="mt-2 text-sm leading-6 text-ink-dim">
             {forgotOpen
-              ? 'Enter your account email and we will send a password reset link.'
-              : 'Use your RDC account details to access the workspace.'}
+              ? 'Enter your email and we will send you a reset link.'
+              : 'Use your RDC account.'}
           </p>
         </div>
 
@@ -239,7 +153,6 @@ export default function Login() {
                   autoComplete="current-password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
                 />
               </label>
 

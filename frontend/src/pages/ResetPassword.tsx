@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { Layers, ShieldCheck } from 'lucide-react'
+import { ShieldCheck } from 'lucide-react'
+import { LogoMark } from '@/components/Logo'
 import { Button } from '@/components/Button'
 import { Footer } from '@/components/Footer'
 import { ThemeToggle } from '@/components/ThemeToggle'
@@ -57,12 +58,9 @@ export default function ResetPassword() {
 
       <div className="auth-card max-w-md">
         <div className="mb-6 flex flex-col items-center gap-3 text-center">
-          <span className="icon-tile grid h-12 w-12 place-items-center rounded-xl">
-            <Layers className="h-6 w-6" />
-          </span>
+          <LogoMark className="h-12 w-12" />
           <div>
-            <p className="text-sm font-semibold text-accent">Account security</p>
-            <h1 className="mt-2 font-display text-3xl font-semibold tracking-[-0.04em] text-ink">Reset your password</h1>
+            <h1 className="font-display text-3xl font-semibold tracking-[-0.04em] text-ink">Reset your password</h1>
           </div>
         </div>
 

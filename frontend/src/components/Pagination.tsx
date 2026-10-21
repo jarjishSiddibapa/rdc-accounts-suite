@@ -63,7 +63,7 @@ export function Pagination({
             value={pageSize}
             onChange={(event) => onPageSizeChange(Number(event.target.value))}
             aria-label={`${itemLabel} per page`}
-            className="min-h-11 rounded-lg border border-border bg-surface px-2 text-xs font-semibold text-ink outline-none transition focus:border-accent sm:min-h-9"
+            className="field-control field-control--compact"
           >
             {pageSizeOptions.map((option) => (
               <option key={option} value={option}>
@@ -92,7 +92,7 @@ export function Pagination({
                 aria-label={`Page ${item}`}
                 aria-current={item === page ? 'page' : undefined}
                 className={cn(
-                  'grid h-9 min-w-9 place-items-center rounded-lg px-2 text-xs font-semibold transition',
+                  'grid h-9 min-w-9 place-items-center rounded-[0.625rem] px-2 text-xs font-semibold transition',
                   item === page
                     ? 'bg-accent text-white shadow-[0_8px_18px_-12px_color-mix(in_oklab,var(--color-accent)_75%,transparent)] dark:bg-accent-2'
                     : 'text-ink-dim hover:bg-bg-soft hover:text-ink',
@@ -140,7 +140,7 @@ function PageButton({
       title={label}
       disabled={disabled}
       onClick={onClick}
-      className="grid h-11 w-11 place-items-center rounded-lg border border-transparent text-ink-dim transition hover:border-border hover:bg-bg-soft hover:text-ink disabled:pointer-events-none disabled:opacity-30 sm:h-9 sm:w-9"
+      className="grid h-11 w-11 place-items-center rounded-[0.625rem] border border-transparent text-ink-dim transition hover:border-border hover:bg-bg-soft hover:text-ink disabled:pointer-events-none disabled:opacity-30 sm:h-9 sm:w-9"
     >
       {children}
     </button>

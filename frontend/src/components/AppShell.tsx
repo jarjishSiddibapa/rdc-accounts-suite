@@ -88,7 +88,7 @@ export function AppShell({ title, children }: { title: string; children: ReactNo
           className="min-w-0 w-full flex-1 pb-4"
           initial={reduceMotion ? false : { opacity: 0, y: 12 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+          transition={{ duration: 0.36, ease: [0.16, 1, 0.3, 1] }}
         >
           {children}
         </motion.main>

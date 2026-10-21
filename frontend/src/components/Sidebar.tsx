@@ -19,7 +19,6 @@ import {
   Users,
   Settings as SettingsIcon,
   LogOut,
-  Layers,
   Mail,
   PanelLeftClose,
   PanelLeftOpen,
@@ -32,6 +31,7 @@ import {
   Tags,
 } from 'lucide-react'
 import { cn } from '@/utils/cn'
+import { LogoMark } from '@/components/Logo'
 import { useAuth } from '@/lib/auth-context'
 
 interface NavItem {
@@ -187,9 +187,7 @@ export function Sidebar({
       )}
       <div className={cn('flex min-h-12 items-center gap-2 px-1.5 pt-0.5', collapsed && 'xl:justify-center xl:px-0')}>
         <div className={cn('flex min-w-0 items-center gap-2', collapsed && 'xl:hidden')}>
-          <span className="icon-tile grid h-10 w-10 shrink-0 place-items-center rounded-xl">
-            <Layers className="h-5 w-5" />
-          </span>
+          <LogoMark className="h-10 w-10" />
           <div className="min-w-0 leading-tight">
             <p className="truncate font-display text-sm font-bold tracking-tight text-ink">
               RDC Accounts Suite

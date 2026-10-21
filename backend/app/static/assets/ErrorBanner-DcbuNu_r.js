@@ -1,0 +1,1 @@
+import{j as t,e as s}from"./index-Ba0X_PZz.js";function n({children:r,className:e}){return t.jsx("p",{role:"alert",className:s("status-banner border-red-500/25 bg-red-500/8 text-red-500",e),children:r})}export{n as E};

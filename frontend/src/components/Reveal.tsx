@@ -22,7 +22,7 @@ export function Reveal({ children, className, delay = 0, y = 16, once = true }: 
     show: {
       opacity: 1,
       y: 0,
-      transition: { duration: 0.58, delay, ease: enterEase },
+      transition: { duration: 0.42, delay, ease: enterEase },
     },
   }
 
