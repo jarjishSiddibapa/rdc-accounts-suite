@@ -1,6 +1,6 @@
 # RDC Accounts Suite
 
-> A production-oriented finance operations workspace that consolidates RDC
+> A production-oriented accounts operations workspace that consolidates RDC
 > Concrete and Ultrafine reporting, reconciliation, mapping, Oracle enrichment,
 > and scheduled communication workflows into one secure web application.
 
@@ -16,7 +16,7 @@
 
 | Product surface | Engineering baseline |
 | --- | --- |
-| 13 permission-controlled finance applications | 200 automated backend tests |
+| 13 permission-controlled accounts applications | 200 automated backend tests |
 | Centralized, searchable MySQL mappings | Multi-process API, job-worker, and scheduler runtime |
 | RDC-only, Ultrafine-only, and combined dashboard views | Owner- and browser-tab-scoped durable jobs |
 | Excel, Oracle ERP, SMTP, and browser-automation workflows | Soft deletion, audit history, encrypted secrets, and idempotent mail |
@@ -62,7 +62,7 @@ from the catalogue.
 Screenshots were captured from a disposable documentation database containing
 only synthetic `example.invalid` users, recipients, and credentials.
 
-## Finance workflow capabilities
+## Accounts workflow capabilities
 
 ### Reporting and workbook fidelity
 

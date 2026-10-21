@@ -70,7 +70,7 @@ export const TOOLS_CATALOG: ToolCatalogEntry[] = [
     description: 'Generate the location-wise trial balance report with account mapping.',
     icon: Scale,
     appKey: 'trial-balance',
-    category: 'Financial reporting',
+    category: 'Accounts reporting',
     company: 'RDC',
   },
   {
@@ -124,7 +124,7 @@ export const TOOLS_CATALOG: ToolCatalogEntry[] = [
     description: 'Turn bank statements into the monthly cashflow: mapped, split by sharing ratios, stored by month.',
     icon: Landmark,
     appKey: 'ultrafine-cashflow',
-    category: 'Ultrafine financial reporting',
+    category: 'Ultrafine accounts reporting',
     company: 'Ultrafine',
   },
   {
@@ -178,7 +178,7 @@ export const TOOLS_CATALOG: ToolCatalogEntry[] = [
     description: 'Convert a raw Tally trial balance into the approved Ultrafine workbook format.',
     icon: FileSpreadsheet,
     appKey: 'trial-balance-formatter',
-    category: 'Ultrafine financial reporting',
+    category: 'Ultrafine accounts reporting',
     company: 'Ultrafine',
   },
   {

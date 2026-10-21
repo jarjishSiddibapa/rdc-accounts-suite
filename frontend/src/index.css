@@ -78,6 +78,12 @@
   }
 
   html {
+    /* Fluid root size: the whole interface (all sizes are rem) grows a little on
+       big windows and zoomed-out pages, so it fills the screen at any zoom level
+       instead of sitting small in the middle. Percent keeps the user's own
+       browser text-size setting. Breakpoints are unaffected (media queries use
+       the initial size). */
+    font-size: clamp(100%, calc(91% + 0.12vw), 118%);
     scroll-behavior: smooth;
     color-scheme: light;
     text-size-adjust: 100%;
@@ -466,7 +472,7 @@
   .app-shell-frame {
     --shell-inset: 0.75rem;
     width: 100%;
-    max-width: 106rem;
+    max-width: 112rem;
     margin-inline: auto;
     gap: 0.75rem;
     padding:
@@ -544,11 +550,59 @@
     overflow: clip;
   }
 
-  .auth-brand-surface {
+  /* Sign-in: a flat, full-bleed dark panel beside a plain form. The ground is one
+     colour; the oversized mark is only a slightly lighter step of it. */
+  .auth-hero {
+    --auth-ground: #0d0f1f;
     position: relative;
     overflow: hidden;
-    border-radius: var(--radius-panel);
-    background: color-mix(in oklab, var(--color-accent-2) 86%, black);
+    flex-direction: column;
+    padding: 2.5rem clamp(2.5rem, 5vw, 5rem) clamp(2.5rem, 6vh, 4.5rem);
+    background: var(--auth-ground);
+    color: #f4f5fb;
+  }
+
+  [data-theme='dark'] .auth-hero {
+    --auth-ground: #161b36;
+  }
+
+  .auth-form-zone {
+    background: var(--color-bg);
+  }
+
+  /* Fields sit a tone step off the ground instead of being boxed in a line. */
+  .auth-form .field-control {
+    border-color: transparent;
+    background: var(--color-bg-soft);
+  }
+
+  .auth-form .field-control {
+    transition:
+      background-color 0.2s ease,
+      border-color 0.2s ease,
+      transform 0.25s var(--ease-enter),
+      box-shadow 0.25s ease;
+  }
+
+  .auth-form .field-control:focus {
+    border-color: var(--color-accent);
+    background: var(--color-surface);
+    box-shadow: 0 10px 26px -18px color-mix(in oklab, var(--color-accent) 70%, transparent);
+    transform: translateY(-1px);
+  }
+
+  .auth-hint {
+    min-height: 1rem;
+    opacity: 0;
+    transform: translateY(-3px);
+    transition:
+      opacity 0.2s ease,
+      transform 0.25s var(--ease-enter);
+  }
+
+  .auth-hint--on {
+    opacity: 1;
+    transform: none;
   }
 
   .auth-card {
@@ -665,8 +719,25 @@
       transform 0.5s var(--ease-enter);
   }
 
+  .tool-card-glow {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    opacity: 0;
+    background: radial-gradient(
+      20rem circle at var(--mx, 50%) var(--my, 50%),
+      color-mix(in oklab, var(--color-accent) 15%, transparent),
+      transparent 64%
+    );
+    transition: opacity 0.3s ease;
+  }
+
+  .group:hover .tool-card-glow {
+    opacity: 1;
+  }
+
   .group:hover .tool-card {
-    transform: translateY(-4px);
+    transform: perspective(1100px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg)) translateY(-4px);
     border-color: color-mix(in oklab, var(--color-accent) 34%, var(--color-border));
     box-shadow: 0 30px 58px -40px color-mix(in oklab, var(--color-accent) 34%, rgba(var(--shadow-rgb), 0.58));
   }
@@ -683,6 +754,25 @@
 
   .group:active .tool-card {
     transform: translateY(-1px) scale(0.992);
+  }
+
+  /* A soft light sweep across primary and danger buttons on hover. */
+  .btn-shine {
+    overflow: hidden;
+  }
+
+  .btn-shine::after {
+    position: absolute;
+    inset: 0;
+    content: '';
+    pointer-events: none;
+    background: linear-gradient(105deg, transparent 38%, rgba(255, 255, 255, 0.26) 50%, transparent 62%);
+    transform: translateX(-130%);
+  }
+
+  .btn-shine:hover:not(:disabled)::after {
+    transform: translateX(130%);
+    transition: transform 0.7s var(--ease-enter);
   }
 
   .tool-card-icon,
@@ -893,14 +983,6 @@
 
   .table-shell {
     margin-inline: -0.25rem;
-  }
-}
-
-@media (max-width: 63.999rem) {
-  .auth-card {
-    border-color: transparent;
-    background: transparent;
-    box-shadow: none;
   }
 }
 

@@ -1,99 +1,25 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import type { ReactNode } from 'react'
 import { motion, useReducedMotion } from 'motion/react'
-import { Sidebar } from '@/components/Sidebar'
-import { TopBar } from '@/components/TopBar'
-import { Footer } from '@/components/Footer'
-import { SIDEBAR_DEFAULT_WIDTH, SIDEBAR_MIN_WIDTH, SIDEBAR_MAX_WIDTH } from '@/lib/sidebarLayout'
+import { useShellTitle } from '@/components/ShellLayout'
 
-const SIDEBAR_COLLAPSED_KEY = 'accounts-suite-sidebar-collapsed'
-const SIDEBAR_WIDTH_KEY = 'accounts-suite-sidebar-width'
-
-function getSavedSidebarState(): boolean {
-  try {
-    return window.localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === 'true'
-  } catch {
-    return false
-  }
-}
-
-function getSavedSidebarWidth(): number {
-  try {
-    const raw = Number(window.localStorage.getItem(SIDEBAR_WIDTH_KEY))
-    if (Number.isFinite(raw) && raw >= SIDEBAR_MIN_WIDTH && raw <= SIDEBAR_MAX_WIDTH) return raw
-  } catch {
-    // ignore
-  }
-  return SIDEBAR_DEFAULT_WIDTH
-}
-
+/**
+ * One page's content area. The frame around it (sidebar, top bar, footer) is
+ * the persistent ShellLayout; this names the page in the top bar and plays the
+ * page-enter motion each time the route changes.
+ */
 export function AppShell({ title, children }: { title: string; children: ReactNode }) {
   const reduceMotion = useReducedMotion()
-  const [navigationOpen, setNavigationOpen] = useState(false)
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(getSavedSidebarState)
-  const [sidebarWidth, setSidebarWidth] = useState(getSavedSidebarWidth)
-
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(sidebarCollapsed))
-    } catch {
-      // Storage can be disabled by browser privacy settings; the toggle still works for this page.
-    }
-  }, [sidebarCollapsed])
-
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(SIDEBAR_WIDTH_KEY, String(sidebarWidth))
-    } catch {
-      // Storage can be disabled by browser privacy settings; the resize still works for this page.
-    }
-  }, [sidebarWidth])
-
-  useEffect(() => {
-    if (!navigationOpen) return
-    const previousOverflow = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setNavigationOpen(false)
-    }
-    window.addEventListener('keydown', closeOnEscape)
-    return () => {
-      document.body.style.overflow = previousOverflow
-      window.removeEventListener('keydown', closeOnEscape)
-    }
-  }, [navigationOpen])
+  useShellTitle(title)
 
   return (
-    <div className="app-shell-frame relative flex min-w-0 flex-1">
-      <button
-        type="button"
-        aria-label="Close navigation"
-        onClick={() => setNavigationOpen(false)}
-        className={`app-shell-backdrop fixed inset-0 z-30 bg-[#090b18]/55 backdrop-blur-md transition-opacity xl:hidden ${
-          navigationOpen ? 'opacity-100' : 'pointer-events-none opacity-0'
-        }`}
-      />
-      <Sidebar
-        mobileOpen={navigationOpen}
-        collapsed={sidebarCollapsed}
-        onCollapseToggle={() => setSidebarCollapsed((current) => !current)}
-        width={sidebarWidth}
-        onWidthChange={setSidebarWidth}
-        onNavigate={() => setNavigationOpen(false)}
-        className="app-sidebar"
-      />
-      <div className="flex min-w-0 flex-1 flex-col gap-4 xl:gap-5">
-        <TopBar title={title} onMenuClick={() => setNavigationOpen(true)} />
-        <motion.main
-          id="main-content"
-          className="min-w-0 w-full flex-1 pb-4"
-          initial={reduceMotion ? false : { opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.36, ease: [0.16, 1, 0.3, 1] }}
-        >
-          {children}
-        </motion.main>
-        <Footer />
-      </div>
-    </div>
+    <motion.main
+      id="main-content"
+      className="min-w-0 w-full flex-1 pb-4"
+      initial={reduceMotion ? false : { opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.36, ease: [0.16, 1, 0.3, 1] }}
+    >
+      {children}
+    </motion.main>
   )
 }

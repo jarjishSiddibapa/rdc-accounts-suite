@@ -4,6 +4,7 @@ import { AuthGuard, AdminGuard, AppGuard } from '@/components/AuthGuard'
 import { AppErrorBoundary } from '@/components/AppErrorBoundary'
 import { GlobalLoadingIndicator, LoadingNotice } from '@/components/LoadingNotice'
 
+const ShellLayout = lazy(() => import('@/components/ShellLayout').then((m) => ({ default: m.ShellLayout })))
 const Login = lazy(() => import('@/pages/Login'))
 const ResetPassword = lazy(() => import('@/pages/ResetPassword'))
 const Dashboard = lazy(() => import('@/pages/Dashboard'))
@@ -46,8 +47,9 @@ function PageLoading() {
   )
 }
 
+// Sign-in is enforced once, by the AuthGuard on the ShellLayout route that wraps these.
 function protectedPage(page: ReactNode) {
-  return <AuthGuard>{page}</AuthGuard>
+  return page
 }
 
 export default function App() {
@@ -62,6 +64,8 @@ export default function App() {
           <Routes>
           <Route path="/login" element={<Login />} />
           <Route path="/reset-password" element={<ResetPassword />} />
+
+          <Route element={<AuthGuard><ShellLayout /></AuthGuard>}>
 
           <Route
             path="/"
@@ -237,6 +241,8 @@ export default function App() {
               protectedPage(<AppGuard appKey="untagged-invoices-report"><UntaggedInvoicesReport /></AppGuard>)
             }
           />
+
+          </Route>
 
           <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

@@ -12,7 +12,7 @@ export function PasswordInput({ className, disabled, onReveal, ...props }: Passw
 
   return (
     <div className="relative">
-      <LockKeyhole className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-ink-faint" />
+      <LockKeyhole className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-ink-faint transition-colors duration-200 group-focus-within/field:text-accent" />
       <input
         {...props}
         type={visible ? 'text' : 'password'}

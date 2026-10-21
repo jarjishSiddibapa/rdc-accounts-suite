@@ -402,7 +402,7 @@ export default function TrialBalanceFormatter() {
           <div className="flex items-center gap-4">
             <span className="icon-tile grid h-12 w-12 shrink-0 place-items-center rounded-xl"><FileSpreadsheet className="h-5 w-5" /></span>
             <div>
-              <p className="text-sm font-semibold text-accent">Ultrafine financial reporting</p>
+              <p className="text-sm font-semibold text-accent">Ultrafine accounts reporting</p>
               <h2 className="mt-1.5 font-display text-xl font-semibold tracking-[-0.025em] text-ink">Turn a raw Tally trial balance into the approved Ultrafine format</h2>
               <p className="mt-1 text-sm leading-6 text-ink-dim">Preserves the reference layout, colors, fonts, formulas, debit and credit signs, hierarchy highlights, column widths and date-based filename.</p>
             </div>

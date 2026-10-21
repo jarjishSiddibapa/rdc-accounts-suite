@@ -193,7 +193,7 @@ export function Sidebar({
               RDC Accounts Suite
             </p>
             <p className="mt-0.5 truncate text-[11px] font-medium text-ink-faint">
-              Finance operations
+              Accounts operations
             </p>
           </div>
         </div>

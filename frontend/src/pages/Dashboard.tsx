@@ -1,7 +1,9 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type PointerEvent } from 'react'
 import { Link } from 'react-router-dom'
+import { animate, useReducedMotion } from 'motion/react'
 import { ArrowRight, LayoutGrid, ShieldCheck } from 'lucide-react'
 import { AppShell } from '@/components/AppShell'
+import { DotField } from '@/components/DotField'
 import { Reveal, RevealGroup } from '@/components/Reveal'
 import { useAuth } from '@/lib/auth-context'
 import { formatIndianNumber, getIndianHour } from '@/lib/regional'
@@ -14,6 +16,56 @@ const COMPANY_FILTERS: Array<{ value: 'All' | Company; label: string }> = [
   { value: 'RDC', label: 'RDC Applications' },
   { value: 'Ultrafine', label: 'Ultrafine Applications' },
 ]
+
+const HERO_DOT_BASE: [number, number, number] = [140, 132, 245]
+const HERO_DOT_GLOW: [number, number, number] = [80, 70, 216]
+
+/** Counts up to `value` once when the page appears. */
+function CountUp({ value }: { value: number }) {
+  const reduceMotion = useReducedMotion()
+  const ref = useRef<HTMLSpanElement>(null)
+
+  useEffect(() => {
+    const node = ref.current
+    if (!node) return
+    if (reduceMotion || value === 0) {
+      node.textContent = formatIndianNumber(value)
+      return
+    }
+    const controls = animate(0, value, {
+      duration: 0.9,
+      ease: [0.16, 1, 0.3, 1],
+      onUpdate: (latest) => {
+        node.textContent = formatIndianNumber(Math.round(latest))
+      },
+    })
+    return () => controls.stop()
+  }, [value, reduceMotion])
+
+  return <span ref={ref}>{formatIndianNumber(value)}</span>
+}
+
+/** Lights the card toward the pointer and tilts it a few degrees. */
+function followPointer(event: PointerEvent<HTMLElement>) {
+  if (event.pointerType === 'touch') return
+  const card = event.currentTarget.querySelector<HTMLElement>('.tool-card')
+  if (!card) return
+  const rect = card.getBoundingClientRect()
+  const px = (event.clientX - rect.left) / rect.width
+  const py = (event.clientY - rect.top) / rect.height
+  card.style.setProperty('--mx', `${event.clientX - rect.left}px`)
+  card.style.setProperty('--my', `${event.clientY - rect.top}px`)
+  if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    card.style.setProperty('--ry', `${((px - 0.5) * 7).toFixed(2)}deg`)
+    card.style.setProperty('--rx', `${((0.5 - py) * 5).toFixed(2)}deg`)
+  }
+}
+
+function releasePointer(event: PointerEvent<HTMLElement>) {
+  const card = event.currentTarget.querySelector<HTMLElement>('.tool-card')
+  card?.style.setProperty('--rx', '0deg')
+  card?.style.setProperty('--ry', '0deg')
+}
 
 export default function Dashboard() {
   const { user } = useAuth()
@@ -42,6 +94,14 @@ export default function Dashboard() {
     <AppShell title="Dashboard">
       <Reveal>
         <section className="workspace-hero px-6 py-7 sm:px-8 sm:py-9">
+          <DotField
+            base={HERO_DOT_BASE}
+            glow={HERO_DOT_GLOW}
+            baseAlpha={0.3}
+            spacing={24}
+            reach={150}
+            className="[mask-image:linear-gradient(90deg,transparent_8%,#000_62%)]"
+          />
           <div className="relative z-10 flex flex-col justify-between gap-7 md:flex-row md:items-end">
             <div className="max-w-2xl">
               <p className="text-sm font-semibold text-accent">
@@ -59,7 +119,7 @@ export default function Dashboard() {
                 <span className="grid h-10 w-10 place-items-center rounded-xl bg-accent/10 text-accent">
                   <LayoutGrid className="h-4 w-4" strokeWidth={1.9} />
                 </span>
-                <span data-numeric className="font-display text-2xl font-semibold text-ink">{formatIndianNumber(accessibleTools.length)}</span>
+                <span data-numeric className="font-display text-2xl font-semibold text-ink"><CountUp value={accessibleTools.length} /></span>
                 <span className="text-xs leading-4 text-ink-faint">applications<br />available</span>
               </div>
               <div className="flex items-center gap-3 px-3.5 py-2.5 text-xs text-ink-dim">
@@ -98,7 +158,12 @@ export default function Dashboard() {
       <RevealGroup key={companyFilter} className="dashboard-tools-grid mt-5">
         {visibleTools.map((tool, index) => (
           <Reveal key={tool.to}>
-            <Link to={tool.to} className="group block h-full rounded-[1.25rem] focus-visible:outline-none">
+            <Link
+              to={tool.to}
+              onPointerMove={followPointer}
+              onPointerLeave={releasePointer}
+              className="group block h-full rounded-[1.25rem] focus-visible:outline-none"
+            >
             <article
               className={cn(
                 'tool-card h-full',
@@ -106,6 +171,7 @@ export default function Dashboard() {
                 index % 4 === 3 && 'tool-card--tinted',
               )}
             >
+              <span className="tool-card-glow" aria-hidden="true" />
               <div className="relative flex w-full flex-col">
                 <div className="flex items-start gap-4">
                   <span className="tool-card-icon grid h-12 w-12 place-items-center rounded-xl bg-accent/10 text-accent">
