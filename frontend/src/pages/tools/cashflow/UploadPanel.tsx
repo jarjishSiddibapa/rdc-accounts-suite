@@ -7,6 +7,7 @@ import {
   ListChecks,
   RefreshCw,
   Settings2,
+  Trash2,
   UploadCloud,
 } from "lucide-react";
 import { GlassCard } from "@/components/GlassCard";
@@ -16,9 +17,10 @@ import { FileDropzone } from "@/components/FileDropzone";
 import { ProgressPanel } from "@/components/ProgressPanel";
 import { CreatableCombobox } from "@/components/CreatableCombobox";
 import { LoadingNotice } from "@/components/LoadingNotice";
+import { Modal } from "@/components/Modal";
 import { Pagination } from "@/components/Pagination";
 import { usePagination } from "@/hooks/usePagination";
-import { ApiError, apiUrl, get, post, postForm } from "@/lib/api";
+import { ApiError, apiUrl, del, get, post, postForm } from "@/lib/api";
 import { formatIndianDateTime, formatIndianNumber } from "@/lib/regional";
 import {
   BASE,
@@ -442,6 +444,156 @@ function FixPanel({
   );
 }
 
+// ── uploaded statements: take a wrong one back ───────────────────────────
+
+interface StatementRow {
+  id: number;
+  account_no: string;
+  filename: string;
+  uploaded_at: string;
+  period_from: string | null;
+  period_to: string | null;
+  new_count: number;
+  stored_count: number;
+}
+
+function StatementHistory({
+  refreshKey,
+  onRemoved,
+}: {
+  refreshKey: number;
+  onRemoved: () => void;
+}) {
+  const [rows, setRows] = useState<StatementRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [removing, setRemoving] = useState<StatementRow | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+  const pagination = usePagination(rows, 5);
+
+  const load = useCallback(async () => {
+    try {
+      setRows(await get<StatementRow[]>(`${BASE}/statements`));
+      setError(null);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not load the uploaded statements.");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void load();
+  }, [load, refreshKey]);
+
+  async function remove() {
+    if (!removing) return;
+    setBusy(true);
+    try {
+      const res = await del<{ removed_lines: number; months: string[] }>(
+        `${BASE}/statements/${removing.id}`,
+      );
+      setNotice(
+        `${removing.filename} removed (${formatIndianNumber(res.removed_lines)} lines).` +
+          (res.months.length ? ` Regenerate ${res.months.map(monthLabel).join(", ")}.` : ""),
+      );
+      setRemoving(null);
+      await load();
+      onRemoved();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Could not remove the statement.");
+      setRemoving(null);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  if (loading) return null;
+  if (rows.length === 0 && !error && !notice) return null;
+  return (
+    <GlassCard padding="lg" className="flex flex-col gap-4">
+      <div>
+        <h2 className="font-display text-lg font-semibold text-ink">Uploaded statements</h2>
+        <p className="text-sm text-ink-dim">
+          Uploaded the wrong file or account? Remove it: the lines that file added are taken out of
+          the months. Uploading the same file again brings them back.
+        </p>
+      </div>
+      {error && <ErrorBanner>{error}</ErrorBanner>}
+      {notice && (
+        <p className="status-banner border-emerald-500/30 bg-emerald-500/10 text-emerald-600">
+          <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" /> {notice}
+        </p>
+      )}
+      <div className="overflow-x-auto rounded-xl border border-border">
+        <table className="w-full text-left text-sm">
+          <thead className="bg-bg-soft/60 text-ink-dim">
+            <tr>
+              <th className="px-4 py-3 font-medium">File</th>
+              <th className="px-4 py-3 font-medium">Account</th>
+              <th className="px-4 py-3 font-medium">Period</th>
+              <th className="px-4 py-3 text-right font-medium">Lines kept</th>
+              <th className="px-4 py-3 text-right font-medium">Remove</th>
+            </tr>
+          </thead>
+          <tbody>
+            {pagination.pagedItems.map((row) => (
+              <tr key={row.id} className="border-t border-border/80">
+                <td className="px-4 py-3 text-ink">
+                  {row.filename}
+                  <div className="text-xs text-ink-faint">
+                    {formatIndianDateTime(row.uploaded_at + "Z")}
+                  </div>
+                </td>
+                <td className="px-4 py-3 text-ink">{row.account_no}</td>
+                <td className="px-4 py-3 whitespace-nowrap text-ink">
+                  {row.period_from ?? "—"} → {row.period_to ?? "—"}
+                </td>
+                <td className="px-4 py-3 text-right text-ink">{formatIndianNumber(row.stored_count)}</td>
+                <td className="px-4 py-3 text-right">
+                  <button
+                    type="button"
+                    aria-label={`Remove ${row.filename}`}
+                    onClick={() => setRemoving(row)}
+                    className="grid h-11 w-11 place-items-center rounded-full text-ink-dim transition hover:bg-bg-soft hover:text-red-500 sm:h-8 sm:w-8"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <Pagination
+        page={pagination.page}
+        pageCount={pagination.pageCount}
+        pageSize={pagination.pageSize}
+        totalItems={pagination.totalItems}
+        itemLabel="statements"
+        onPageChange={pagination.setPage}
+        onPageSizeChange={pagination.setPageSize}
+      />
+      <Modal open={removing !== null} onClose={() => setRemoving(null)} title="Remove this statement">
+        <p className="mb-6 text-sm text-ink-dim">
+          Remove <strong>{removing?.filename}</strong>? Its {formatIndianNumber(removing?.stored_count ?? 0)}{" "}
+          lines are taken out of their months (names you set by hand on them are kept for when it is
+          uploaded again). Nothing is permanently deleted.
+        </p>
+        <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
+          <Button variant="secondary" onClick={() => setRemoving(null)}>
+            Cancel
+          </Button>
+          <Button variant="danger" loading={busy} onClick={() => void remove()}>
+            Remove
+          </Button>
+        </div>
+      </Modal>
+    </GlassCard>
+  );
+}
+
 // ── panel ────────────────────────────────────────────────────────────────
 
 export function UploadPanel({
@@ -470,6 +622,7 @@ export function UploadPanel({
   );
   const [genOutcome, setGenOutcome] = useState<GenerateOutcome | null>(null);
   const [fixMonth, setFixMonth] = useState<string | null>(null);
+  const [historyKey, setHistoryKey] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const autoDownload = useRef<string | null>(null); // month to save as soon as "Download anyway" finishes
   const pagination = usePagination(months, 12);
@@ -583,6 +736,7 @@ export function UploadPanel({
               setUploadJob(null);
               void reloadMonths();
               void reloadOptions();
+              setHistoryKey((k) => k + 1);
               const firstFix = result?.months.find(
                 (m) => m.status === "needs_mapping_fix",
               );
@@ -863,6 +1017,8 @@ export function UploadPanel({
           />
         )}
       </GlassCard>
+
+      <StatementHistory refreshKey={historyKey} onRemoved={() => void reloadMonths()} />
     </div>
   );
 }

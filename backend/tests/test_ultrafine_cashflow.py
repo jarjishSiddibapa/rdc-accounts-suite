@@ -53,7 +53,7 @@ def _basic_masters(db):
     store.save_location(db, None, "Wada", "Main Operation")
     store.save_location(db, None, "Flyash", "Flyash Business")
     store.save_sharing_group(db, None, "RDC")
-    store.save_party(db, None, "Vendor One - Crs", "Gujarat", None, None)
+    store.save_party(db, None, "Vendor One - Crs", "Gujarat", "Main Operation", None)
     store.save_party(db, None, "Rdc Concrete", None, None, "RDC")
     store.save_alias(db, None, "NEFT - VENDOR ONE", "Vendor One - Crs")
     store.save_alias(db, None, "CHQ DEP - RDC CONCRETE", "Rdc Concrete")
@@ -198,7 +198,9 @@ class ResolverTests(unittest.TestCase):
     def test_location_named_like_a_cf_location_falls_back_to_it(self):
         store.save_location(self.db, None, "Capex", None)       # no default CF location set
         store.save_cf_location(self.db, None, {"name": "Capex"})
-        store.save_party(self.db, None, "Plant Builder - Crs", "Capex", None, None)
+        # older data: a name placed on a location only, no CF location of its own
+        self.db.add(Party(name="Plant Builder - Crs", location_id=store.find_named(self.db, Location, "Capex").id))
+        self.db.flush()
         store.save_alias(self.db, None, "NEFT - Plant Builder", "Plant Builder - Crs")
         self.db.commit()
         rows = self._month([_line(1, 10, 0, "D", 500, "NEFT - Plant Builder")])
@@ -258,7 +260,7 @@ class ResolverTests(unittest.TestCase):
     def test_party_override_on_one_transaction_wins_over_the_description(self):
         self._month([_line(1, 10, 0, "D", 500, "NEFT - Vendor One")])
         txn = self.db.query(Transaction).one()
-        other = store.save_party(self.db, None, "Wada Vendor", "Wada", None, None)
+        other = store.save_party(self.db, None, "Wada Vendor", "Wada", "Main Operation", None)
         txn.party_id = other["id"]
         self.db.commit()
         rows = resolver.allocations_for_month(self.db, "2026-09")
@@ -267,7 +269,7 @@ class ResolverTests(unittest.TestCase):
     def test_renaming_a_party_changes_every_transaction_with_no_other_edit(self):
         self._month([_line(1, 10, 0, "D", 500, "NEFT - Vendor One"), _line(2, 10, 0, "D", 600, "NEFT - Vendor One")])
         party = store.find_named(self.db, Party, "Vendor One - Crs")
-        store.save_party(self.db, party.id, "Vendor One Pvt Ltd", "Wada", None, None)
+        store.save_party(self.db, party.id, "Vendor One Pvt Ltd", "Wada", "Main Operation", None)
         self.db.commit()
         rows = resolver.allocations_for_month(self.db, "2026-09")
         self.assertEqual({(r.name, r.location) for r in rows}, {("Vendor One Pvt Ltd", "Wada")})
@@ -287,7 +289,7 @@ class MappingStoreTests(unittest.TestCase):
 
     def test_names_are_unique_ignoring_case_and_spacing(self):
         with self.assertRaises(store.MappingError):
-            store.save_party(self.db, None, "  vendor ONE - crs ", "Gujarat", None, None)
+            store.save_party(self.db, None, "  vendor ONE - crs ", "Gujarat", "Main Operation", None)
         self.assertEqual(self.db.query(Party).filter(Party.name.like("%endor%")).count(), 1)
 
     def test_archived_names_come_back_on_create_and_in_use_rows_cannot_be_archived(self):
@@ -347,7 +349,10 @@ class MappingStoreTests(unittest.TestCase):
     def test_resolve_key_reuses_the_party_and_never_overwrites_its_location(self):
         party = store.get_or_create_party(self.db, "vendor one - CRS", "Wada")
         self.assertEqual(party.location_id, store.find_named(self.db, Location, "Gujarat").id)
-        fresh = store.get_or_create_party(self.db, "Brand New", "Wada")
+        with self.assertRaises(store.MappingError) as ctx:        # a location never comes without its CF location
+            store.get_or_create_party(self.db, "Brand New", "Wada")
+        self.assertIn("CF location", str(ctx.exception))
+        fresh = store.get_or_create_party(self.db, "Brand New", "Wada", "Main Operation")
         self.assertEqual(fresh.location_id, store.find_named(self.db, Location, "Wada").id)
 
 
@@ -599,12 +604,12 @@ class ApiTests(unittest.TestCase):
         txn_id = page["items"][0]["id"]
 
         bad = self._http_error(r.set_override, txn_id,
-                               r.OverrideIn(splits=[r.SplitIn(location="Gujarat", amount=1)]), db=db, user=None)
+                               r.OverrideIn(splits=[r.SplitIn(location="Gujarat", cf_location="Main Operation", amount=1)]), db=db, user=None)
         self.assertEqual(bad.status_code, 400)
         self.assertIn("adds up to 1.00", bad.detail)
 
-        r.set_override(txn_id, r.OverrideIn(splits=[r.SplitIn(location="Gujarat", amount=3000),
-                                                    r.SplitIn(location="Flyash", amount=2000)]), db=db, user=None)
+        r.set_override(txn_id, r.OverrideIn(splits=[r.SplitIn(location="Gujarat", cf_location="Main Operation", amount=3000),
+                                                    r.SplitIn(location="Flyash", cf_location="Flyash Business", amount=2000)]), db=db, user=None)
         row = r.month_transactions("2026-09", status="manual", db=db, user=None)["items"][0]
         self.assertEqual([(a["cf_location"], a["amount"]) for a in row["allocations"]],
                          [("Main Operation", 3000.0), ("Flyash Business", 2000.0)])
@@ -633,7 +638,7 @@ class ApiTests(unittest.TestCase):
         row = r.month_transactions("2026-09", q="mystery", db=db, user=None)["items"][0]
         self.assertEqual((row["issues"], row["allocations"][0]["cf_location"]), ([], "Flyash Business"))
 
-        # a split on a location with no default CF location must say which CF location
+        # a split line always needs its CF location
         store.save_location(db, None, "Loose End", None)
         db.commit()
         split = [r.SplitIn(location="Loose End", amount=5000)]
@@ -646,7 +651,9 @@ class ApiTests(unittest.TestCase):
 
     def test_an_existing_name_without_a_cf_location_can_be_completed_from_the_fix_panel(self):
         r, db = self.router, self.db
-        store.save_party(db, None, "Half Done", "Loose Site", None, None)     # location only, no default CF
+        store.save_location(db, None, "Loose Site", None)
+        db.add(Party(name="Half Done", location_id=store.find_named(db, Location, "Loose Site").id))   # older data
+        db.flush()
         store.save_alias(db, None, "MYSTERY PAYEE", "Half Done")
         db.commit()
         r._job_ingest([str(self._write_statement())], ["s.csv"], 1)
@@ -665,7 +672,7 @@ class ApiTests(unittest.TestCase):
                                             party_cf_location="Main Operation"), db=db, user=None)
         party = store.find_named(db, Party, "Wada Vendor")
         self.assertEqual(self._http_error(r.remove_party, party.id, db=db, user=None).status_code, 400)
-        r.set_override(txn_id, r.OverrideIn(splits=[r.SplitIn(location="Flyash", amount=5000)]), db=db, user=None)
+        r.set_override(txn_id, r.OverrideIn(splits=[r.SplitIn(location="Flyash", cf_location="Flyash Business", amount=5000)]), db=db, user=None)
         flyash = store.find_named(db, Location, "Flyash")
         self.assertEqual(self._http_error(r.remove_location, flyash.id, db=db, user=None).status_code, 400)
         main = store.find_named(db, CfLocation, "Main Operation")
@@ -674,6 +681,32 @@ class ApiTests(unittest.TestCase):
         fly_cf = store.find_named(db, CfLocation, "Flyash Business")
         self.assertEqual(self._http_error(r.remove_cf_location, fly_cf.id, db=db, user=None).status_code, 400)
         self.assertIsNotNone(main)
+
+    def test_a_wrong_statement_can_be_taken_back_and_uploaded_again(self):
+        r, db = self.router, self.db
+        r._job_ingest([str(self._write_statement())], ["s.csv"], 1)
+        listed = r.list_statements(db=db, user=None)
+        self.assertEqual((len(listed), listed[0]["stored_count"]), (1, 3))
+        outcome = r.remove_statement(listed[0]["id"], db=db, user=None)
+        self.assertEqual((outcome["removed_lines"], outcome["months"]), (3, ["2026-09"]))
+        self.assertEqual(r.list_statements(db=db, user=None), [])
+        self.assertEqual(r.list_months(db=db, user=None), [])
+        self.assertEqual(self._http_error(r.remove_statement, listed[0]["id"], db=db, user=None).status_code, 404)
+        again = r._job_ingest([str(self._write_statement("again.csv"))], ["again.csv"], 1)
+        self.assertEqual(again["files"][0]["new_count"], 3)          # the removed lines come back
+        self.assertEqual(r.list_months(db=db, user=None)[0]["transactions"], 3)
+
+    def test_a_zero_amount_line_does_not_reject_the_statement(self):
+        path = self.tmp / "zero.csv"
+        with path.open("w", newline="", encoding="utf-8") as handle:
+            w = csv.writer(handle)
+            for row in (["Account No : 575000"],
+                        ["Transaction Date", "Description", "Debit", "Credit"],
+                        ["02-09-2026 10:00", "Real payment", "500", ""],
+                        ["03-09-2026 10:00", "Zero line", "0", "0"]):
+                w.writerow(row)
+        statement = read_statement(path)
+        self.assertEqual([l.description for l in statement.lines], ["Real payment"])
 
     def test_a_date_or_time_cannot_be_saved_as_a_description_key(self):
         for junk in ("17:22:01", "08/10/2026 18:08:14"):

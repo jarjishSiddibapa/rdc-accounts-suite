@@ -64,16 +64,21 @@ def ingest_statement(db: Session, statement: Statement, filename: str, user_id: 
     first = min(line.txn_dt for line in statement.lines)
     last = max(line.txn_dt for line in statement.lines)
 
-    existing = {
-        key
-        for (key,) in db.query(Transaction.dedupe_key)
+    existing: set[str] = set()
+    removed: dict[str, int] = {}      # lines of a statement that was taken out again
+    for key, txn_id, is_deleted in (
+        db.query(Transaction.dedupe_key, Transaction.id, Transaction.is_deleted)
         .filter(
             Transaction.account_id == account.id,
             Transaction.txn_dt >= first - timedelta(days=1),
             Transaction.txn_dt <= last + timedelta(days=1),
         )
         .all()
-    }
+    ):
+        if is_deleted:
+            removed[key] = txn_id
+        else:
+            existing.add(key)
 
     upload = StatementUpload(
         account_id=account.id,
@@ -99,6 +104,13 @@ def ingest_statement(db: Session, statement: Statement, filename: str, user_id: 
             per_month[month]["duplicate"] += 1
             continue
         existing.add(key)
+        if key in removed:
+            # uploading a statement again after removing it brings its lines back
+            revived = db.get(Transaction, removed[key])
+            revived.is_deleted, revived.upload_id = False, upload.id
+            new_count += 1
+            per_month[month]["new"] += 1
+            continue
         db.add(
             Transaction(
                 account_id=account.id,

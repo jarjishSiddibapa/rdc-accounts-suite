@@ -28,8 +28,6 @@ function plainRow(row: ApiRow): MappingRow {
   return Object.fromEntries(Object.entries(row).map(([key, value]) => [key, value == null ? '' : String(value)]))
 }
 
-const optionalNumber = (value: string | undefined) => (value && value.trim() !== '' ? Number(value) : null)
-
 export const CRUD: Record<string, CrudConfig> = {
   aliases: {
     path: 'aliases',
@@ -70,7 +68,6 @@ export const CRUD: Record<string, CrudConfig> = {
       { key: 'show_in_summary', label: 'Shown in Summary (Yes/No)' },
       { key: 'authorized_person', label: 'Authorized person' },
       { key: 'payable_pct', label: 'Payable % of collection' },
-      { key: 'reserve_pct', label: 'Reserve % of collection' },
       { key: 'group', label: 'Subtotal group' },
     ],
     toRow: (row) => ({ ...plainRow(row), show_in_summary: row.show_in_summary ? 'Yes' : 'No' }),
@@ -80,7 +77,6 @@ export const CRUD: Record<string, CrudConfig> = {
       show_in_summary: (row.show_in_summary ?? 'Yes').trim().toLowerCase() !== 'no',
       authorized_person: row.authorized_person ?? '',
       payable_pct: Number(row.payable_pct || 100),
-      reserve_pct: optionalNumber(row.reserve_pct),
       group: row.group ?? '',
     }),
     suggestions: (o) => ({ group: o.summary_groups, show_in_summary: ['Yes', 'No'] }),

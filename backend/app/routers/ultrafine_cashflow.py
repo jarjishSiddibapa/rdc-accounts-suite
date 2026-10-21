@@ -26,6 +26,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.auth import get_current_user
@@ -193,14 +194,38 @@ def list_statements(db: Session = Depends(get_db), user: User = Depends(get_curr
         db.query(StatementUpload).filter(StatementUpload.is_deleted == False)  # noqa: E712
         .order_by(StatementUpload.uploaded_at.desc()).limit(200).all()
     )
+    stored = dict(
+        db.query(Transaction.upload_id, func.count(Transaction.id))
+        .filter(Transaction.is_deleted == False)  # noqa: E712
+        .group_by(Transaction.upload_id).all()
+    )
     return [
         {"id": r.id, "account_no": accounts.get(r.account_id, ""), "filename": r.filename,
          "uploaded_at": r.uploaded_at.isoformat(timespec="seconds"),
          "period_from": r.period_from.isoformat() if r.period_from else None,
          "period_to": r.period_to.isoformat() if r.period_to else None,
-         "line_count": r.line_count, "new_count": r.new_count, "duplicate_count": r.duplicate_count}
+         "line_count": r.line_count, "new_count": r.new_count, "duplicate_count": r.duplicate_count,
+         "stored_count": int(stored.get(r.id, 0))}
         for r in rows
     ]
+
+
+@router.delete("/statements/{upload_id}")
+def remove_statement(upload_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Take back an upload (wrong account, wrong file): the lines THIS file added are archived, never
+    deleted, so uploading the file again brings them back. Lines an earlier statement already held
+    stay. Months that lose lines should be regenerated."""
+    upload = db.get(StatementUpload, upload_id)
+    if upload is None or upload.is_deleted:
+        raise HTTPException(status_code=404, detail="Statement not found")
+    lines = db.query(Transaction).filter(Transaction.upload_id == upload.id,
+                                         Transaction.is_deleted == False).all()  # noqa: E712
+    months = sorted({line.txn_dt.strftime("%Y-%m") for line in lines})
+    for line in lines:
+        line.is_deleted = True
+    upload.is_deleted = True
+    db.commit()
+    return {"removed_lines": len(lines), "months": months}
 
 
 @router.get("/months")
@@ -328,10 +353,10 @@ def set_override(txn_id: int, body: OverrideIn, db: Session = Depends(get_db),
                 amount = Decimal(str(line.amount)).quantize(Decimal("0.01"))
             except InvalidOperation as exc:
                 raise store.MappingError("Split amounts must be numbers.") from exc
-            if cf is None and not store.location_has_cf(db, location):
+            if cf is None:
                 raise store.MappingError(
-                    f"Location '{location.name}' has no default CF location - choose a CF location "
-                    "for that split line.")
+                    f"Split line for '{location.name}' needs its CF location - a location never "
+                    "comes without one.")
             resolved.append((location.id, cf.id if cf else None, amount))
         if resolved and sum(a for _, _, a in resolved) != Decimal(txn.amount):
             raise store.MappingError(
@@ -392,7 +417,8 @@ class PlanSectionIn(BaseModel):
 
 class SetupIn(BaseModel):
     inputs: list[InputIn] = []
-    plan: list[PlanSectionIn] = []
+    # None = leave the stored planning block alone (the workbook no longer prints it)
+    plan: Optional[list[PlanSectionIn]] = None
 
 
 @router.put("/months/{month}/setup")
@@ -417,6 +443,8 @@ def save_setup(month: str, body: SetupIn, db: Session = Depends(get_db),
             row.opening_balance, row.statutory_amount = entry.opening_balance, entry.statutory_amount
             row.is_deleted = entry.opening_balance is None and entry.statutory_amount is None
 
+        if body.plan is None:
+            return
         sections = {s.id: s for s in db.query(PlanSection).filter(
             PlanSection.month == month, PlanSection.is_deleted == False)}  # noqa: E712
         kept_sections: set[int] = set()

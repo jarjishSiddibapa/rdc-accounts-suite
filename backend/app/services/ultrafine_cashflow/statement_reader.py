@@ -234,6 +234,8 @@ def read_statement(path: str | Path) -> Statement:
                 amount, direction = debit, "D"
             elif credit:
                 amount, direction = credit, "C"
+            elif debit is not None or credit is not None:
+                continue        # a 0.00 line moves no money; it must not reject the whole statement
             else:
                 amount, direction = None, ""
         if amount is None or direction == "":

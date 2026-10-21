@@ -362,6 +362,10 @@ def save_party(db: Session, row_id: int | None, name: str, location: str | None,
     cf_id = _resolve(db, CfLocation, cf_location, "CF location")
     if group_id is not None:
         location_id = cf_id = None  # the sharing ratios decide where the money goes
+    elif location_id is not None and cf_id is None:
+        # a location carries no CF location of its own: whoever gives a name its location
+        # gives its CF location at the same time
+        raise MappingError(f"'{name}' has a location - choose its CF location too.")
     row = _upsert_named(db, Party, row_id, name, "Party", {
         "location_id": location_id, "cf_location_id": cf_id, "sharing_group_id": group_id,
     })
@@ -375,14 +379,6 @@ def archive_party(db: Session, row_id: int) -> None:
             Transaction.party_id == row_id, Transaction.is_deleted == False).first() is not None:  # noqa: E712
         raise MappingError("This name is set by hand on one or more bank lines - remove those changes first.")
     _archive(db, Party, row_id, "Party")
-
-
-def location_has_cf(db: Session, location: Location | None) -> bool:
-    """True when money placed on `location` ends on a CF location without anything else
-    being chosen: its default, or a CF location of the same name."""
-    if location is None:
-        return False
-    return location.cf_location_id is not None or find_named(db, CfLocation, location.name) is not None
 
 
 def _cf_known(db: Session, party: Party) -> bool:
@@ -409,6 +405,9 @@ def get_or_create_party(db: Session, name: str, location: str | None = None,
     # when this name actually takes it - an already-placed name ignores the field.
     needs_location = row is None or (row.location_id is None and row.sharing_group_id is None)
     location_given = bool(location and clean_name(location))
+    if needs_location and location_given and cf_id is None:
+        # a location never comes without its CF location
+        raise MappingError(f"'{name}' has a location - choose its CF location too.")
     if require_placement:
         # The fix panel: a name that is new, or has no location yet, needs its
         # location and CF location together; a fully known name needs neither.

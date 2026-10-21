@@ -50,11 +50,6 @@ interface KnownParty {
   sharing_group: string
 }
 
-interface LocationRow {
-  name: string
-  cf_location: string
-}
-
 interface SplitDraft {
   location: string
   cf_location: string
@@ -79,7 +74,6 @@ function OverrideModal({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [knownParties, setKnownParties] = useState<KnownParty[]>([])
-  const [locationRows, setLocationRows] = useState<LocationRow[]>([])
 
   useEffect(() => {
     if (!txn) return
@@ -90,11 +84,10 @@ function OverrideModal({
       txn.splits.map((s) => ({ location: s.location, cf_location: s.cf_location, amount: String(s.amount) })),
     )
     setError(null)
-    // what each name and location already has decides which boxes are needed below
+    // what each name already has decides which boxes are needed below
     void (async () => {
       try {
         setKnownParties(await get<KnownParty[]>(`${BASE}/mappings/parties`))
-        setLocationRows(await get<LocationRow[]>(`${BASE}/mappings/locations`))
       } catch {
         // not critical: the server still validates and explains what is missing
       }
@@ -105,15 +98,6 @@ function OverrideModal({
     () => splits.reduce((sum, s) => sum + (Number.parseFloat(s.amount) || 0), 0),
     [splits],
   )
-
-  /** The CF location a location rolls up to by itself: its default, or a CF location of the same name. */
-  function defaultCfFor(location: string): string {
-    const typed = location.trim().toLowerCase()
-    if (!typed) return ''
-    const row = locationRows.find((l) => l.name.trim().toLowerCase() === typed)
-    if (row?.cf_location) return row.cf_location
-    return options.cf_locations.find((c) => c.trim().toLowerCase() === typed) ?? ''
-  }
 
   /** What the typed name still needs: nothing for a complete, known name. */
   function partyNeeds(): { location: boolean; cf: boolean } {
@@ -129,7 +113,8 @@ function OverrideModal({
   if (!txn) return null
   const difference = Math.round((txn.amount - total) * 100) / 100
   const needs = partyNeeds()
-  const splitNeedsCf = (s: SplitDraft) => !s.cf_location.trim() && !defaultCfFor(s.location)
+  // a location never comes without its CF location
+  const splitNeedsCf = (s: SplitDraft) => !s.cf_location.trim()
   const splitInvalid =
     splits.length > 0 &&
     (difference !== 0 || splits.some((s) => !s.location.trim() || splitNeedsCf(s)))
@@ -199,11 +184,7 @@ function OverrideModal({
                   <CreatableCombobox
                     value={partyLocation}
                     options={options.locations}
-                    onChange={(location) => {
-                      setPartyLocation(location)
-                      const fallback = defaultCfFor(location)
-                      if (fallback && !partyCf.trim()) setPartyCf(fallback)
-                    }}
+                    onChange={setPartyLocation}
                     placeholder="Location of this name"
                     ariaLabel="Location of this name"
                     suggestionLabel="Existing locations"
@@ -269,13 +250,7 @@ function OverrideModal({
               <CreatableCombobox
                 value={split.cf_location}
                 options={options.cf_locations}
-                placeholder={
-                  split.location.trim() && !defaultCfFor(split.location)
-                    ? 'CF location (required for this location)'
-                    : defaultCfFor(split.location)
-                      ? `CF location (default: ${defaultCfFor(split.location)})`
-                      : 'CF location'
-                }
+                placeholder="CF location (required)"
                 ariaLabel={`CF location of split line ${index + 1}`}
                 onChange={(cf_location) =>
                   setSplits((previous) => previous.map((s, i) => (i === index ? { ...s, cf_location } : s)))
