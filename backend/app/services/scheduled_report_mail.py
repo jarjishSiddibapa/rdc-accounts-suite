@@ -116,6 +116,7 @@ class MailPayload:
     downloads: list[tuple[str, str]] = field(default_factory=list)   # (label, path) of the full report, for the preview
     attachment_groups: list[list[str]] = field(default_factory=list)  # one mail per group
     notes: list[str] = field(default_factory=list)                    # shown after the sections
+    sender_notes: list[str] = field(default_factory=list)             # for the person sending (preview panel), never in the mail
     intro_note: str = ""                         # a bold line straight after the mail text
     detail: dict = field(default_factory=dict)   # stored with the run
     hold_reason: str | None = None               # set: do not send, record why

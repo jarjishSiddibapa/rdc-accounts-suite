@@ -973,17 +973,15 @@ def write_formatted_excel(df_main: pd.DataFrame, df_advance: pd.DataFrame,
         df_unidentified if df_unidentified is not None else pd.DataFrame(),
         as_on_date)
 
-    # Save with openpyxl first (no Summary sheet yet)
-    wb.save(path)
-
     # ── Summary sheet: openpyxl formatted table (Location × Ageing Bucket) ──────
-    _eff_incharge = incharge_map or {}
-    wb2 = load_workbook(path)
-    _write_pivot_sheet(wb2, df_main, as_on_date, incharge_map=_eff_incharge)
-    summary_idx = wb2.sheetnames.index("Summary")
-    wb2.move_sheet("Summary", offset=-summary_idx)
-    cached_values = cache_formula_values(wb2)
-    wb2.save(path)
+    # Added to the workbook already in memory and saved once. It used to be
+    # saved, re-read from disk, given the Summary and saved again - three
+    # passes over every data cell for one small sheet.
+    _write_pivot_sheet(wb, df_main, as_on_date, incharge_map=incharge_map or {})
+    summary_idx = wb.sheetnames.index("Summary")
+    wb.move_sheet("Summary", offset=-summary_idx)
+    cached_values = cache_formula_values(wb)
+    wb.save(path)
     inject_cached_values(path, cached_values)
 
     if log_q:

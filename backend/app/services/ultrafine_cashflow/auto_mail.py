@@ -191,12 +191,12 @@ def build(snapshot: dict, progress_cb=None, cancel_event=None, month: str | None
         "attachment": file_name,
     }
     if outcome.get("unmapped_count"):
-        payload.notes.append(
+        payload.sender_notes.append(
             f"{outcome['unmapped_count']} bank line(s) are not mapped yet. They are highlighted in the "
             "workbook (Remark column) and are not part of the table."
         )
     if outcome.get("earlier_issue_count"):
-        payload.notes.append(
+        payload.sender_notes.append(
             f"{outcome['earlier_issue_count']} unmapped line(s) in earlier months affect the opening balances."
         )
     return payload

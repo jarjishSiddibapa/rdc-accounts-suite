@@ -709,6 +709,10 @@ class ApiTests(unittest.TestCase):
         self.assertIn("Hitanshi", message["html_body"])
         self.assertEqual([Path(p).name for p in message["attachments"]], ["UF_Cashflow_Sep_26.xlsx"])
         self.assertTrue(Path(message["attachments"][0]).is_file())
+        # what is unmapped is for the sender's panel only: the recipients never read it
+        self.assertTrue(any("not mapped yet" in note for note in payload.sender_notes))
+        self.assertNotIn("not mapped", message["html_body"])
+        self.assertNotIn("Remark column", message["html_body"])
 
     def test_the_mail_preview_runs_through_the_durable_job_queue(self):
         """The way the button runs it: queued as a job, claimed by a worker, executed from the stored row."""

@@ -62,6 +62,6 @@ def build_preview(app_key: str, build, user_id: int, to: list[str], cc: list[str
         "cc": cc,
         "messages": messages,
         "downloads": [{"label": label, **_file_entry(path)} for label, path in payload.downloads],
-        "notes": payload.notes,
+        "notes": [*payload.notes, *payload.sender_notes],
         "detail": payload.detail,
     }
