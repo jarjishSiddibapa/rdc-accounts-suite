@@ -24,6 +24,7 @@ import { usePagination } from '@/hooks/usePagination'
 import { ApiError, apiUrl, del, get, post, postForm, put } from '@/lib/api'
 import { formatIndianNumber } from '@/lib/regional'
 import { cn } from '@/utils/cn'
+import { segmentClass } from '@/utils/segment'
 
 const BASE = '/tools/untagged-invoices-report'
 
@@ -607,12 +608,7 @@ export default function UntaggedInvoicesReport() {
               <button
                 key={cfg.key}
                 onClick={() => setActiveMappingTab(i)}
-                className={cn(
-                  'rounded-xl px-4 py-2 text-sm font-semibold transition duration-200',
-                  activeMappingTab === i
-                    ? 'bg-accent text-white shadow-[0_8px_18px_-12px_color-mix(in_oklab,var(--color-accent)_75%,transparent)] dark:bg-accent-2'
-                    : 'border border-transparent text-ink-dim hover:bg-surface/70 hover:text-ink',
-                )}
+                className={segmentClass(activeMappingTab === i)}
               >
                 {cfg.title}
               </button>

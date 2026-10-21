@@ -11,6 +11,7 @@ import { ApiError, del, get, post, put } from '@/lib/api'
 import { MonthYearPicker } from '@/components/TemporalPicker'
 import { cn } from '@/utils/cn'
 import { BASE, monthLabel, type MappingOptions } from './shared'
+import { segmentClass } from '@/utils/segment'
 
 type ApiRow = Record<string, unknown>
 
@@ -530,12 +531,7 @@ export function MappingsPanel({
           <button
             key={t.key}
             onClick={() => setTab(t.key)}
-            className={cn(
-              'rounded-xl px-4 py-2 text-sm font-semibold transition duration-200',
-              tab === t.key
-                ? 'bg-accent text-white shadow-[0_8px_18px_-12px_color-mix(in_oklab,var(--color-accent)_75%,transparent)] dark:bg-accent-2'
-                : 'border border-transparent text-ink-dim hover:bg-surface/70 hover:text-ink',
-            )}
+            className={segmentClass(tab === t.key)}
           >
             {t.label}
           </button>

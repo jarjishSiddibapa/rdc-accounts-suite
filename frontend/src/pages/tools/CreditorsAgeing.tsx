@@ -24,6 +24,7 @@ import { ApiError, apiUrl, del, get, post, postForm, put } from '@/lib/api'
 import { formatIndianNumber } from '@/lib/regional'
 import { cn } from '@/utils/cn'
 import { EXCEL_ACCEPT } from '@/lib/fileTypes'
+import { segmentClass } from '@/utils/segment'
 
 const BASE = '/tools/creditors-ageing'
 
@@ -477,14 +478,14 @@ export default function CreditorsAgeing() {
             <button
               type="button"
               onClick={() => setActiveTab('generate')}
-              className={cn('rounded-xl px-4 py-2 text-sm font-semibold transition', activeTab === 'generate' ? 'bg-accent text-white' : 'text-ink-dim hover:bg-surface/70 hover:text-ink')}
+              className={segmentClass(activeTab === 'generate')}
             >
               Generate report
             </button>
             <button
               type="button"
               onClick={() => setActiveTab('mappings')}
-              className={cn('rounded-xl px-4 py-2 text-sm font-semibold transition', activeTab === 'mappings' ? 'bg-accent text-white' : 'text-ink-dim hover:bg-surface/70 hover:text-ink')}
+              className={segmentClass(activeTab === 'mappings')}
             >
               Vendor mappings
             </button>

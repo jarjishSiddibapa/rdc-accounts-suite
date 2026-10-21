@@ -42,6 +42,7 @@ import {
 } from '@/lib/regional'
 import { cn } from '@/utils/cn'
 import { EXCEL_ACCEPT } from '@/lib/fileTypes'
+import { segmentClass } from '@/utils/segment'
 
 const BASE = '/tools/unaccounted'
 
@@ -2621,12 +2622,7 @@ function MappingsTab() {
           <button
             key={s.key}
             onClick={() => setActiveSection(i)}
-            className={cn(
-              'rounded-xl px-3.5 py-2 text-xs font-semibold transition duration-200',
-              activeSection === i
-                ? 'bg-accent text-white shadow-[0_8px_18px_-12px_color-mix(in_oklab,var(--color-accent)_75%,transparent)] dark:bg-accent-2'
-                : 'border border-transparent text-ink-dim hover:bg-surface/70 hover:text-ink',
-            )}
+            className={segmentClass(activeSection === i, 'sm')}
           >
             {s.label}
           </button>
@@ -2687,12 +2683,7 @@ export default function UnaccountedTransactions() {
               <button
                 key={t.key}
                 onClick={() => setTab(t.key)}
-                className={cn(
-                  'rounded-xl px-4 py-2 text-sm font-semibold transition duration-200',
-                  tab === t.key
-                    ? 'bg-accent text-white shadow-[0_8px_18px_-12px_color-mix(in_oklab,var(--color-accent)_75%,transparent)] dark:bg-accent-2'
-                    : 'border border-transparent text-ink-dim hover:bg-surface/70 hover:text-ink',
-                )}
+                className={segmentClass(tab === t.key)}
               >
                 {t.label}
               </button>

@@ -23,6 +23,7 @@ import { ApiError, apiUrl, del, get, post, postForm, put } from '@/lib/api'
 import { formatIndianNumber } from '@/lib/regional'
 import { cn } from '@/utils/cn'
 import { EXCEL_ACCEPT } from '@/lib/fileTypes'
+import { segmentClass } from '@/utils/segment'
 
 const BASE = '/tools/trial-balance-formatter'
 
@@ -407,8 +408,8 @@ export default function TrialBalanceFormatter() {
             </div>
           </div>
           <div className="segmented-control self-start">
-            <button type="button" onClick={() => setActiveTab('generate')} className={cn('rounded-xl px-4 py-2 text-sm font-semibold transition', activeTab === 'generate' ? 'bg-accent text-white' : 'text-ink-dim hover:bg-surface/70 hover:text-ink')}>Format trial balance</button>
-            <button type="button" onClick={() => setActiveTab('mappings')} className={cn('rounded-xl px-4 py-2 text-sm font-semibold transition', activeTab === 'mappings' ? 'bg-accent text-white' : 'text-ink-dim hover:bg-surface/70 hover:text-ink')}>Ledger mappings</button>
+            <button type="button" onClick={() => setActiveTab('generate')} className={segmentClass(activeTab === 'generate')}>Format trial balance</button>
+            <button type="button" onClick={() => setActiveTab('mappings')} className={segmentClass(activeTab === 'mappings')}>Ledger mappings</button>
           </div>
         </GlassCard>
 

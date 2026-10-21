@@ -3,12 +3,12 @@ import { Landmark } from 'lucide-react'
 import { AppShell } from '@/components/AppShell'
 import { ErrorBanner } from '@/components/ErrorBanner'
 import { ApiError, get } from '@/lib/api'
-import { cn } from '@/utils/cn'
 import { MappingsPanel } from './cashflow/MappingsPanel'
 import { SetupPanel } from './cashflow/SetupPanel'
 import { TransactionsPanel } from './cashflow/TransactionsPanel'
 import { UploadPanel } from './cashflow/UploadPanel'
 import { BASE, currentMonth, useMappingOptions, type MonthRow } from './cashflow/shared'
+import { segmentClass } from '@/utils/segment'
 
 type Tab = 'upload' | 'review' | 'setup' | 'mappings'
 
@@ -72,12 +72,7 @@ export default function UltrafineCashflow() {
               role="tab"
               aria-selected={tab === t.key}
               onClick={() => setTab(t.key)}
-              className={cn(
-                'rounded-xl px-4 py-2 text-sm font-semibold transition duration-200',
-                tab === t.key
-                  ? 'bg-accent text-white shadow-[0_8px_18px_-12px_color-mix(in_oklab,var(--color-accent)_75%,transparent)] dark:bg-accent-2'
-                  : 'border border-transparent text-ink-dim hover:bg-surface/70 hover:text-ink',
-              )}
+              className={segmentClass(tab === t.key)}
             >
               {t.label}
             </button>
