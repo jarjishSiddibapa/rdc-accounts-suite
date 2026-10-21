@@ -710,6 +710,41 @@ class ApiTests(unittest.TestCase):
         self.assertEqual([Path(p).name for p in message["attachments"]], ["UF_Cashflow_Sep_26.xlsx"])
         self.assertTrue(Path(message["attachments"][0]).is_file())
 
+    def test_the_mail_preview_runs_through_the_durable_job_queue(self):
+        """The way the button runs it: queued as a job, claimed by a worker, executed from the stored row."""
+        import uuid
+
+        from app import jobs
+        from app.database import SessionLocal
+        from app.models import BackgroundJob
+        from app.services import report_mail_preview
+        from app.services.ultrafine_cashflow import auto_mail
+
+        self.router._job_ingest([str(self._write_statement())], ["stmt.csv"], 1)
+        spec = auto_mail.mail.SPECS["ultrafine-cashflow"]
+        sender = {"configured": True, "email": "me@rdc.in", "app_password": "x", "signature": "Thanks"}
+        worker = f"cashflow-test:{uuid.uuid4().hex[:8]}"
+        job_id = jobs.submit_job(
+            auto_mail.run_preview_job, 1, ["to@rdc.in"], [], spec.default_subject, spec.default_intro, True,
+            owner_id=810_777, month="2026-09",
+        )
+        db = SessionLocal()
+        try:
+            db.query(BackgroundJob).filter(BackgroundJob.id == job_id).update({BackgroundJob.priority: -1000})
+            db.commit()
+        finally:
+            db.close()
+        with patch.object(auto_mail, "SessionLocal", self.session_factory), \
+                patch.object(auto_mail, "SCRATCH_DIR", self.tmp / "scratch"), \
+                patch.object(report_mail_preview, "get_email_settings", return_value=sender):
+            self.assertEqual(jobs.claim_next_job(worker), job_id)
+            jobs.execute_job(job_id, worker)
+        job = jobs.get_job(job_id, owner_id=810_777)
+        self.assertEqual(job["status"], "done", job.get("error"))
+        self.assertEqual(job["result"]["status"], "preview")
+        self.assertEqual(job["result"]["messages"][0]["subject"], "UF - Cash Flow as of 4th September, 2026")
+        self.assertEqual(job["result"]["downloads"][0]["name"], "UF_Cashflow_Sep_26.xlsx")
+
     def test_lakhs_are_whole_numbers_with_brackets_for_negatives(self):
         from app.services.ultrafine_cashflow.auto_mail import _lakhs
 

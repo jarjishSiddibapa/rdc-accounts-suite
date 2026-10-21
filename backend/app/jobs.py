@@ -82,6 +82,7 @@ _ALLOWED_TASKS = frozenset(
         "app.routers.ultrafine_fse_reminder:_job_send_broadcast",
         "app.routers.ultrafine_cashflow:_job_ingest",
         "app.routers.ultrafine_cashflow:_job_generate",
+        "app.services.ultrafine_cashflow.auto_mail:run_preview_job",
     }
 )
 

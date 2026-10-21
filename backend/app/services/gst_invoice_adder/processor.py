@@ -71,6 +71,7 @@ from openpyxl.utils import column_index_from_string, get_column_letter
 
 from app.jobs import JobCancelled, JobUserError
 from app.oracle_runtime import initialize_oracle_client
+from app.services import tabular_input
 from app.services.report_dash import DASH, FMT_DEC, FMT_INT, is_blank
 
 logger = logging.getLogger(__name__)

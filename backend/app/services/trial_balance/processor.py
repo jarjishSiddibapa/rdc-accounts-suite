@@ -13,6 +13,8 @@ import pandas as pd
 import xlsxwriter
 from xlsxwriter.utility import xl_rowcol_to_cell
 
+from app.services import tabular_input
+
 from . import mapping_store
 from app.services.report_progress import row_progress_reporter
 
