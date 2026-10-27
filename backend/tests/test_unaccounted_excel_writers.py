@@ -249,6 +249,36 @@ class CellFormattingUnaffectedByStyleObjectReuseTests(unittest.TestCase):
         text_cell = ws.cell(row=2, column=text_col)
         self.assertEqual(text_cell.value, "Acme Traders")
 
+    def test_summary_has_month_and_year_between_creation_date_and_created_by(self):
+        df = pd.DataFrame({
+            "Supplier Name": ["Acme Traders", "Bharat Steel", "Cee Metals"],
+            "Supplier Site": ["SITE-A1", "SITE-B1", "SITE-C1"],
+            "Invoice Number": ["INV-1", "INV-2", "INV-3"],
+            "Invoice Date": ["01-Jun-2026", "01-Jul-2026", "01-Jul-2026"],
+            "Creation Date": ["15-Jun-2026", "02-Jul-2026", ""],
+            "Created By": ["ASHA", "RAVI", "ASHA"],
+            "Amount": [10.0, 20.0, 30.0],
+            "Location": ["Mumbai Plant", "Chennai Plant", "Mumbai Plant"],
+            "Accounts Incharge": ["Rakesh D", "Priya S", "Rakesh D"],
+        })
+        out = str(self.out_dir / "unaccounted.xlsx")
+        excel_writers.write_formatted_excel(df, out)
+
+        ws = load_workbook(out)["Summary"]
+        headers = [c.value for c in ws[1]]
+        at = headers.index("Month and Year")
+        self.assertEqual(headers[at - 1], "Creation Date")
+        self.assertEqual(headers[at + 1], "Created By")
+
+        june, july, blank = (ws.cell(row=r, column=at + 1) for r in (2, 3, 4))
+        self.assertEqual(june.value.date(), dt.date(2026, 6, 1))
+        self.assertEqual(june.number_format, "mmm-yy")
+        self.assertEqual(july.value.date(), dt.date(2026, 7, 1))
+        self.assertIsNone(blank.value)
+        # The creation date itself and the caller's frame are left as they were.
+        self.assertEqual(ws.cell(row=2, column=at).value.date(), dt.date(2026, 6, 15))
+        self.assertNotIn("Month and Year", df.columns)
+
     def test_po_sheet_numeric_and_text_columns_are_formatted_correctly(self):
         main_df = pd.DataFrame({
             "PO Number": ["PO-1", "PO-2"],

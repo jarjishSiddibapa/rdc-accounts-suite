@@ -332,6 +332,35 @@ def _excel_date_lookup(series: "pd.Series") -> dict:
     return {value: _to_excel_date(value) for value in series.unique()}
 
 
+MONTH_YEAR_COL = "Month and Year"
+MONTH_YEAR_FMT = "mmm-yy"   # 1st of the month as a real date, shown as Jun-26
+_CREATION_DATE_NAMES = ("creation date", "created date", "creation_date")
+
+
+def _with_month_year_column(df: "pd.DataFrame", cols: list) -> "pd.DataFrame":
+    """Return df with a 'Month and Year' column placed between the creation
+    date and 'Created By'. Each value is the 1st of the creation date's month
+    as a real date (the writer formats it mmm-yy). Returns df unchanged when
+    there is no Created By column, the column already exists, or no creation
+    date column can be found."""
+    if "Created By" not in cols or MONTH_YEAR_COL in cols:
+        return df
+    created_by_at = cols.index("Created By")
+    date_col = next((c for c in cols if c.strip().lower() in _CREATION_DATE_NAMES), None)
+    if date_col is None and created_by_at > 0 and "date" in cols[created_by_at - 1].lower():
+        date_col = cols[created_by_at - 1]
+    if date_col is None:
+        return df
+
+    lookup = _excel_date_lookup(df[date_col])
+    month_year = df[date_col].map(
+        lambda v: (lambda d: d.replace(day=1) if d is not None else None)(lookup.get(v))
+    )
+    out = df.copy()
+    out.insert(list(out.columns).index("Created By"), MONTH_YEAR_COL, month_year)
+    return out
+
+
 def write_formatted_excel(df: "pd.DataFrame", path: str, progress_cb=None) -> None:
     """Write df to path as a professionally formatted xlsx."""
     wb     = Workbook()
@@ -339,6 +368,8 @@ def write_formatted_excel(df: "pd.DataFrame", path: str, progress_cb=None) -> No
     ws.title = "Summary"
 
     # Exclude the internal __month__ column from the data sheet
+    cols   = [c for c in list(df.columns) if c != "__month__"]
+    df     = _with_month_year_column(df, cols)
     cols   = [c for c in list(df.columns) if c != "__month__"]
     n_cols = len(cols)
     n_rows = len(df)
@@ -392,6 +423,14 @@ def write_formatted_excel(df: "pd.DataFrame", path: str, progress_cb=None) -> No
                     )
                 except (ValueError, TypeError):
                     c.value = val
+            elif col_name == MONTH_YEAR_COL:
+                # A real Excel date (1st of the month) shown as Jun-26, so it
+                # sorts, filters and groups by month in Excel.
+                c.font      = txt_font
+                c.alignment = align_center
+                if isinstance(val, _dt.date):
+                    c.value         = val
+                    c.number_format = MONTH_YEAR_FMT
             elif col_name in date_lookups:
                 # Write as a real Excel date serial so date functions work
                 date_val = date_lookups[col_name].get(val)
