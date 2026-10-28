@@ -5,6 +5,8 @@ import { GlassCard } from '@/components/GlassCard'
 import { Button } from '@/components/Button'
 import { ErrorBanner } from '@/components/ErrorBanner'
 import { CreatableCombobox } from '@/components/CreatableCombobox'
+import { Pagination } from '@/components/Pagination'
+import { usePagination } from '@/hooks/usePagination'
 import { ProgressPanel, type JobState, type JobStatus } from '@/components/ProgressPanel'
 import { ApiError, apiUrl, get, post } from '@/lib/api'
 import { formatIndianDate } from '@/lib/regional'
@@ -107,6 +109,7 @@ function MappingFixRows({
   const [values, setValues] = useState<Record<string, string>>({})
   const [saving, setSaving] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const pagination = usePagination(items, 10)
 
   async function handleFix(item: string) {
     const value = values[item]?.trim()
@@ -129,8 +132,9 @@ function MappingFixRows({
         {category} ({items.length})
       </span>
       {error && <ErrorBanner className="whitespace-pre-wrap">{error}</ErrorBanner>}
-      <div className="flex max-h-72 flex-col gap-2 overflow-y-auto">
-        {items.map((item) => {
+      {/* no scrolling box here: it would clip the drop-down list of the Location box */}
+      <div className="flex flex-col gap-2">
+        {pagination.pagedItems.map((item) => {
           const isFixed = Boolean(fixed[`${category}::${item}`])
           return (
             <div
@@ -166,6 +170,15 @@ function MappingFixRows({
           )
         })}
       </div>
+      <Pagination
+        page={pagination.page}
+        pageCount={pagination.pageCount}
+        pageSize={pagination.pageSize}
+        totalItems={pagination.totalItems}
+        itemLabel={category.toLowerCase()}
+        onPageChange={pagination.setPage}
+        onPageSizeChange={pagination.setPageSize}
+      />
     </div>
   )
 }
