@@ -71,7 +71,7 @@ function SendNowCard({ onFinished }: { onFinished: () => void }) {
         <h2 className="font-display text-lg font-semibold text-ink">Send the automatic mail now</h2>
         <p className="text-sm leading-6 text-ink-dim">
           Runs the scheduled mail right away: it builds the three reports and sends them to the saved
-          recipients, from the system email, with the saved subject and text. It is recorded in the send
+          recipients, from the sender chosen in the automatic mail settings, with the saved subject and text. It is recorded in the send
           log below like any scheduled mail. To review the mail first, or to send it from your own email, use
           Mail this report above.
         </p>

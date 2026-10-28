@@ -28,7 +28,12 @@ interface AutoMailSettings {
   placeholders: string[]
   default_subject: string
   default_intro: string
+  sender_user_id: number | null
+  sender_options: { user_id: number; name: string; email: string }[]
+  sender_email: string | null
   sender_configured: boolean
+  sender_problem: string | null
+  system_sender_email: string | null
   next_run: string | null
   running: boolean
   last: LastRun
@@ -151,7 +156,7 @@ export function AutoMailCard({ baseUrl, reportName }: { baseUrl: string; reportN
   )
   const dirty = useMemo(() => {
     if (!saved || !current) return false
-    const keys = ['enabled', 'days', 'time', 'to', 'cc', 'subject_template', 'intro_template', 'signature', 'send_when_unmapped'] as const
+    const keys = ['enabled', 'days', 'time', 'to', 'cc', 'subject_template', 'intro_template', 'signature', 'send_when_unmapped', 'sender_user_id'] as const
     return keys.some((key) => JSON.stringify(saved[key]) !== JSON.stringify(current[key]))
   }, [saved, current])
 
@@ -183,6 +188,7 @@ export function AutoMailCard({ baseUrl, reportName }: { baseUrl: string; reportN
         intro_template: current.intro_template,
         signature: current.signature,
         send_when_unmapped: current.send_when_unmapped,
+        sender_user_id: current.sender_user_id,
       })
       apply(next)
       setMessage({ ok: true, text: 'Saved.' })
@@ -218,11 +224,36 @@ export function AutoMailCard({ baseUrl, reportName }: { baseUrl: string; reportN
         <div className="flex items-start gap-3 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-700">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
           <span>
-            The system email is not set up, so nothing can be sent yet. Configure it under Email
-            administration first.
+            {saved.sender_problem ?? 'Nothing can be sent yet: the sender is not set up.'}
           </span>
         </div>
       )}
+
+      <label className="flex flex-col gap-1.5 text-sm">
+        <span className="font-medium text-ink-dim">Send the automatic mail from</span>
+        <select
+          className="field-control"
+          value={current.sender_user_id === null ? '' : String(current.sender_user_id)}
+          onChange={(event) => update({ sender_user_id: event.target.value === '' ? null : Number(event.target.value) })}
+        >
+          <option value="">
+            System email{saved.system_sender_email ? ` (${saved.system_sender_email})` : ' (not set up)'}
+          </option>
+          {current.sender_options.map((option) => (
+            <option key={option.user_id} value={option.user_id}>
+              {option.name} ({option.email})
+            </option>
+          ))}
+          {current.sender_user_id !== null
+            && !current.sender_options.some((option) => option.user_id === current.sender_user_id) && (
+              <option value={current.sender_user_id}>Chosen person (no longer available)</option>
+            )}
+        </select>
+        <span className="text-xs text-ink-faint">
+          The mail goes out through this Gmail account. People listed here have set up their own email
+          under Settings. The mail you send by hand always goes from your own email.
+        </span>
+      </label>
 
       <label className="flex items-center gap-3 text-sm font-medium text-ink">
         <input

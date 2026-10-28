@@ -17,6 +17,7 @@ from sqlalchemy.orm import sessionmaker
 from app.database import Base
 from app.jobs import JobUserError
 from app.models import (
+    EmailSettings, User,
     Application, ApplicationEmailRecipient, ScheduledReportMail, ScheduledReportMailLog, SystemEmailSettings,
 )
 from app.regional import IST
@@ -52,7 +53,8 @@ class _DbCase(unittest.TestCase):
         engine = create_engine("sqlite://")
         Base.metadata.create_all(
             engine, tables=[Application.__table__, ApplicationEmailRecipient.__table__, ScheduledReportMail.__table__,
-                    SystemEmailSettings.__table__, ScheduledReportMailLog.__table__],
+                    SystemEmailSettings.__table__, ScheduledReportMailLog.__table__,
+                    User.__table__, EmailSettings.__table__],
         )
         self.factory = sessionmaker(bind=engine, expire_on_commit=False)
         self.db = self.factory()

@@ -34,12 +34,13 @@ class AutoMailBody(BaseModel):
     intro_template: str
     signature: str = ""
     send_when_unmapped: bool = True
+    sender_user_id: int | None = None   # whose own email sends it; None = the system email
 
 
 def make_auto_mail_router(app_key: str, run_job=None) -> APIRouter:
     """``run_job`` (optional): the application's automatic-mail job, which adds
     ``POST /auto-mail/send-now`` - the automatic mail run right now, with the
-    saved settings and recipients, from the system email, logged like a
+    saved settings, recipients and sender, logged like a
     scheduled run."""
     router = APIRouter(prefix="/auto-mail", dependencies=[Depends(require_admin)])
 

@@ -416,6 +416,8 @@ class ScheduledReportMail(Base):
     intro_template = Column(Text, nullable=False)
     signature = Column(Text, nullable=True)
     send_when_unmapped = Column(Boolean, default=True, nullable=False)
+    # whose own email (Settings) sends the automatic mail; None = the system email
+    sender_user_id = Column(Integer, nullable=True)
 
     last_attempt_date = Column(Date, nullable=True)
     running_since = Column(DateTime, nullable=True)

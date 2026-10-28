@@ -8,8 +8,8 @@ the application's admin-managed defaults (the same list shown under Admin ->
 Report recipients). "Send now" runs the very same job on demand.
 
 The mail goes out through the system email identity (Admin -> Email
-settings): a scheduled run has no signed-in user whose own sender could be
-used.
+settings) unless the administrator picks a person: a scheduled run has no
+signed-in user, so it is sent from that person's own email (Settings) instead.
 
 The scheduler process calls ``enqueue_due_checks`` every ~45 seconds; the
 report itself is built and mailed by a durable background job
@@ -31,10 +31,10 @@ from string import Formatter
 
 from sqlalchemy.orm import Session
 
-from app import audit_middleware
+from app import audit_middleware, security
 from app.database import SessionLocal
 from app.jobs import JobCancelled, JobUserError
-from app.models import ScheduledReportMail, ScheduledReportMailLog
+from app.models import EmailSettings, ScheduledReportMail, ScheduledReportMailLog, User
 from app.regional import now_ist
 from app.services.mailer_shared import (
     _plain_to_html,
@@ -254,11 +254,75 @@ def next_run(row: ScheduledReportMail, now: datetime | None = None) -> datetime 
     return None
 
 
+# ── who sends it ─────────────────────────────────────────────────────────────
+
+def _person_name(user: User) -> str:
+    name = " ".join(part for part in (user.first_name, user.last_name) if part)
+    return name or user.email
+
+
+def sender_options(db: Session) -> list[dict]:
+    """The people whose own email (Settings) can send the automatic mail: active
+    users who have set one up."""
+    rows = (
+        db.query(User, EmailSettings)
+        .join(EmailSettings, EmailSettings.user_id == User.id)
+        .filter(
+            User.is_deleted.is_(False), User.is_active.is_(True), EmailSettings.is_deleted.is_(False),
+        )
+        .all()
+    )
+    options = [
+        {"user_id": user.id, "name": _person_name(user), "email": settings.sender_email}
+        for user, settings in rows
+        if settings.sender_email and settings.app_password_encrypted
+    ]
+    return sorted(options, key=lambda option: option["name"].lower())
+
+
+def resolve_sender(db: Session, sender_user_id: int | None) -> dict:
+    """{configured, email, app_password, problem} of whoever sends the automatic mail:
+    the chosen person's own email, or the system email when none is chosen."""
+    if sender_user_id is None:
+        system = get_system_email_settings(db)
+        return {
+            "configured": bool(system["configured"]),
+            "email": system.get("sender_email"),
+            "app_password": system.get("app_password"),
+            "problem": None if system["configured"] else (
+                "The system email is not set up yet. Ask an administrator to configure it under "
+                "Email administration, then try again."
+            ),
+        }
+    row = (
+        db.query(User, EmailSettings)
+        .join(EmailSettings, EmailSettings.user_id == User.id)
+        .filter(User.id == sender_user_id, User.is_deleted.is_(False), User.is_active.is_(True),
+                EmailSettings.is_deleted.is_(False))
+        .first()
+    )
+    if row is None or not row[1].sender_email or not row[1].app_password_encrypted:
+        return {
+            "configured": False, "email": None, "app_password": None,
+            "problem": (
+                "The person chosen to send this mail no longer has an email sender set up (or is no longer "
+                "an active user). Choose who it is sent from again under the automatic mail settings."
+            ),
+        }
+    return {
+        "configured": True,
+        "email": row[1].sender_email,
+        "app_password": security.decrypt(row[1].app_password_encrypted),
+        "problem": None,
+    }
+
+
 def settings_view(db: Session, app_key: str) -> dict:
     spec = SPECS[app_key]
     row = get_or_create_settings(db, app_key)
     recipients = get_report_recipient_defaults(db, app_key)
     upcoming = next_run(row)
+    sender = resolve_sender(db, row.sender_user_id)
     try:
         detail = json.loads(row.last_detail) if row.last_detail else None
     except ValueError:
@@ -276,7 +340,12 @@ def settings_view(db: Session, app_key: str) -> dict:
         "placeholders": list(spec.placeholders),
         "default_subject": spec.default_subject,
         "default_intro": spec.default_intro,
-        "sender_configured": bool(get_system_email_settings(db)["configured"]),
+        "sender_user_id": row.sender_user_id,
+        "sender_options": sender_options(db),
+        "sender_email": sender["email"],
+        "sender_configured": sender["configured"],
+        "sender_problem": sender["problem"],
+        "system_sender_email": get_system_email_settings(db).get("sender_email"),
         "next_run": upcoming.isoformat() if upcoming else None,
         "running": _is_running(row, _utcnow()),
         "last": {
@@ -318,9 +387,21 @@ def save_settings(db: Session, app_key: str, data: dict) -> dict:
     if enabled and not to_list:
         raise ValueError("Add at least one To recipient, or switch automatic mail off")
 
+    raw_sender = data.get("sender_user_id")
+    sender_user_id = None
+    if raw_sender not in (None, ""):
+        if isinstance(raw_sender, bool) or not isinstance(raw_sender, int):
+            raise ValueError("Choose who the mail is sent from from the list")
+        if not resolve_sender(db, raw_sender)["configured"]:
+            raise ValueError(
+                "That person has no email sender set up (Settings -> Email), so the mail cannot go out from them"
+            )
+        sender_user_id = raw_sender
+
     row = get_or_create_settings(db, app_key)
     # recipients first: it raises on a duplicate address before anything else is touched
     set_report_recipient_defaults(db, app_key, to_list, cc_list)
+    row.sender_user_id = sender_user_id
     row.enabled = enabled
     row.send_days = format_days(days)
     row.send_time = send_time
@@ -375,6 +456,7 @@ def _claim_run(app_key: str, trigger: str, requested_by: str | None) -> dict | N
             "intro_template": row.intro_template,
             "signature": row.signature or "",
             "send_when_unmapped": bool(row.send_when_unmapped),
+            "sender_user_id": row.sender_user_id,
             "log_id": entry.id,
         }
     finally:
@@ -523,18 +605,16 @@ def compose_messages(snapshot: dict, payload: MailPayload) -> list[dict]:
     return messages
 
 
-def _deliver(db: Session, app_key: str, subject: str, html_body: str, attachments: list[str]) -> dict:
-    sender = get_system_email_settings(db)
+def _deliver(db: Session, app_key: str, subject: str, html_body: str, attachments: list[str],
+             sender_user_id: int | None = None) -> dict:
+    sender = resolve_sender(db, sender_user_id)
     if not sender["configured"]:
-        raise JobUserError(
-            "The system email is not set up yet. Ask an administrator to configure it under "
-            "Email administration, then try again."
-        )
+        raise JobUserError(sender["problem"])
     recipients = get_report_recipient_defaults(db, app_key)
     if not recipients["to"]:
         raise JobUserError("There is no To recipient. Add at least one under the automatic mail settings.")
     send_mail(
-        from_email=sender["sender_email"],
+        from_email=sender["email"],
         app_password=sender["app_password"],
         to_addresses=recipients["to"],
         cc_addresses=recipients["cc"],
@@ -594,6 +674,7 @@ def run_mail_job(app_key: str, trigger: str, build, progress_cb=None, cancel_eve
             for message in messages:
                 recipients = recipients_used = _deliver(
                     db, app_key, message["subject"], message["html_body"], message["attachments"],
+                    snapshot.get("sender_user_id"),
                 )
                 sent_messages.append({
                     "subject": message["subject"],
@@ -601,6 +682,7 @@ def run_mail_job(app_key: str, trigger: str, build, progress_cb=None, cancel_eve
                     "attachments": attachment_info(message["attachments"]),
                 })
             detail["recipients"] = recipients
+            detail["sent_from"] = resolve_sender(db, snapshot.get("sender_user_id"))["email"]
             detail["mails_sent"] = len(messages)
         finally:
             db.close()

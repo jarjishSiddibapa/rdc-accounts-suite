@@ -222,6 +222,16 @@ def _apply_additive_schema_updates() -> None:
                     )
                 )
 
+    if "scheduled_report_mail" in existing_tables:
+        report_mail_columns = {
+            column["name"] for column in inspector.get_columns("scheduled_report_mail")
+        }
+        if "sender_user_id" not in report_mail_columns:
+            with engine.begin() as connection:
+                connection.execute(
+                    text("ALTER TABLE `scheduled_report_mail` ADD COLUMN `sender_user_id` INT NULL")
+                )
+
     # Kept additive because the IOCL monitor was exercised against the live
     # portal during development before its daily retry-cooldown field was
     # introduced. It is harmless on a fresh install and protects any early
