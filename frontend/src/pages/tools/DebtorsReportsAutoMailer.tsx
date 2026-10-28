@@ -8,7 +8,7 @@ import { ProgressPanel, type JobState, type JobStatus } from '@/components/Progr
 import { MappingTable, type MappingColumn, type MappingRow } from '@/components/MappingTable'
 import { LoadingNotice } from '@/components/LoadingNotice'
 import { AutoMailCard } from '@/components/AutoMailCard'
-import { ReportMailPanel } from '@/components/ReportMailPanel'
+import { ReportMailPanel, type MappingFix } from '@/components/ReportMailPanel'
 import { useAuth } from '@/lib/auth-context'
 import { ApiError, del, get, post, put } from '@/lib/api'
 import { segmentClass } from '@/utils/segment'
@@ -148,6 +148,22 @@ const MAPPING_CONFIGS: MappingConfig[] = [
   },
 ]
 
+// an unmapped value found while building the mail is mapped on the spot, into the same tables
+const MAIL_MAPPING_FIXES: Record<string, MappingFix> = {
+  'Location Not Mapped': {
+    fieldLabel: 'Location',
+    mappingKey: 'locations',
+    suggestionKey: 'location',
+    buildBody: (item, value) => ({ location_name: item, location: value }),
+  },
+  'Accounts Incharge Not Mapped': {
+    fieldLabel: 'Accounts Incharge',
+    mappingKey: 'accounts-incharge',
+    suggestionKey: 'accounts_incharge',
+    buildBody: (item, value) => ({ location: item, accounts_incharge: value }),
+  },
+}
+
 function MappingSection({ config }: { config: MappingConfig }) {
   const [rows, setRows] = useState<MappingRow[]>([])
   const [loading, setLoading] = useState(true)
@@ -241,6 +257,8 @@ export default function DebtorsReportsAutoMailer() {
           baseUrl={BASE}
           reportName={REPORT_NAME}
           description="Builds the three reports from the live ERP and shows you the exact mail before anything is sent. It goes out from your own email."
+          unmappedHint='Map each value above and preview again, or preview anyway - they show as "-".'
+          mappingFixes={MAIL_MAPPING_FIXES}
         />
 
         {isAdmin && <SendNowCard onFinished={() => setRefreshKey((key) => key + 1)} />}

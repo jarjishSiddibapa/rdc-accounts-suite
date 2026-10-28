@@ -4,6 +4,7 @@ import { AlertTriangle, ArrowRight, CheckCircle2, Download, Eye, Mail } from 'lu
 import { GlassCard } from '@/components/GlassCard'
 import { Button } from '@/components/Button'
 import { ErrorBanner } from '@/components/ErrorBanner'
+import { CreatableCombobox } from '@/components/CreatableCombobox'
 import { ProgressPanel, type JobState, type JobStatus } from '@/components/ProgressPanel'
 import { ApiError, apiUrl, get, post } from '@/lib/api'
 import { formatIndianDate } from '@/lib/regional'
@@ -75,6 +76,100 @@ function formatSentTime(value: string): string {
   })
 }
 
+/** How one kind of unmapped value is fixed on the spot: which mapping table it goes into. */
+export interface MappingFix {
+  fieldLabel: string
+  /** The table, under `${baseUrl}/mappings/`. */
+  mappingKey: string
+  /** The row to save for an unmapped `item` mapped to `value`. */
+  buildBody: (item: string, value: string) => Record<string, unknown>
+  /** The column of that table holding the values already in use, offered as suggestions. */
+  suggestionKey: string
+}
+
+function MappingFixRows({
+  baseUrl,
+  category,
+  items,
+  fix,
+  suggestions,
+  fixed,
+  onFixed,
+}: {
+  baseUrl: string
+  category: string
+  items: string[]
+  fix: MappingFix
+  suggestions: string[]
+  fixed: Record<string, boolean>
+  onFixed: (key: string) => void
+}) {
+  const [values, setValues] = useState<Record<string, string>>({})
+  const [saving, setSaving] = useState<string | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  async function handleFix(item: string) {
+    const value = values[item]?.trim()
+    if (!value) return
+    setSaving(item)
+    setError(null)
+    try {
+      await post(`${baseUrl}/mappings/${fix.mappingKey}`, fix.buildBody(item, value))
+      onFixed(`${category}::${item}`)
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not save the mapping.')
+    } finally {
+      setSaving(null)
+    }
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      <span className="text-xs font-bold tracking-[0.08em] text-amber-600 uppercase">
+        {category} ({items.length})
+      </span>
+      {error && <ErrorBanner className="whitespace-pre-wrap">{error}</ErrorBanner>}
+      <div className="flex max-h-72 flex-col gap-2 overflow-y-auto">
+        {items.map((item) => {
+          const isFixed = Boolean(fixed[`${category}::${item}`])
+          return (
+            <div
+              key={item}
+              className="flex flex-col items-stretch gap-2 rounded-lg border border-amber-500/20 bg-bg-soft/40 px-3 py-2 sm:flex-row sm:flex-wrap sm:items-center"
+            >
+              <span className="min-w-0 flex-1 truncate text-sm font-medium text-ink sm:min-w-[10rem]">{item}</span>
+              <CreatableCombobox
+                placeholder={fix.fieldLabel}
+                value={values[item] ?? ''}
+                options={suggestions}
+                disabled={isFixed}
+                onChange={(value) => setValues((previous) => ({ ...previous, [item]: value }))}
+                ariaLabel={`${fix.fieldLabel} for ${item}`}
+                suggestionLabel={`Existing ${fix.fieldLabel.toLocaleLowerCase()} values`}
+                className="w-full sm:w-64"
+              />
+              {isFixed ? (
+                <span className="inline-flex items-center gap-1 text-sm text-emerald-500">
+                  <CheckCircle2 className="h-4 w-4" /> Saved
+                </span>
+              ) : (
+                <Button
+                  variant="secondary"
+                  loading={saving === item}
+                  disabled={!values[item]?.trim()}
+                  onClick={() => void handleFix(item)}
+                >
+                  Fix
+                </Button>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 /**
  * Mail a report by hand, the same way as the Unaccounted / MRN / PO mail:
  * build the report, show exactly how the email will look (with the report to
@@ -88,6 +183,7 @@ export function ReportMailPanel({
   title = 'Mail this report',
   description,
   unmappedHint,
+  mappingFixes,
   onClose,
   onChanged,
 }: {
@@ -100,6 +196,8 @@ export function ReportMailPanel({
   description?: string
   /** Replaces the hint under the unmapped values. */
   unmappedHint?: string
+  /** By warning category: lets each unmapped value be mapped right under the warning. */
+  mappingFixes?: Record<string, MappingFix>
   /** Shows a Close button, for a panel that is opened on demand. */
   onClose?: () => void
   /** Called when a preview finished or a mail was sent (building the report can change stored data). */
@@ -120,6 +218,26 @@ export function ReportMailPanel({
   const [sent, setSent] = useState<SentMessage[] | null>(null)
 
   const busy = starting || (jobId !== null && result === null && !error)
+
+  // values already used in the mapping tables, offered while mapping an unmapped one
+  const [suggestions, setSuggestions] = useState<Record<string, string[]>>({})
+  const [fixed, setFixed] = useState<Record<string, boolean>>({})
+  const fixable = Boolean(mappingFixes)
+
+  useEffect(() => {
+    if (!mappingFixes) return
+    void Promise.all(
+      Object.values(mappingFixes).map(async (fix) => {
+        const rows = await get<Record<string, string>[]>(`${baseUrl}/mappings/${fix.mappingKey}`)
+        return [fix.mappingKey, [...new Set(rows.map((row) => row[fix.suggestionKey]).filter(Boolean))]] as [string, string[]]
+      }),
+    )
+      .then((entries) => setSuggestions(Object.fromEntries(entries)))
+      .catch(() => {
+        // Non-critical: the inputs still take a new value typed in.
+      })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [baseUrl, fixable, result])
 
   const load = useCallback(async () => {
     try {
@@ -156,6 +274,7 @@ export function ReportMailPanel({
     setResult(null)
     setSent(null)
     setJobId(null)
+    setFixed({})
     try {
       const res = await post<{ job_id: string }>(`${baseUrl}/mail/preview`, {
         to: splitEmails(toText),
@@ -346,19 +465,46 @@ export function ReportMailPanel({
             <AlertTriangle className="h-4 w-4" />
             <h4 className="font-display text-sm font-semibold">Some values have no mapping</h4>
           </div>
-          {(result.validation_warnings ?? []).map((warning) => (
-            <p key={warning.category} className="text-sm text-ink-dim">
-              <span className="font-medium text-ink">{warning.category} ({warning.items.length}):</span>{' '}
-              {warning.items.slice(0, 8).join(', ')}{warning.items.length > 8 ? ` and ${warning.items.length - 8} more` : ''}
-            </p>
-          ))}
+          {(result.validation_warnings ?? []).map((warning) => {
+            const fix = mappingFixes?.[warning.category]
+            return fix ? (
+              <MappingFixRows
+                key={warning.category}
+                baseUrl={baseUrl}
+                category={warning.category}
+                items={warning.items}
+                fix={fix}
+                suggestions={suggestions[fix.mappingKey] ?? []}
+                fixed={fixed}
+                onFixed={(key) => setFixed((previous) => ({ ...previous, [key]: true }))}
+              />
+            ) : (
+              <p key={warning.category} className="text-sm text-ink-dim">
+                <span className="font-medium text-ink">{warning.category} ({warning.items.length}):</span>{' '}
+                {warning.items.slice(0, 8).join(', ')}{warning.items.length > 8 ? ` and ${warning.items.length - 8} more` : ''}
+              </p>
+            )
+          })}
           <p className="text-sm text-ink-dim">
             {unmappedHint ?? 'Add them in the mapping tables on this page and preview again, or preview anyway - they show as "-".'}
           </p>
-          <div className="flex justify-end">
+          <div className="flex flex-col-reverse gap-3 sm:flex-row sm:justify-end">
             <Button variant="secondary" loading={starting} onClick={() => void handlePreview(true)}>
               Preview with unmapped values
             </Button>
+            {mappingFixes && (
+              <Button
+                loading={starting}
+                disabled={
+                  !(result.validation_warnings ?? []).every(
+                    (warning) => warning.items.every((item) => fixed[`${warning.category}::${item}`]),
+                  )
+                }
+                onClick={() => void handlePreview(false)}
+              >
+                Preview again
+              </Button>
+            )}
           </div>
         </div>
       )}
