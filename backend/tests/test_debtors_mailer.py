@@ -21,6 +21,37 @@ from app.services.debtors_mailer.models import AccountsInchargeMap, LocationMap
 from app.services.unapplied_receipts import erp_register
 
 
+class MailLayoutTests(unittest.TestCase):
+    def test_the_default_body_lists_the_four_items_and_has_no_gst_counts(self):
+        spec = mail.SPECS[auto_mail.APP_KEY]
+        text = mail.render_text(spec.default_intro, {"date": "28-Oct-2026"})
+        self.assertEqual(text.splitlines()[:3], ["Dear Team,", "", "Please find below:"])
+        for line in ("1. Ageing with GST invoice numbers as on 28-Oct-2026",
+                     "2. Unapplied Receipts as on 28-Oct-2026",
+                     "3. Untagged Invoices as on 28-Oct-2026",
+                     "4. Below 1k Invoices as on 28-Oct-2026"):
+            self.assertIn(line, text)
+        self.assertTrue(text.endswith("Untagged Invoices report are attached."))
+        self.assertNotIn("rows have", text)
+
+    def test_a_sheets_title_row_can_be_left_out_of_the_mail_table(self):
+        from openpyxl import Workbook
+        from app.services.mailer_shared import sheet_to_html
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Summary"
+        ws.append(["Title bar text"])
+        ws.append(["Location", "Total"])
+        ws.append(["Mumbai", 5])
+        with tempfile.TemporaryDirectory() as tmp:
+            path = str(Path(tmp) / "s.xlsx")
+            wb.save(path)
+            self.assertIn("Title bar text", sheet_to_html(path, "Summary"))
+            html = sheet_to_html(path, "Summary", skip_rows=(1,))
+        self.assertNotIn("Title bar text", html)
+        self.assertIn("Mumbai", html)
+
+
 class RegisterFrameTests(unittest.TestCase):
     COLUMNS = ["CUSTOMER_NAME", "CUSTOMER_NUMBER", "GL_DATE", "BATCH_SOURCE_NAME", "BATCH_NAME", "RECEIPT_METHOD",
                "RECEIPT_NUMBER", "RECEIPT_DATE", "ON_ACCOUNT_AMT", "UNAPPLIED_AMT", "CLAIM_AMT", "CUSTOMER_ID",

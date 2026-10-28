@@ -99,13 +99,12 @@ SPECS: dict[str, MailSpec] = {
         default_intro=(
             "Dear Team,\n\n"
             "Please find below:\n\n"
-            "1. Ageing with GST invoice numbers as on {date} ({found} of {total} rows have a GST number)\n"
+            "1. Ageing with GST invoice numbers as on {date}\n"
             "2. Unapplied Receipts as on {date}\n"
             "3. Untagged Invoices as on {date}\n"
             "4. Below 1k Invoices as on {date}\n\n"
             "The ageing with the GST invoice numbers, the Unapplied Receipts report and the Untagged Invoices "
-            "report are attached.\n\n"
-            "Kindly clear the same on priority basis and confirm."
+            "report are attached."
         ),
         placeholders=("date", "total", "found", "blank"),
     ),

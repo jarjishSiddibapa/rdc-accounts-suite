@@ -114,20 +114,6 @@ def _hold_reason(warnings: list[dict]) -> str:
     )
 
 
-def _stats_table(total: int, found: int, blank: int) -> str:
-    """The GST counts, in the table style of the Unaccounted mail: Calibri 11, black
-    borders, a pink header row and centred values."""
-    base = "font-family:Calibri,Arial,sans-serif;font-size:11pt;border:1px solid #000000;padding:2px 12px;text-align:center"
-    head = f"{base};background:#F4B8C8;font-weight:bold"
-    return (
-        "<table style='border-collapse:collapse'>"
-        f"<tr><td style='{head}'>Ageing rows</td><td style='{head}'>GST number found</td>"
-        f"<td style='{head}'>No GST number</td></tr>"
-        f"<tr><td style='{base}'>{total:,}</td><td style='{base}'>{found:,}</td>"
-        f"<td style='{base}'>{blank:,}</td></tr></table>"
-    )
-
-
 def _fit_attachments(paths: list[Path], progress_cb=None) -> tuple[list[list[str]], str]:
     """The workbooks grouped into as few mails as the size limit allows, and a
     note on what had to be done. Nothing is ever left out: first the same
@@ -304,12 +290,15 @@ def build(snapshot: dict, progress_cb=None, cancel_event=None) -> mail.MailPaylo
     untagged_processor.write_summary_workbook(
         untagged.untagged_summary, untagged.below_1k_summary, summary_path, look=LOOK)
     payload.intro_note = f"Note: {untagged_processor.LAKHS_NOTE}"
+    # The ageing with GST numbers is only an attachment (the intro lists it). The Unapplied
+    # sheet's first two rows are its title bar ("... | Location × Ageing | ...") and the lakhs
+    # label; both are left out of the mail because the heading above the table names it and
+    # the note above the sections already says the amounts are in lakhs.
     payload.sections = [
-        ("1. Ageing with GST Invoice Numbers:",
-         _stats_table(gst_result["total"], gst_result["found"], gst_result["blank"])),
-        ("2. Unapplied Receipts:", sheet_to_html(str(unapplied_path), "Summary", payload.css, "r")),
-        ("3. Untagged Invoices:", sheet_to_html(str(summary_path), "Untagged Summary", payload.css, "u")),
-        ("4. Below 1k Invoices:", sheet_to_html(str(summary_path), "Below 1k Summary", payload.css, "b")),
+        ("2. Unapplied Receipts (Summary):",
+         sheet_to_html(str(unapplied_path), "Summary", payload.css, "r", skip_rows=(1, 2))),
+        ("3. Untagged Invoices (Summary):", sheet_to_html(str(summary_path), "Untagged Summary", payload.css, "u")),
+        ("4. Below 1k Invoices (Summary):", sheet_to_html(str(summary_path), "Below 1k Summary", payload.css, "b")),
     ]
 
     groups, how = _fit_attachments([gst_path, unapplied_path, untagged_path], progress_cb)

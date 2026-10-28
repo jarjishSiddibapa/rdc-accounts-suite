@@ -329,7 +329,8 @@ def _plain_to_html(text: str) -> str:
 
 
 # ── Excel-sheet → HTML table (reads actual cell formatting from file) ─────────
-def sheet_to_html(path: str, sheet_name: str, css_sink: list | None = None, class_prefix: str = "t") -> str:
+def sheet_to_html(path: str, sheet_name: str, css_sink: list | None = None, class_prefix: str = "t",
+                  skip_rows: tuple = ()) -> str:
     """Open the saved Excel file and convert the pivot sheet to an HTML table
     that exactly mirrors the formatting in the report: fill colors, bold,
     font size, font name, text alignment — all read directly from the cells.
@@ -582,6 +583,8 @@ def sheet_to_html(path: str, sheet_name: str, css_sink: list | None = None, clas
     ]
 
     for row in ws.iter_rows():
+        if row and row[0].row in skip_rows:
+            continue
         display_row = [
             None if isinstance(cell, _MergedCell) else _display_value(cell)
             for cell in row
