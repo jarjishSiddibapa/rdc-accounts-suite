@@ -175,6 +175,31 @@ def render_text(template: str, values: dict[str, str]) -> str:
 
 # ── settings ─────────────────────────────────────────────────────────────────
 
+# Body texts an app shipped with earlier, saved as the settings when the row was first created. A row that
+# still holds one word for word never had its text edited, so it moves to the current default (an edited
+# text is left alone).
+SUPERSEDED_INTROS: dict[str, tuple[str, ...]] = {
+    "debtors-reports-auto-mailer": (
+        "Dear Team,\n\n"
+        "Please find below:\n\n"
+        "1. Ageing with GST invoice numbers as on {date} ({found} of {total} rows have a GST number)\n"
+        "2. Unapplied Receipts as on {date}\n"
+        "3. Untagged Invoices as on {date}\n"
+        "4. Below 1k Invoices as on {date}\n\n"
+        "The ageing with the GST invoice numbers, the Unapplied Receipts report and the Untagged Invoices "
+        "report are attached.\n\n"
+        "Kindly clear the same on priority basis and confirm.",
+    ),
+}
+
+
+def _retire_superseded_intro(db: Session, row: ScheduledReportMail) -> None:
+    old_texts = SUPERSEDED_INTROS.get(row.app_key, ())
+    if (row.intro_template or "").replace("\r\n", "\n").strip() in old_texts:
+        row.intro_template = SPECS[row.app_key].default_intro
+        db.commit()
+
+
 def get_or_create_settings(db: Session, app_key: str) -> ScheduledReportMail:
     spec = SPECS[app_key]
     row = db.query(ScheduledReportMail).filter(ScheduledReportMail.app_key == app_key).first()
@@ -195,6 +220,7 @@ def get_or_create_settings(db: Session, app_key: str) -> ScheduledReportMail:
     elif row.is_deleted:
         row.is_deleted = False
         db.commit()
+    _retire_superseded_intro(db, row)
     return row
 
 
@@ -328,6 +354,7 @@ def _claim_run(app_key: str, trigger: str, requested_by: str | None) -> dict | N
             .with_for_update()
             .first()
         ) or get_or_create_settings(db, app_key)
+        _retire_superseded_intro(db, row)
         now = _utcnow()
         if _is_running(row, now):
             db.add(ScheduledReportMailLog(

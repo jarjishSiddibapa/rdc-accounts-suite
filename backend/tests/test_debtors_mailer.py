@@ -34,6 +34,24 @@ class MailLayoutTests(unittest.TestCase):
         self.assertTrue(text.endswith("Untagged Invoices report are attached."))
         self.assertNotIn("rows have", text)
 
+    def test_a_saved_old_default_body_moves_to_the_new_one_but_an_edited_body_stays(self):
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(engine, tables=[mail.ScheduledReportMail.__table__])
+        db = sessionmaker(bind=engine)()
+        self.addCleanup(db.close)
+        key = auto_mail.APP_KEY
+        spec = mail.SPECS[key]
+        row = mail.get_or_create_settings(db, key)
+        row.intro_template = mail.SUPERSEDED_INTROS[key][0]
+        db.commit()
+        self.assertIn("Kindly clear", row.intro_template)
+        row = mail.get_or_create_settings(db, key)
+        self.assertEqual(row.intro_template, spec.default_intro)
+        self.assertNotIn("Kindly clear", row.intro_template)
+        row.intro_template = "Hello, my own words {date}"
+        db.commit()
+        self.assertEqual(mail.get_or_create_settings(db, key).intro_template, "Hello, my own words {date}")
+
     def test_a_sheets_title_row_can_be_left_out_of_the_mail_table(self):
         from openpyxl import Workbook
         from app.services.mailer_shared import sheet_to_html
