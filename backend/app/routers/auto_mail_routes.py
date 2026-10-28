@@ -7,6 +7,7 @@ the routes live under that application (for example
   GET  /auto-mail            - the current settings, recipients and last run.
   PUT  /auto-mail            - save weekdays, time, recipients and wording.
   GET  /auto-mail/log        - the send history, newest first (paged).
+  POST /auto-mail/send-now   - only where the application passes ``run_job``.
 
 Administrators only: this controls mail that goes out on its own. Mailing a
 report by hand (preview first, then send) is in report_mail_routes.py.
@@ -18,6 +19,8 @@ from sqlalchemy.orm import Session
 
 from app.auth import require_admin
 from app.database import get_db
+from app.jobs import submit_job
+from app.models import User
 from app.services import scheduled_report_mail as mail
 
 
@@ -33,7 +36,11 @@ class AutoMailBody(BaseModel):
     send_when_unmapped: bool = True
 
 
-def make_auto_mail_router(app_key: str) -> APIRouter:
+def make_auto_mail_router(app_key: str, run_job=None) -> APIRouter:
+    """``run_job`` (optional): the application's automatic-mail job, which adds
+    ``POST /auto-mail/send-now`` - the automatic mail run right now, with the
+    saved settings and recipients, from the system email, logged like a
+    scheduled run."""
     router = APIRouter(prefix="/auto-mail", dependencies=[Depends(require_admin)])
 
     @router.get("")
@@ -51,5 +58,11 @@ def make_auto_mail_router(app_key: str) -> APIRouter:
     @router.get("/log")
     def get_log(limit: int = 20, offset: int = 0, db: Session = Depends(get_db)):
         return mail.log_view(db, app_key, limit=limit, offset=offset)
+
+    if run_job is not None:
+        @router.post("/send-now")
+        def send_now(user: User = Depends(require_admin)):
+            job_id = submit_job(run_job, "manual", user.email, owner_id=user.id, cancel_on_disconnect=False)
+            return {"job_id": job_id}
 
     return router

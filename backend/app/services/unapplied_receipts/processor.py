@@ -70,6 +70,7 @@ from openpyxl import Workbook, load_workbook
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
+from app.services.report_dash import FMT_DEC, FMT_INT
 from app.services.report_progress import row_progress_reporter
 from app.services.xlsx_formula_cache import cache_formula_values, inject_cached_values
 
@@ -384,7 +385,7 @@ def _fetch_comments(receipts: list, log_q, oracle_cfg: OracleConfig,
 
 def process_report(input_path: str, log_q, as_on_date: _dt.date = None, *,
                     oracle_cfg: OracleConfig, supplier_site_map: dict,
-                    cancel_event=None, region_lookup=None) -> tuple:
+                    cancel_event=None, region_lookup=None, register_frame=None) -> tuple:
     """
     Returns (df, total_input_rows, unidentified_removed_count, df_unidentified, erp_ok).
 
@@ -409,25 +410,30 @@ def process_report(input_path: str, log_q, as_on_date: _dt.date = None, *,
     if as_on_date is None:
         as_on_date = _dt.date.today()
 
-    log_q.put(("info", f"Reading file: {os.path.basename(input_path)} …"))
-    df = _read_file(input_path, log_q)
-    log_q.put(("info", f"Raw read: {len(df)} rows × {len(df.columns)} columns"))
+    if register_frame is not None:
+        # fetched live from the ERP (see erp_register): already in the register's own shape
+        df = register_frame.copy()
+        log_q.put(("info", f"Using the register fetched from the ERP: {len(df):,} receipts"))
+    else:
+        log_q.put(("info", f"Reading file: {os.path.basename(input_path)} …"))
+        df = _read_file(input_path, log_q)
+        log_q.put(("info", f"Raw read: {len(df)} rows × {len(df.columns)} columns"))
 
-    # ── Locate and promote the real header row (Oracle puts 8 metadata rows) ──
-    HDR_ROW = tabular_input.find_header_row(df, ("Customer Name", "Payment Number"), search_range=40)
-    if HDR_ROW is None:
-        HDR_ROW = 8   # the export's usual position; the column check below explains any mismatch
-    if len(df) <= HDR_ROW:
-        raise JobUserError(
-            f"The file has only {len(df)} rows, so it can't hold the register's header and data. "
-            "Is this the Unapplied Receipts register exported from the ERP?")
-    # Strip whitespace from column names to avoid hidden-space KeyErrors
-    df.columns = [str(c).strip() if not pd.isna(c) else ""
-                  for c in df.iloc[HDR_ROW].tolist()]
-    df = df.iloc[HDR_ROW + 1:].reset_index(drop=True)
+        # ── Locate and promote the real header row (Oracle puts 8 metadata rows) ──
+        HDR_ROW = tabular_input.find_header_row(df, ("Customer Name", "Payment Number"), search_range=40)
+        if HDR_ROW is None:
+            HDR_ROW = 8   # the export's usual position; the column check below explains any mismatch
+        if len(df) <= HDR_ROW:
+            raise JobUserError(
+                f"The file has only {len(df)} rows, so it can't hold the register's header and data. "
+                "Is this the Unapplied Receipts register exported from the ERP?")
+        # Strip whitespace from column names to avoid hidden-space KeyErrors
+        df.columns = [str(c).strip() if not pd.isna(c) else ""
+                      for c in df.iloc[HDR_ROW].tolist()]
+        df = df.iloc[HDR_ROW + 1:].reset_index(drop=True)
 
-    # ── Drop fully-blank trailing rows (Oracle sometimes appends empty rows) ──
-    df = df.dropna(how="all").reset_index(drop=True)
+        # ── Drop fully-blank trailing rows (Oracle sometimes appends empty rows) ──
+        df = df.dropna(how="all").reset_index(drop=True)
 
     needed = ["Customer Name", "Payment Number", "Customer Number"]
     absent = [c for c in needed if c not in df.columns]
@@ -786,6 +792,95 @@ _CURRENCY_COLS = {
 _INT_COLS = {"Customer Number", "Due Days"}
 
 
+_DATE_COLS = {"Payment Date"}
+_ALIGN_CENTER = Alignment(horizontal="center", vertical="center")
+
+
+def _parse_register_date(val):
+    """A register date ("09-APR-26", "2026-04-09 ...", a real date) as a date, or None."""
+    if isinstance(val, _dt.datetime):
+        return val.date()
+    if isinstance(val, _dt.date):
+        return val
+    text = str(val).strip()
+    if text.lower() in ("nan", "none", "nat", ""):
+        return None
+    for fmt in ("%d-%b-%y", "%d-%B-%y", "%d-%b-%Y", "%d-%B-%Y", "%d/%m/%Y", "%d/%m/%y", "%Y-%m-%d"):
+        try:
+            return _dt.datetime.strptime(text, fmt).date()
+        except ValueError:
+            pass
+    parsed = pd.to_datetime(text, dayfirst=True, errors="coerce")
+    return None if pd.isna(parsed) else parsed.date()
+
+
+def _with_real_dates(df: pd.DataFrame) -> pd.DataFrame:
+    """The date columns as real dates, so Excel holds them as dates (sortable,
+    filterable, usable in date formulas) and not as text. A value that cannot
+    be read as a date is left as it was."""
+    present = [c for c in _DATE_COLS if c in df.columns]
+    if not present:
+        return df
+    df = df.copy()
+    for col in present:
+        lookup = {v: (_parse_register_date(v) or v) for v in df[col].unique()}
+        df[col] = df[col].map(lookup)
+    return df
+
+
+def _apply_accounts_look(wb) -> None:
+    """Restyle the finished workbook in the look of the Unaccounted / MRN / PO
+    reports: Calibri 11, black thin borders, plain white rows, light-blue column
+    headers and title bars on the lists, pink headers and totals on the summary,
+    and the dash-for-zero number formats shared by the other debtors reports.
+    Values and formulas are untouched."""
+    side = Side(style="thin", color="000000")
+    border = Border(left=side, right=side, top=side, bottom=side)
+
+    def fill(rgb):
+        return PatternFill("solid", fgColor=rgb)
+
+    white, blue, title, pink = fill("FFFFFF"), fill("C2D8ED"), fill("DAEAF7"), fill("F4B8C8")
+    plain = Font(name="Calibri", size=11, color="000000")
+    bold = Font(name="Calibri", size=11, bold=True, color="000000")
+    big_bold = Font(name="Calibri", size=12, bold=True, color="000000")
+    note = Font(name="Calibri", size=10, italic=True, color="595959")
+
+    def number_format(current):
+        if current == "#,##0.00":
+            return FMT_DEC
+        if current == "#,##0":
+            return FMT_INT
+        return current
+
+    for ws in wb.worksheets:
+        last = ws.max_row
+        if last < 3:
+            continue
+        is_summary = ws.title == "Summary"
+        header_row = 3 if is_summary else 2
+        for row in ws.iter_rows(min_row=1, max_row=last):
+            r = row[0].row
+            total_row = r == last and str(row[0].value or "").strip() == "Grand Total"
+            for c in row:
+                if r == 1:
+                    c.fill, c.font = title, big_bold
+                elif is_summary and r == 2:
+                    c.font = note
+                elif r == header_row:
+                    c.fill, c.font, c.border = (pink if is_summary else blue), bold, border
+                elif r > header_row:
+                    c.border = border
+                    if total_row:
+                        c.fill, c.font = pink, bold
+                    else:
+                        c.fill = white
+                        c.font = bold if (is_summary and c.column == 3) else plain
+                    c.number_format = number_format(c.number_format)
+                    if is_summary:
+                        c.alignment = _ALIGN_CENTER
+
+
 def _thin_border():
     s = Side(style="thin", color="D0D8E4")
     return Border(left=s, right=s, top=s, bottom=s)
@@ -835,13 +930,15 @@ def write_formatted_excel(df_main: pd.DataFrame, df_advance: pd.DataFrame,
                           df_unidentified: pd.DataFrame = None,
                           incharge_map: dict = None,
                           log_q=None,
-                          progress_cb=None):
-    """Write df to path as a professionally formatted xlsx."""
+                          progress_cb=None,
+                          look: str = "default"):
+    """Write df to path as a professionally formatted xlsx. ``look="accounts"``
+    gives it the look of the Unaccounted / MRN / PO reports."""
     wb = Workbook()
     ws = wb.active
     ws.title = "Unapplied Receipts"
 
-    df       = df_main
+    df       = _with_real_dates(df_main)
     cols     = list(df.columns)
     n_cols   = len(cols)
     n_rows   = len(df)
@@ -945,6 +1042,14 @@ def write_formatted_excel(df_main: pd.DataFrame, df_advance: pd.DataFrame,
                     c.value = val
                 continue
 
+            # ── Dates: real Excel dates ────────────────────────────────────
+            if col_name in _DATE_COLS and isinstance(val, _dt.date):
+                c.font          = txt_font
+                c.alignment     = align_center
+                c.value         = val
+                c.number_format = "DD-MMM-YYYY"
+                continue
+
             # ── Default text cell ──────────────────────────────────────────
             c.font      = txt_font
             c.alignment = align_left
@@ -991,6 +1096,8 @@ def write_formatted_excel(df_main: pd.DataFrame, df_advance: pd.DataFrame,
     _write_pivot_sheet(wb, df_main, as_on_date, incharge_map=incharge_map or {})
     summary_idx = wb.sheetnames.index("Summary")
     wb.move_sheet("Summary", offset=-summary_idx)
+    if look == "accounts":
+        _apply_accounts_look(wb)
     cached_values = cache_formula_values(wb)
     wb.save(path)
     inject_cached_values(path, cached_values)
@@ -1190,6 +1297,7 @@ def _write_advance_sheet(wb, df_advance: pd.DataFrame, as_on_date: _dt.date):
     ws = wb.create_sheet(title="Advance of Customers")
     ws.sheet_properties.tabColor = "FF7043"
     ws.sheet_view.showGridLines   = False
+    df_advance = _with_real_dates(df_advance)
 
     if df_advance.empty:
         ws.cell(row=1, column=1, value="No advance customer entries found.")
@@ -1262,6 +1370,11 @@ def _write_advance_sheet(wb, df_advance: pd.DataFrame, as_on_date: _dt.date):
                     c.value = int(float(val)) if val is not None and str(val).strip() != "" else ""
                 except Exception:
                     c.value = val
+            elif col_name in _DATE_COLS and isinstance(val, _dt.date):
+                c.font = txt_font
+                c.alignment = _ALIGN_CENTER
+                c.value = val
+                c.number_format = "DD-MMM-YYYY"
             else:
                 c.font = txt_font
                 c.alignment = align_left
@@ -1288,6 +1401,7 @@ def _write_unidentified_sheet(wb, df_unid: pd.DataFrame, as_on_date: _dt.date):
     ws = wb.create_sheet(title="Unidentified Customers")
     ws.sheet_properties.tabColor = "607D8B"   # slate grey — visually distinct
     ws.sheet_view.showGridLines   = False
+    df_unid = _with_real_dates(df_unid)
 
     if df_unid.empty:
         ws.cell(row=1, column=1, value="No unidentified customer entries found.")
@@ -1359,6 +1473,11 @@ def _write_unidentified_sheet(wb, df_unid: pd.DataFrame, as_on_date: _dt.date):
                     c.value = int(float(val)) if val is not None and str(val).strip() != "" else ""
                 except Exception:
                     c.value = val
+            elif col_name in _DATE_COLS and isinstance(val, _dt.date):
+                c.font = txt_font
+                c.alignment = _ALIGN_CENTER
+                c.value = val
+                c.number_format = "DD-MMM-YYYY"
             else:
                 c.font = txt_font
                 c.alignment = align_left

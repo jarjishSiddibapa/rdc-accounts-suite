@@ -21,7 +21,7 @@ APP_KEYS = [
     "ultrafine-fse-reminder", "ultrafine-cashflow",
     "gst-invoice-adder", "closing-period-report",
     "iocl-balance-monitor", "invoice-booking-tracker", "creditors-ageing-report", "trial-balance-formatter",
-    "untagged-invoices-report",
+    "untagged-invoices-report", "debtors-reports-auto-mailer",
 ]
 RETIRED_APP_KEYS = {"dms", "it-po-lookup"}
 
@@ -43,6 +43,7 @@ APP_LABELS = {
     "creditors-ageing-report": "Ultrafine Creditors Ageing Report Generator",
     "trial-balance-formatter": "Ultrafine Trial Balance Formatter",
     "untagged-invoices-report": "Untagged Invoices Report Generator",
+    "debtors-reports-auto-mailer": "Debtors Reports Auto Mailer",
 }
 
 APP_COMPANIES = ("RDC", "Ultrafine")
@@ -69,7 +70,10 @@ _ULTRAFINE_APP_KEYS = {
 # not a shared default (ultrafine-balance-confirmation,
 # ultrafine-payment-reminder) - so the admin "default recipients" concept
 # doesn't apply to them and they must NOT be offered in that picker.
-REPORT_RECIPIENT_APP_KEYS = {"unaccounted", "untagged-invoices-report", "gst-invoice-adder", "ultrafine-cashflow"}
+REPORT_RECIPIENT_APP_KEYS = {
+    "unaccounted", "untagged-invoices-report", "gst-invoice-adder", "ultrafine-cashflow",
+    "debtors-reports-auto-mailer",
+}
 
 
 def parse_allowed_apps(user: User) -> list[str]:

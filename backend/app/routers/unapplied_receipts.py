@@ -24,6 +24,7 @@ processor.py's own module docstring says it should.
 """
 
 import threading
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 from pathlib import Path
@@ -50,7 +51,8 @@ from app.models import User
 from app.permissions import require_app_access
 from app.services import customer_region
 from app.services.erp_ageing import TYPE_COL, EitherEvent, fetch_ageing_from_erp
-from app.services.unapplied_receipts import mapping_store, processor
+from app.services.unapplied_receipts.erp_register import fetch_register_from_erp
+from app.services.unapplied_receipts import mapping_store, processor, report_job
 from app.uploads import save_upload
 
 router = APIRouter(
@@ -78,85 +80,17 @@ _ORACLE_CFG = processor.OracleConfig(
 processor._init_oracle_client(_ORACLE_CFG.instant_client_dir)
 
 
-# ── log adapter (mirrors app.routers.unaccounted_txn._LogQueue) ────────────
-
-class _LogQueue:
-    """Adapts processor.py's ``log_q.put((level, msg))`` calls to this
-    suite's background-job ``progress_cb(frac, phase)`` callback, while
-    keeping every message so it can be returned to the caller for display."""
-
-    def __init__(self, progress_cb=None, start: float = 0.05, end: float = 0.85):
-        self._progress_cb = progress_cb
-        self._start = start
-        self._end = end
-        self._count = 0
-        self.messages: list[tuple[str, str]] = []
-
-    def put(self, item) -> None:
-        level, msg = item
-        self.messages.append((level, msg))
-        if self._progress_cb:
-            self._count += 1
-            # Nudge the fraction along without knowing the real total steps.
-            frac = min(self._end, self._start + self._count * 0.03)
-            try:
-                self._progress_cb(frac, msg)
-            except Exception:
-                pass
-
-
-class _CollectingLogQueue:
-    """Plain picklable log_q: just accumulates (level, message) tuples.
-    Used inside _cpu_phase_finish below, which runs in a subprocess via
-    run_cpu_phase - its collected messages are handed back as part of
-    that call's return value and merged into the outer _LogQueue's own
-    messages, so the detailed per-step log this tool's UI shows is
-    preserved exactly as before even though half of it now happens in a
-    different process. Separately, the row-write progress_cb passed into
-    _cpu_phase_finish_report *does* cross the process boundary -
-    run_cpu_phase relays it via a cross-process queue."""
-
-    def __init__(self):
-        self.messages: list[tuple[str, str]] = []
-
-    def put(self, item) -> None:
-        self.messages.append(item)
-
-
-def _cpu_phase_classify_and_validate(df, ageing_path, incharge_map, supplier_site_map,
-                                     ageing_frame=None):
-    """Classify + validate only - pure pandas CPU work with no I/O, so this
-    runs on the CPU process pool. Split out from the write step below so the
-    caller can skip the (much more expensive) workbook write entirely when
-    mappings are missing, without giving up multi-core throughput for
-    classify/validate itself."""
-    log_q = _CollectingLogQueue()
-    df_main, df_advance, _salesperson_map = processor.classify_advance_customers(
-        df, ageing_path, log_q, ageing_frame=ageing_frame,
-    )
-    validation_errors = processor._validate_before_save(df_main, incharge_map, supplier_site_map)
-    validation_warnings = [
-        {"category": category, "items": items} for category, items in validation_errors
-    ]
-    for category, items in validation_errors:
-        log_q.put(("warn", f"{category}: {len(items)} unmapped value(s)"))
-    return df_main, df_advance, validation_warnings, log_q.messages
-
-
-def _cpu_phase_write_report(df_main, df_advance, output_path, as_on_date, df_unidentified,
-                             incharge_map, progress_cb=None):
-    log_q = _CollectingLogQueue()
-    processor.write_formatted_excel(
-        df_main, df_advance, output_path, as_on_date,
-        df_unidentified=df_unidentified, incharge_map=incharge_map, log_q=log_q,
-        progress_cb=progress_cb,
-    )
-    return log_q.messages
+# The log adapters and the two CPU-pool steps are shared with the Debtors Reports
+# Auto Mailer (see app.services.unapplied_receipts.report_job).
+_LogQueue = report_job.LogQueue
+_CollectingLogQueue = report_job.CollectingLogQueue
+_cpu_phase_classify_and_validate = report_job.cpu_classify_and_validate
+_cpu_phase_write_report = report_job.cpu_write_report
 
 
 # ── /process job pipeline ───────────────────────────────────────────────────
 
-def _run_process_job(input_path: str, ageing_path: Optional[str], output_path: str,
+def _run_process_job(input_path: Optional[str], ageing_path: Optional[str], output_path: str,
                       as_on_date_str: Optional[str], allow_unmapped: bool = False,
                       progress_cb=None, cancel_event=None) -> dict:
     """Runs in the background job pool (a plain thread, not tied to any
@@ -192,12 +126,20 @@ def _run_process_job(input_path: str, ageing_path: Optional[str], output_path: s
         )
 
     try:
-        if progress_cb:
+        # No register uploaded: it comes straight from the ERP (the ageing and the regions are
+        # already being fetched alongside).
+        register_frame = None
+        if not input_path:
+            if progress_cb:
+                progress_cb(0.08, "Fetching the Unapplied Receipts Register from the ERP...")
+            register_frame = fetch_register_from_erp(_ORACLE_CFG, log_q, background_cancel)
+        elif progress_cb:
             progress_cb(0.08, "Reading register and fetching Oracle ERP data...")
         df, total_input_rows, unidentified_removed_count, df_unidentified, erp_ok = processor.process_report(
-            input_path, log_q, as_on_date,
+            input_path or "", log_q, as_on_date,
             oracle_cfg=_ORACLE_CFG, supplier_site_map=supplier_site_map,
             cancel_event=cancel_event, region_lookup=lambda: regions.result(log_q),
+            register_frame=register_frame,
         )
 
         ageing_frame = None
@@ -245,7 +187,8 @@ def _run_process_job(input_path: str, ageing_path: Optional[str], output_path: s
     finally:
         stop_background.set()                 # anything still running is not needed any more
         ageing_pool.shutdown(wait=True)
-        Path(input_path).unlink(missing_ok=True)
+        if input_path:
+            Path(input_path).unlink(missing_ok=True)
         if ageing_path:
             Path(ageing_path).unlink(missing_ok=True)
 
@@ -272,7 +215,7 @@ def _run_process_job(input_path: str, ageing_path: Optional[str], output_path: s
 
 @router.post("/process")
 async def submit_process(
-    file: UploadFile = File(...),
+    file: Optional[UploadFile] = File(None),
     ageing_file: Optional[UploadFile] = File(None),
     as_on_date: Optional[str] = Form(None),
     allow_unmapped: bool = Form(False),
@@ -292,15 +235,16 @@ async def submit_process(
         except ValueError:
             raise HTTPException(status_code=400, detail="as_on_date must be an ISO date (YYYY-MM-DD)")
 
-    input_path = await save_upload(file, SCRATCH_DIR)
+    # The register is fetched live from the ERP; an uploaded register export is used instead only if given.
+    input_path = await save_upload(file, SCRATCH_DIR) if file is not None and file.filename else None
     ageing_path = (
         await save_upload(ageing_file, SCRATCH_DIR) if ageing_file is not None and ageing_file.filename else None
     )
-    output_path = SCRATCH_DIR / f"{input_path.stem}_Unapplied_Receipts_Report.xlsx"
+    output_path = SCRATCH_DIR / f"{(input_path.stem if input_path else uuid.uuid4().hex)}_Unapplied_Receipts_Report.xlsx"
 
     job_id = submit_job(
         _run_process_job,
-        str(input_path),
+        str(input_path) if input_path else None,
         str(ageing_path) if ageing_path else None,
         str(output_path),
         as_on_date,

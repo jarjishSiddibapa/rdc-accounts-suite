@@ -25,12 +25,12 @@ class LogQueue:
         self.messages.append(item)
 
 
-def write_workbook(output_path: str, df: pd.DataFrame, gst_map: dict):
-    """100% CPU (openpyxl write), no Oracle/DB involved, so callers run it on
+def write_workbook(output_path: str, df: pd.DataFrame, gst_map: dict, look: str = "default"):
+    """100% CPU (workbook write), no Oracle/DB involved, so callers run it on
     the CPU process pool. Returns (total, found, blank, log messages)."""
     log_q = LogQueue()
     total, found, blank = processor.build_gst_report_pure_python(
-        df, processor.COL_INV_NO, processor.COL_INV_DATE, gst_map, output_path, log_q,
+        df, processor.COL_INV_NO, processor.COL_INV_DATE, gst_map, output_path, log_q, look=look,
     )
     return total, found, blank, log_q.messages
 
@@ -42,9 +42,12 @@ class BuiltGstReport:
     gst_map: dict
 
 
-def build_report(output_path: str, download_name: str, progress_cb=None, cancel_event=None) -> BuiltGstReport:
+def build_report(output_path: str, download_name: str, progress_cb=None, cancel_event=None,
+                 ageing=None, look: str = "default") -> BuiltGstReport:
     """Fetch the ageing from the ERP, look up each (invoice no, date) pair's
-    GST number, and write the enriched workbook to ``output_path``. The
+    GST number, and write the enriched workbook to ``output_path``. ``ageing``
+    (optional) is a callable returning the ageing frame, for a caller that has
+    already fetched it for other reports (the Debtors Reports Auto Mailer). The
     Oracle fetches stay on this thread (I/O-bound, already their own
     ThreadPoolExecutor + connection pool); the CPU-bound write runs on the CPU
     process pool."""
@@ -69,9 +72,12 @@ def build_report(output_path: str, download_name: str, progress_cb=None, cancel_
         fetch_progress = (
             (lambda frac, msg: progress_cb(0.03 + (frac - 0.05) / 0.2 * 0.06, msg)) if progress_cb else None
         )
-        df = erp_ageing.fetch_ageing_from_erp(
-            oracle_cfg, log_q, progress_cb=fetch_progress, cancel_event=cancel_event,
-        )
+        if ageing is not None:
+            df = ageing()
+        else:
+            df = erp_ageing.fetch_ageing_from_erp(
+                oracle_cfg, log_q, progress_cb=fetch_progress, cancel_event=cancel_event,
+            )
         pairs_unique = processor._extract_pairs_vectorized(df, processor.COL_INV_NO, processor.COL_INV_DATE)
         log_q.put(("info", f"{len(df)} data rows found"))
         log_q.put(("info", f"{len(pairs_unique)} unique (invoice no, date) pairs"))
@@ -102,7 +108,7 @@ def build_report(output_path: str, download_name: str, progress_cb=None, cancel_
 
     if progress_cb:
         progress_cb(0.92, "Writing enriched output...")
-    total, found, blank, cpu_log_messages = run_cpu_phase(write_workbook, output_path, df, gst_map)
+    total, found, blank, cpu_log_messages = run_cpu_phase(write_workbook, output_path, df, gst_map, look=look)
     log_q.messages.extend(cpu_log_messages)
 
     if progress_cb:

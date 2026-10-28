@@ -20,6 +20,7 @@ import {
   Settings as SettingsIcon,
   LogOut,
   Mail,
+  MailCheck,
   PanelLeftClose,
   PanelLeftOpen,
   X,
@@ -85,6 +86,7 @@ const mainNav: NavItem[] = [
   { to: '/tools/creditors-ageing', label: 'Ultrafine Creditors Ageing Report Generator', icon: ChartNoAxesCombined, appKey: 'creditors-ageing-report' },
   { to: '/tools/trial-balance-formatter', label: 'Ultrafine Trial Balance Formatter', icon: FileSpreadsheet, appKey: 'trial-balance-formatter' },
   { to: '/tools/untagged-invoices-report', label: 'Untagged Invoices Report Generator', icon: Tags, appKey: 'untagged-invoices-report' },
+  { to: '/tools/debtors-reports-auto-mailer', label: 'Debtors Reports Auto Mailer', icon: MailCheck, appKey: 'debtors-reports-auto-mailer' },
 ]
 
 interface SidebarProps {

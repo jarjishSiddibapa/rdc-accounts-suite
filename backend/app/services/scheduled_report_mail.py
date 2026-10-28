@@ -1,5 +1,5 @@
-"""Automatic report mail, shared by the Untagged Invoices Report and the GST
-Invoice Number Adder.
+"""Automatic report mail, shared by the Untagged Invoices Report, the GST
+Invoice Number Adder and the Debtors Reports Auto Mailer.
 
 An administrator chooses, per application, whether the report is mailed
 automatically, on which weekdays and at what time (IST), the wording, and
@@ -89,6 +89,23 @@ SPECS: dict[str, MailSpec] = {
         default_intro=(
             "Dear Team,\n\n"
             "Please find attached the receivable ageing as on {date} with the GST invoice numbers added."
+        ),
+        placeholders=("date", "total", "found", "blank"),
+    ),
+    "debtors-reports-auto-mailer": MailSpec(
+        app_key="debtors-reports-auto-mailer",
+        label="Debtors Reports",
+        default_subject="Debtors Reports as on {date}",
+        default_intro=(
+            "Dear Team,\n\n"
+            "Please find below:\n\n"
+            "1. Ageing with GST invoice numbers as on {date} ({found} of {total} rows have a GST number)\n"
+            "2. Unapplied Receipts as on {date}\n"
+            "3. Untagged Invoices as on {date}\n"
+            "4. Below 1k Invoices as on {date}\n\n"
+            "The ageing with the GST invoice numbers, the Unapplied Receipts report and the Untagged Invoices "
+            "report are attached.\n\n"
+            "Kindly clear the same on priority basis and confirm."
         ),
         placeholders=("date", "total", "found", "blank"),
     ),
@@ -592,6 +609,8 @@ def _job_for(app_key: str):
     # imported here: these modules import this one
     if app_key == "untagged-invoices-report":
         from app.services.untagged_invoices.auto_mail import run_auto_mail_job
+    elif app_key == "debtors-reports-auto-mailer":
+        from app.services.debtors_mailer.auto_mail import run_auto_mail_job
     else:
         from app.services.gst_invoice_adder.auto_mail import run_auto_mail_job
     return run_auto_mail_job

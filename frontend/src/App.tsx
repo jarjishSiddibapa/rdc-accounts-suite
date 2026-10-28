@@ -30,6 +30,7 @@ const InvoiceBookingTracker = lazy(() => import('@/pages/tools/InvoiceBookingTra
 const CreditorsAgeing = lazy(() => import('@/pages/tools/CreditorsAgeing'))
 const TrialBalanceFormatter = lazy(() => import('@/pages/tools/TrialBalanceFormatter'))
 const UntaggedInvoicesReport = lazy(() => import('@/pages/tools/UntaggedInvoicesReport'))
+const DebtorsReportsAutoMailer = lazy(() => import('@/pages/tools/DebtorsReportsAutoMailer'))
 
 function ScrollToTop() {
   const { pathname } = useLocation()
@@ -239,6 +240,12 @@ export default function App() {
             path="/tools/untagged-invoices-report"
             element={
               protectedPage(<AppGuard appKey="untagged-invoices-report"><UntaggedInvoicesReport /></AppGuard>)
+            }
+          />
+          <Route
+            path="/tools/debtors-reports-auto-mailer"
+            element={
+              protectedPage(<AppGuard appKey="debtors-reports-auto-mailer"><DebtorsReportsAutoMailer /></AppGuard>)
             }
           />
 

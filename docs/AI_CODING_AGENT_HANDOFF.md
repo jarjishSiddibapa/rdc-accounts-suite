@@ -883,6 +883,41 @@ Mailing by hand is preview-first like the Unaccounted/MRN/PO mail
 download of the report, and only "Confirm & send" sends - from the signed-in
 person's own email identity (Settings), logged as a manual run.
 
+**Location comes from the customer's ERP region** (Untagged, Unapplied Receipts
+and the mailer below): `app/services/customer_region.py` reads each customer's
+region from the ERP (`hz_cust_accounts` / `hz_parties.attribute5` /
+`xxrdc_region_details`) and that region IS the row's Location; the stored
+"Location Name -> Location" mapping is only the fallback for customers the ERP
+has no region for (about 57 % of ageing rows today). The Location values are
+the ERP's own 28 region names (`ERP_REGIONS`), so the stored mappings were moved
+to them once (`migrate_mappings_to_erp_regions`, run from each `mapping_store.load_all`;
+idempotent, keyed on an incharge row spelt exactly like a region; old rows spelt
+like a region are renamed, not duplicated, because MySQL treats `MUMBAI` and
+`Mumbai` as one unique key). New regions the ERP adds need only an Accounts
+Incharge. The Unapplied Receipts Register is fetched from the ERP too
+(`app/services/unapplied_receipts/erp_register.py`; the report's three
+parameters are bound NULL; the upload is now optional).
+
+ERP speed: the ageing query is fetched as `ORACLE_FETCH_PARALLELISM` (4) slices
+on separate connections, by `MOD(apsa.payment_schedule_id, n)`, and re-sorted by
+schedule id (~20 s -> ~8 s; same rows). The register query carries a
+`/*+ PARALLEL(n) */` hint (`ORACLE_REGISTER_PARALLEL_DEGREE`, 4; 0 = none),
+~21 s -> ~5 s; the same hint does nothing for the ageing query (tried).
+
+**Debtors Reports Auto Mailer** (`debtors-reports-auto-mailer`,
+`app/services/debtors_mailer/`, `app/routers/debtors_mailer.py`): one mail with
+the GST-numbered ageing, the Unapplied Receipts report and the Untagged Invoices
+report, from ONE ageing fetch (`_SharedAgeing`), one region fetch and one
+register fetch; the three reports are built side by side (threads, each writing
+on the CPU pool). The mail shows the GST counts, the Unapplied summary and the
+two Untagged summaries; the workbooks are attachments, fitted into one mail by
+compacting, then `.xlsb` for the largest, and only then several mails. It has its
+own mapping tables (`debtors_mailer_location_map` / `_incharge_map`, seeded once
+from the Untagged and Unapplied tools'), the shared automatic-mail settings and
+send log (`scheduled_report_mail*`), a preview-then-send panel, and an admin
+"Send now" (`POST /auto-mail/send-now`). Its jobs share the `oracle-gst`
+resource allowance.
+
 Gmail rejects messages over 25 MB, and the full report is ~26 MB as openpyxl
 writes it. `app/services/xlsx_compact.py` rewrites the same workbook without the
 redundant per-cell addresses (11 MB, still a normal .xlsx that Excel opens with

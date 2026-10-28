@@ -58,29 +58,42 @@ class BuiltReport:
 
 
 def build_report(output_path: str, allow_unmapped: bool = False, progress_cb=None,
-                 cancel_event=None) -> BuiltReport:
+                 cancel_event=None, *, maps=None, ageing=None, regions=None, write=None) -> BuiltReport:
     """Fetch the ageing from the ERP and write the 5-sheet workbook to
     ``output_path`` (not written while mappings are missing and
-    ``allow_unmapped`` is False). The ageing is live, so it is as on today."""
+    ``allow_unmapped`` is False). The ageing is live, so it is as on today.
+
+    A caller that builds several reports from one ageing (the Debtors Reports
+    Auto Mailer) hands in what it already has: ``maps`` = (location_map,
+    incharge_map), ``ageing`` = the ageing frame (or a callable returning it),
+    ``regions`` = {customer -> ERP region} (or a callable), and ``write`` =
+    how to write the workbook (to run it on the CPU pool)."""
     log_q = LogQueue(progress_cb)
     as_on_date = date.today()
 
-    if progress_cb:
-        progress_cb(0.02, "Loading centralized mappings...")
-    db = SessionLocal()
-    try:
-        location_map, incharge_map = mapping_store.load_all(db)
-    finally:
-        db.close()
+    if maps is not None:
+        location_map, incharge_map = maps
+    else:
+        if progress_cb:
+            progress_cb(0.02, "Loading centralized mappings...")
+        db = SessionLocal()
+        try:
+            location_map, incharge_map = mapping_store.load_all(db)
+        finally:
+            db.close()
 
-    # each customer's region comes from the ERP on a connection of its own, while the ageing is fetched
-    cfg = oracle_config()
-    regions = customer_region.RegionFetch(cfg, cancel_event)
-    df = processor.fetch_ageing_from_erp(
-        cfg, log_q, progress_cb=progress_cb, cancel_event=cancel_event,
-        include_buckets=False,   # this report works out its own ageing buckets
-    )
-    region_by_account = regions.result(log_q)
+    if ageing is not None:
+        df = ageing() if callable(ageing) else ageing
+        region_by_account = (regions() if callable(regions) else regions) or {}
+    else:
+        # each customer's region comes from the ERP on a connection of its own, while the ageing is fetched
+        cfg = oracle_config()
+        region_fetch = customer_region.RegionFetch(cfg, cancel_event)
+        df = processor.fetch_ageing_from_erp(
+            cfg, log_q, progress_cb=progress_cb, cancel_event=cancel_event,
+            include_buckets=False,   # this report works out its own ageing buckets
+        )
+        region_by_account = region_fetch.result(log_q)
 
     missing_locations = processor.missing_location_mappings(df, location_map, region_by_account)
     df = processor.add_location_column(df, location_map, region_by_account)
@@ -125,11 +138,15 @@ def build_report(output_path: str, allow_unmapped: bool = False, progress_cb=Non
     df_below_1k_ageing = processor.build_below_1k_ageing(df)
     df_below_1k_summary = processor.build_below_1k_summary(df_below_1k_ageing, incharge_map)
 
-    processor.write_report(
-        df, df_untagged_summary, df_untagged_ageing,
-        df_below_1k_summary, df_below_1k_ageing,
-        output_path, as_on_date, log_q=log_q, progress_cb=progress_cb,
-    )
+    if write is None:
+        processor.write_report(
+            df, df_untagged_summary, df_untagged_ageing,
+            df_below_1k_summary, df_below_1k_ageing,
+            output_path, as_on_date, log_q=log_q, progress_cb=progress_cb,
+        )
+    else:
+        write(df, df_untagged_summary, df_untagged_ageing, df_below_1k_summary, df_below_1k_ageing,
+              output_path, as_on_date)
 
     filename = f"Untagged_Invoices_Report_As_On_{as_on_date.isoformat()}.xlsx"
     log_q.put(("ok", f"Done - {filename}"))

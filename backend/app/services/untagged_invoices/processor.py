@@ -36,6 +36,7 @@ In the written workbook an empty cell or a zero shows "-".
 from __future__ import annotations
 
 import datetime as _dt
+import numbers
 import re
 from pathlib import Path
 
@@ -468,6 +469,24 @@ def build_untagged_summary(df_untagged_ageing: pd.DataFrame, incharge_map: dict[
 # ══════════════════════════════════════════════════════════════════════════
 
 _CURRENCY_MARKERS = ("outstanding", "invoice", "amount", "limit", "o/s", "days")
+# Whole numbers the ERP hands over as text: written to Excel as numbers (format 0, no thousands
+# separator) so they sort, filter and look up as numbers. Invoice numbers are identifiers: they stay text.
+_WHOLE_NUMBER_COLS = {"Customer Account", "Payment Terms"}
+
+
+def _whole_number(val):
+    """The int in a plain digit string (no leading zero, which Excel would drop), else None."""
+    if isinstance(val, bool):
+        return None
+    if isinstance(val, numbers.Integral):
+        return int(val)
+    if isinstance(val, float) and val == val and val.is_integer():
+        return int(val)
+    if isinstance(val, str):
+        text = val.strip()
+        if text.isdigit() and not text.startswith("0"):
+            return int(text)
+    return None
 _HDR_BG   = "1F3864"
 _TITLE_BG = "152748"
 _ROW_ODD  = "FFFFFF"
@@ -498,29 +517,54 @@ _XW_BORDER = "#D0D8E4"
 
 
 class _Formats:
-    """The cell formats of this report, created once per workbook."""
+    """The cell formats of this report, created once per workbook.
 
-    def __init__(self, wb):
-        def fmt(font="Segoe UI", **props):
-            return wb.add_format({"font_name": font, "font_size": 10, "border": 1,
-                                  "border_color": _XW_BORDER, "valign": "vcenter", **props})
+    ``look="accounts"`` is the look of the Unaccounted / MRN / PO reports: Calibri
+    11, black thin borders, plain white rows, light-blue headers on the detail
+    sheets and pink headers and totals on the summary tables, whose values are
+    centred. The default look is this report's own (navy headers, striped rows)."""
 
-        white_on_navy = {"bold": True, "font_color": "#FFFFFF", "bg_color": "#" + _HDR_BG}
-        self.header = fmt(**white_on_navy, align="center", text_wrap=True)
-        self.grand = fmt(**white_on_navy)
-        self.grand_text = fmt(**white_on_navy, align="left", indent=1)
-        self.grand_int = fmt(**white_on_navy, align="right", num_format=_FMT_INT)
-        self.grand_dec = fmt(**white_on_navy, align="right", num_format=_FMT_DEC)
-        self.note = wb.add_format({"font_name": "Segoe UI", "font_size": 9, "italic": True,
+    def __init__(self, wb, look: str = "default"):
+        accounts = look == "accounts"
+        font, size = ("Calibri", 11) if accounts else ("Segoe UI", 10)
+        border_color = "#000000" if accounts else _XW_BORDER
+
+        def fmt(font=font, **props):
+            return wb.add_format({"font_name": font, "font_size": size, "border": 1,
+                                  "border_color": border_color, "valign": "vcenter", **props})
+
+        if accounts:
+            detail_header = {"bold": True, "font_color": "#000000", "bg_color": "#C2D8ED"}
+            pivot_header = {"bold": True, "font_color": "#000000", "bg_color": "#F4B8C8"}
+        else:
+            detail_header = pivot_header = {"bold": True, "font_color": "#FFFFFF", "bg_color": "#" + _HDR_BG}
+        self.header = fmt(**detail_header, align="center", text_wrap=True)
+        self.pivot_header = fmt(**pivot_header, align="center", text_wrap=True)
+        self.grand = fmt(**pivot_header)
+        self.grand_text = fmt(**pivot_header, align="center" if accounts else "left", **({} if accounts else {"indent": 1}))
+        self.grand_int = fmt(**pivot_header, align="center" if accounts else "right", num_format=_FMT_INT)
+        self.grand_dec = fmt(**pivot_header, align="center" if accounts else "right", num_format=_FMT_DEC)
+        self.note = wb.add_format({"font_name": font, "font_size": 9, "italic": True,
                                    "font_color": "#808080"})
 
-        def striped(**props):    # [odd row, even row]
-            return [fmt(bg_color="#" + fill, **props) for fill in (_ROW_ODD, _ROW_EVEN)]
+        def striped(font=font, **props):    # [odd row, even row]; the accounts look has no banding
+            fills = ("FFFFFF", "FFFFFF") if accounts else (_ROW_ODD, _ROW_EVEN)
+            return [fmt(font, bg_color="#" + fill, **props) for fill in fills]
 
-        self.num_int = striped(font="Consolas", align="right", num_format=_FMT_INT)
-        self.num_dec = striped(font="Consolas", align="right", num_format=_FMT_DEC)
-        self.text = striped(align="left", indent=1)
-        self.date = striped(align="left", indent=1, num_format="DD-MMM-YYYY")
+        mono = font if accounts else "Consolas"
+        self.id_int = striped(font, align="center" if accounts else "right", num_format="0")
+        self.num_int = striped(mono, align="right", num_format=_FMT_INT)
+        self.num_dec = striped(mono, align="right", num_format=_FMT_DEC)
+        self.text = striped(align="left", **({} if accounts else {"indent": 1}))
+        self.date = striped(align="center" if accounts else "left", num_format="DD-MMM-YYYY",
+                            **({} if accounts else {"indent": 1}))
+        # the summary tables: centred values in the accounts look, as the detail lists otherwise
+        if accounts:
+            self.pivot_text = striped(align="center")
+            self.pivot_int = striped(mono, align="center", num_format=_FMT_INT)
+            self.pivot_dec = striped(mono, align="center", num_format=_FMT_DEC)
+        else:
+            self.pivot_text, self.pivot_int, self.pivot_dec = self.text, self.num_int, self.num_dec
 
 
 def _width(chars: float) -> float:
@@ -559,6 +603,7 @@ def _write_detail_sheet(wb, fmts: _Formats, title: str, df: pd.DataFrame, tab_co
 
     numeric_cols = [_is_numeric_col(c) for c in cols]
     days_os_idx  = cols.index(_DAYS_OS_COL) if _DAYS_OS_COL in cols else -1
+    whole_number_cols = {i for i, c in enumerate(cols) if str(c).strip() in _WHOLE_NUMBER_COLS}
 
     # Widths come from the header and the first 200 rows.
     col_max_len = [len(str(col_name).strip()) for col_name in cols]
@@ -574,7 +619,7 @@ def _write_detail_sheet(wb, fmts: _Formats, title: str, df: pd.DataFrame, tab_co
     for ci, col_name in enumerate(cols):
         ws.write_string(0, ci, str(col_name).strip(), fmts.header)
 
-    num_int, num_dec, text, date = fmts.num_int, fmts.num_dec, fmts.text, fmts.date
+    num_int, num_dec, text, date, id_int = fmts.num_int, fmts.num_dec, fmts.text, fmts.date, fmts.id_int
     for ri, row_vals in enumerate(df.itertuples(index=False, name=None), 1):
         parity = 1 if (ri + 1) % 2 == 0 else 0     # stripe by the sheet row, as before
         for ci, val in enumerate(row_vals):
@@ -582,6 +627,8 @@ def _write_detail_sheet(wb, fmts: _Formats, title: str, df: pd.DataFrame, tab_co
             if not blank and isinstance(val, _dt.datetime):
                 # a date is never a number, whatever its column is called
                 ws.write_datetime(ri, ci, val, date[parity])
+            elif ci in whole_number_cols and _whole_number(val) is not None:
+                ws.write_number(ri, ci, _whole_number(val), id_int[parity])
             elif numeric_cols[ci]:
                 is_days = ci == days_os_idx
                 cell_fmt = (num_int if is_days else num_dec)[parity]
@@ -636,7 +683,7 @@ def _write_pivot_sheet(wb, fmts: _Formats, title: str, df: pd.DataFrame, tab_col
     ws.freeze_panes(1, 0)
     ws.set_row(0, 32)
     for ci, col_name in enumerate(cols):
-        ws.write_string(0, ci, header_labels.get(col_name, col_name.strip()), fmts.header)
+        ws.write_string(0, ci, header_labels.get(col_name, col_name.strip()), fmts.pivot_header)
 
     amount_col_idx = cols.index(amount_col) + 1          # 1-based column numbers
     bucket_first_idx = amount_col_idx + 1
@@ -653,10 +700,10 @@ def _write_pivot_sheet(wb, fmts: _Formats, title: str, df: pd.DataFrame, tab_col
         row_numbers = [0.0] * len(data_cols)
         for pos, (col_name, val) in enumerate(zip(data_cols, row_vals)):
             if col_name in (LOCATION_COL, "Account Incharges"):
-                ws.write_string(ri - 1, pos, _DASH if _is_blank(val) else str(val), fmts.text[parity])
+                ws.write_string(ri - 1, pos, _DASH if _is_blank(val) else str(val), fmts.pivot_text[parity])
                 continue
             is_count = col_name == COUNT_COL
-            cell_fmt = (fmts.num_int if is_count else fmts.num_dec)[parity]
+            cell_fmt = (fmts.pivot_int if is_count else fmts.pivot_dec)[parity]
             if _is_blank(val):
                 ws.write_string(ri - 1, pos, _DASH, cell_fmt)
             else:
@@ -669,7 +716,7 @@ def _write_pivot_sheet(wb, fmts: _Formats, title: str, df: pd.DataFrame, tab_col
         bucket_refs = [f"{get_column_letter(i)}{ri}" for i in range(bucket_first_idx, bucket_last_idx + 1)]
         above_value = round(row_numbers[amount_pos] - row_numbers[amount_pos + 1] - row_numbers[amount_pos + 2], 2)
         ws.write_formula(ri - 1, n_cols - 1, above_30_formula(amount_ref, bucket_refs),
-                         fmts.num_dec[parity], above_value)
+                         fmts.pivot_dec[parity], above_value)
 
     grand_row = n_rows + 2                                # 1-based sheet row
     ws.set_row(grand_row - 1, 22)
@@ -724,11 +771,11 @@ def _below_1k_summary_sheet(wb, fmts: _Formats, df: pd.DataFrame) -> None:
 
 
 def write_summary_workbook(df_untagged_summary: pd.DataFrame, df_below_1k_summary: pd.DataFrame,
-                           output_path: str | Path) -> None:
+                           output_path: str | Path, look: str = "default") -> None:
     """A small workbook holding only the two summary sheets, formatted exactly
     as in the report - the source of the tables shown in the automatic mail."""
     wb = xlsxwriter.Workbook(str(output_path), {"constant_memory": True})
-    fmts = _Formats(wb)
+    fmts = _Formats(wb, look)
     # the mail states the unit once in its text, so the table carries no footnote
     _untagged_summary_sheet(wb, fmts, df_untagged_summary, footnote=False)
     _below_1k_summary_sheet(wb, fmts, df_below_1k_summary)
@@ -747,6 +794,7 @@ def write_report(
     progress_cb=None,
     include_full_ageing: bool = True,
     only_full_ageing: bool = False,
+    look: str = "default",
 ) -> None:
     """Write the 5-sheet workbook, in the required order:
     Untagged Summary, Untagged Ageing, Below 1k Summary, Below 1k
@@ -761,7 +809,7 @@ def write_report(
     the write-phase progress span belongs to it."""
     output_path = Path(output_path)
     wb = xlsxwriter.Workbook(str(output_path), {"constant_memory": True})
-    fmts = _Formats(wb)
+    fmts = _Formats(wb, look)
 
     if not only_full_ageing:
         if progress_cb:

@@ -16,6 +16,7 @@ import {
   Megaphone,
   Landmark,
   Tags,
+  MailCheck,
 } from 'lucide-react'
 
 export type Company = 'RDC' | 'Ultrafine'
@@ -188,6 +189,15 @@ export const TOOLS_CATALOG: ToolCatalogEntry[] = [
     icon: Tags,
     appKey: 'untagged-invoices-report',
     category: 'AR reconciliation',
+    company: 'RDC',
+  },
+  {
+    to: '/tools/debtors-reports-auto-mailer',
+    title: 'Debtors Reports Auto Mailer',
+    description: 'Mail the GST-numbered ageing, Unapplied Receipts and Untagged Invoices reports together, from one ERP ageing fetch.',
+    icon: MailCheck,
+    appKey: 'debtors-reports-auto-mailer',
+    category: 'AR reporting',
     company: 'RDC',
   },
 ]

@@ -71,8 +71,10 @@ _ALLOWED_TASKS = frozenset(
         "app.routers.untagged_invoices_report:_run_process_job",
         "app.services.untagged_invoices.auto_mail:run_auto_mail_job",
         "app.services.gst_invoice_adder.auto_mail:run_auto_mail_job",
+        "app.services.debtors_mailer.auto_mail:run_auto_mail_job",
         "app.services.untagged_invoices.auto_mail:run_preview_job",
         "app.services.gst_invoice_adder.auto_mail:run_preview_job",
+        "app.services.debtors_mailer.auto_mail:run_preview_job",
         "app.routers.ultrafine_balance_confirmation:_job_preview",
         "app.routers.ultrafine_balance_confirmation:_job_send",
         "app.routers.ultrafine_payment_reminder:_job_preview",
@@ -90,6 +92,9 @@ _RESOURCE_BY_TASK = {
     "app.routers.gst_invoice_adder:_job_enrich": "oracle-gst",
     "app.services.gst_invoice_adder.auto_mail:run_auto_mail_job": "oracle-gst",
     "app.services.gst_invoice_adder.auto_mail:run_preview_job": "oracle-gst",
+    # builds the GST report too, on the same connection allowance
+    "app.services.debtors_mailer.auto_mail:run_auto_mail_job": "oracle-gst",
+    "app.services.debtors_mailer.auto_mail:run_preview_job": "oracle-gst",
 }
 
 # Dispatch jobs are intentionally server-owned once accepted. Cancelling one

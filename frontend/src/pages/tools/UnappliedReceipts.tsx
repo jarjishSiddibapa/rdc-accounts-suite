@@ -473,7 +473,6 @@ export default function UnappliedReceipts() {
   }
 
   async function handleProcess(allowUnmapped = false) {
-    if (!mainFile) return
     autoDownload.current = allowUnmapped
     setSubmitting(true)
     setProcessError(null)
@@ -482,7 +481,8 @@ export default function UnappliedReceipts() {
     setActivityLog([['info', 'Queuing report for processing...']])
     try {
       const fd = new FormData()
-      fd.append('file', mainFile)
+      // no file: the register is fetched live from the ERP
+      if (mainFile) fd.append('file', mainFile)
       if (asOnDate) fd.append('as_on_date', asOnDate)
       if (allowUnmapped) fd.append('allow_unmapped', 'true')
       const res = await postForm<{ job_id: string }>(`${BASE}/process`, fd)
@@ -508,7 +508,6 @@ export default function UnappliedReceipts() {
     a.remove()
   }
 
-  const canProcess = Boolean(mainFile)
   const validationWarnings = result?.validation_warnings ?? []
 
   return (
@@ -528,18 +527,18 @@ export default function UnappliedReceipts() {
                 Generate unapplied receipts report
               </h2>
               <p className="mt-1 text-sm leading-6 text-ink-dim">
-                Upload the Unapplied Receipts Register export, then generate the formatted workbook
-                (Summary, Unapplied Receipts, Advance of Customers and Unidentified Customers
-                sheets). The ageing is fetched from the ERP, so there is no ageing file to upload.
+                Fetches the Unapplied Receipts Register and the open ageing live from the ERP and
+                generates the formatted workbook (Summary, Unapplied Receipts, Advance of Customers
+                and Unidentified Customers sheets). There is nothing to upload.
               </p>
             </div>
           </div>
 
           <div className="flex flex-col gap-2">
-            <span className="text-sm font-medium text-ink-dim">Unapplied Receipts Register export</span>
+            <span className="text-sm font-medium text-ink-dim">Register export (optional)</span>
             <FileDropzone
               accept={EXCEL_ACCEPT}
-              label="Drag & drop the register export here, or click to browse"
+              label="Only if you want to use a register export instead of the live ERP data"
               files={mainFile ? [mainFile] : []}
               onFilesSelected={handleMainFileSelected}
               onRemove={() => setMainFile(null)}
@@ -553,7 +552,7 @@ export default function UnappliedReceipts() {
           </label>
 
           <div className="flex justify-stretch sm:justify-end">
-            <Button onClick={() => void handleProcess()} loading={submitting} disabled={!canProcess}>
+            <Button onClick={() => void handleProcess()} loading={submitting}>
               Generate report
             </Button>
           </div>

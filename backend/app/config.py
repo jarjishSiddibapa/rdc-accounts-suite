@@ -105,3 +105,6 @@ ORACLE_GST_JOB_CONCURRENCY = max(1, int(os.environ.get("ORACLE_GST_JOB_CONCURREN
 # How many slices the open-ageing query is split into, each on its own ERP
 # connection (see app/services/erp_ageing.py). 1 runs it as a single query.
 ORACLE_FETCH_PARALLELISM = max(1, min(8, int(os.environ.get("ORACLE_FETCH_PARALLELISM", "4"))))
+# Parallel degree the database is asked to use (optimizer hint) for the
+# Unapplied Receipts Register query. 0 leaves the hint out.
+ORACLE_REGISTER_PARALLEL_DEGREE = max(0, min(8, int(os.environ.get("ORACLE_REGISTER_PARALLEL_DEGREE", "4"))))

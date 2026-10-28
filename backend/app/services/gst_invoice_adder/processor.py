@@ -435,6 +435,7 @@ def build_gst_report_pure_python(
     output_path: str,
     log_q,
     progress_cb=None,
+    look: str = "default",
 ) -> tuple[int, int, int]:
     """Build the enriched output workbook directly from the already-read
     .xlsb data, with no Excel/COM/LibreOffice involved at all. Returns
@@ -488,17 +489,27 @@ def build_gst_report_pure_python(
     wb = xlsxwriter.Workbook(output_path, {"constant_memory": True})
     ws = wb.add_worksheet("GST Enriched")
 
-    def fmt(**props):
-        return wb.add_format({"font_name": "Calibri", "font_size": 10, "border": 1,
-                              "border_color": "#D8DEE8", **props})
+    # look="accounts": the Unaccounted / MRN / PO reports' look (Calibri 11,
+    # black thin borders, light-blue header, centred dates)
+    accounts = look == "accounts"
 
-    hdr_fmt = fmt(bold=True, font_color="#FFFFFF", bg_color="#1F3864", align="center",
-                  valign="vcenter", text_wrap=True)
+    def fmt(**props):
+        return wb.add_format({"font_name": "Calibri", "font_size": 11 if accounts else 10, "border": 1,
+                              "border_color": "#000000" if accounts else "#D8DEE8", **props})
+
+    hdr_fmt = (
+        fmt(bold=True, font_color="#000000", bg_color="#C2D8ED", align="center", valign="vcenter", text_wrap=True)
+        if accounts else
+        fmt(bold=True, font_color="#FFFFFF", bg_color="#1F3864", align="center", valign="vcenter", text_wrap=True)
+    )
     txt_fmt = fmt()
     int_fmt = fmt(num_format=FMT_INT)
     dec_fmt = fmt(num_format=FMT_DEC)
-    date_fmt = fmt(num_format="DD-MMM-YYYY")
-    gst_fmt = fmt(bold=True, font_color="#1F3864")
+    date_fmt = fmt(num_format="DD-MMM-YYYY", **({"align": "center"} if accounts else {}))
+    gst_fmt = fmt(bold=True, **({} if accounts else {"font_color": "#1F3864"}))
+    # whole numbers the ERP hands over as text, written as numbers (invoice numbers stay text)
+    id_fmt = fmt(num_format="0", **({"align": "center"} if accounts else {}))
+    whole_number_cols = {i for i, name in enumerate(new_cols) if str(name).strip() in ("Customer Account", "Payment Terms")}
 
     ws.freeze_panes(1, 0)
     ws.set_row(0, 26)
@@ -545,6 +556,11 @@ def build_gst_report_pure_python(
             if value is None or value is pd.NA or value is pd.NaT:
                 ws.write_string(out_row, ci, DASH, txt_fmt)
                 continue
+            if ci in whole_number_cols and isinstance(value, str):
+                digits = value.strip()
+                if digits.isdigit() and not digits.startswith("0"):
+                    ws.write_number(out_row, ci, int(digits), id_fmt)
+                    continue
             _write_plain(ws, out_row, ci, value, date_fmt, int_fmt, dec_fmt, txt_fmt)
 
         if progress_cb and (out_row % 5000 == 0 or out_row == total):
