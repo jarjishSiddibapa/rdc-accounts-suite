@@ -776,8 +776,12 @@ def send_mail(
         msg.attach(part)
 
     all_rcpt = to_addresses + cc_addresses
+    raw = msg.as_string()
 
-    with smtplib.SMTP("smtp.gmail.com", 587, timeout=120) as smtp:
+    # The socket timeout is a deadline for sending the whole message, so a fixed 120 s cuts off a ~20 MB mail
+    # on an ordinary office uplink ("Server not connected"). Allow for about 50 KB/s on top of a minute.
+    timeout = min(900, max(120, 60 + len(raw) // 50_000))
+    with smtplib.SMTP("smtp.gmail.com", 587, timeout=timeout) as smtp:
         smtp.ehlo(); smtp.starttls()
         smtp.login(from_email.strip(), app_password.strip())
-        smtp.sendmail(from_email.strip(), all_rcpt, msg.as_string())
+        smtp.sendmail(from_email.strip(), all_rcpt, raw)
