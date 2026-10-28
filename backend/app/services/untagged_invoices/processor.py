@@ -45,7 +45,7 @@ import xlsxwriter
 from openpyxl.utils import get_column_letter
 
 from app.jobs import JobUserError
-from app.services import tabular_input
+from app.services import customer_region, tabular_input
 from app.services.erp_ageing import fetch_ageing_from_erp  # noqa: F401 - tests and callers reach it through this module
 from app.services.report_dash import DASH as _DASH, FMT_DEC as _FMT_DEC, FMT_INT as _FMT_INT, is_blank as _is_blank
 from app.services.report_progress import row_progress_reporter
@@ -56,6 +56,7 @@ from app.services.report_progress import row_progress_reporter
 
 _HEADER_MARKER = "Customer Name"
 _LOCATION_NAME_TOKENS = ("location", "name")
+_CUSTOMER_ACCOUNT_TOKENS = ("customer", "account")
 _ACCOUNTED_OUTSTANDING_TOKENS = ("accounted", "outstanding")
 _INVOICE_DATE_TOKENS = ("invoice", "date")   # excludes "GL Date"
 _TYPE_TOKENS = ("transaction", "receipt")    # "Type (Transaction/Receipt)", not "Invoice Type"
@@ -237,13 +238,32 @@ def read_ageing_file(path: str, log_q=None) -> pd.DataFrame:
     return df
 
 
-def missing_location_mappings(df: pd.DataFrame, location_map: dict[str, str]) -> list[str]:
+def _region_of_each_row(df: pd.DataFrame, region_by_account: dict[str, str] | None) -> pd.Series | None:
+    """The ERP region of every row's customer (NaN where the ERP has none), or
+    None when there are no regions or no Customer Account column."""
+    account_col = _find_col(df.columns, _CUSTOMER_ACCOUNT_TOKENS)
+    if not region_by_account or not account_col:
+        return None
+    return customer_region.regions_for(df[account_col], region_by_account)
+
+
+def count_rows_from_erp_region(df: pd.DataFrame, region_by_account: dict[str, str] | None) -> int:
+    region = _region_of_each_row(df, region_by_account)
+    return 0 if region is None else int(region.notna().sum())
+
+
+def missing_location_mappings(df: pd.DataFrame, location_map: dict[str, str],
+                              region_by_account: dict[str, str] | None = None) -> list[str]:
     """Distinct raw 'Location Name' values (uppercased) with no entry in
-    location_map."""
+    location_map, for the rows whose Location is not already known from the
+    ERP (a customer with an ERP region needs no mapping)."""
     loc_name_col = _find_col(df.columns, _LOCATION_NAME_TOKENS)
     if not loc_name_col:
         return []
     raw = df[loc_name_col].fillna("").astype(str).str.strip().str.upper()
+    region = _region_of_each_row(df, region_by_account)
+    if region is not None:
+        raw = raw[region.isna()]
     uniq = sorted(v for v in raw.unique() if v and v not in ("NAN", "NONE"))
     return [v for v in uniq if v not in location_map]
 
@@ -253,15 +273,21 @@ def missing_incharge_mappings(locations: list[str], incharge_map: dict[str, str]
     return [loc for loc in uniq if loc not in incharge_map]
 
 
-def add_location_column(df: pd.DataFrame, location_map: dict[str, str]) -> pd.DataFrame:
-    """Insert the mapped 'Location' column immediately after 'Location Name'."""
+def add_location_column(df: pd.DataFrame, location_map: dict[str, str],
+                        region_by_account: dict[str, str] | None = None) -> pd.DataFrame:
+    """Insert the 'Location' column immediately after 'Location Name'.
+
+    A customer's Location is the region the ERP holds for it; where the ERP has
+    none, the 'Location Name' -> Location mapping gives it."""
     df = df.copy()
     loc_name_col = _find_col(df.columns, _LOCATION_NAME_TOKENS)
     if not loc_name_col:
         raise JobUserError("Could not find a 'Location Name' column in the uploaded file.")
 
     raw_upper = df[loc_name_col].fillna("").astype(str).str.strip().str.upper()
-    df[LOCATION_COL] = raw_upper.map(location_map).fillna("")
+    mapped = raw_upper.map(location_map).fillna("")
+    region = _region_of_each_row(df, region_by_account)
+    df[LOCATION_COL] = mapped if region is None else region.where(region.notna(), mapped)
 
     cols = list(df.columns)
     cols.remove(LOCATION_COL)

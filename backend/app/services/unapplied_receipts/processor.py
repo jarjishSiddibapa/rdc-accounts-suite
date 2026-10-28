@@ -74,7 +74,7 @@ from app.services.report_progress import row_progress_reporter
 from app.services.xlsx_formula_cache import cache_formula_values, inject_cached_values
 
 from app.jobs import JobCancelled, JobUserError
-from app.services import tabular_input
+from app.services import customer_region, tabular_input
 from app.oracle_runtime import initialize_oracle_client
 
 logger = logging.getLogger(__name__)
@@ -384,13 +384,18 @@ def _fetch_comments(receipts: list, log_q, oracle_cfg: OracleConfig,
 
 def process_report(input_path: str, log_q, as_on_date: _dt.date = None, *,
                     oracle_cfg: OracleConfig, supplier_site_map: dict,
-                    cancel_event=None) -> tuple:
+                    cancel_event=None, region_lookup=None) -> tuple:
     """
     Returns (df, total_input_rows, unidentified_removed_count, df_unidentified, erp_ok).
 
     ``supplier_site_map`` replaces the original's hardcoded ``LOCATION_MAP``
     (raw Oracle ``global_attribute10`` value → display Location) — load it
     via ``mapping_store.load_all()``.
+
+    ``region_lookup`` (optional) is a callable returning {customer number ->
+    ERP region} - waited for only once the receipts' own locations are in. A
+    customer's ERP region is its Location; the receipt's location (mapped by
+    ``supplier_site_map``) is the fallback for a customer the ERP has no region for.
 
     ``erp_ok`` is False when the Oracle ERP lookup itself failed (as
     opposed to succeeding but returning no match for a given receipt) - in
@@ -507,6 +512,12 @@ def process_report(input_path: str, log_q, as_on_date: _dt.date = None, *,
     # ── Insert Location column immediately after Payment Date ─────────────────
     pay_date_col = "Payment Date"
     df["Location"] = df[pay_num_col].apply(lambda x: loc_map.get(str(x).strip(), ""))
+    region_by_account = region_lookup() if region_lookup is not None else None
+    if region_by_account:
+        df["Location"], from_erp = customer_region.location_with_regions(
+            df["Customer Number"], df["Location"], region_by_account)
+        log_q.put(("info", f"Location from the customer's ERP region for {int(from_erp.sum()):,} of "
+                           f"{len(df):,} receipts; the rest from the receipt's own location"))
     cols = list(df.columns)
     cols.remove("Location")
     if pay_date_col in cols:

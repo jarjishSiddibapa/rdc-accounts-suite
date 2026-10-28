@@ -12,6 +12,7 @@ from datetime import date
 import pandas as pd
 
 from app.database import SessionLocal
+from app.services import customer_region
 from app.services.erp_ageing import oracle_config
 from app.services.untagged_invoices import mapping_store, processor
 
@@ -72,13 +73,21 @@ def build_report(output_path: str, allow_unmapped: bool = False, progress_cb=Non
     finally:
         db.close()
 
+    # each customer's region comes from the ERP on a connection of its own, while the ageing is fetched
+    cfg = oracle_config()
+    regions = customer_region.RegionFetch(cfg, cancel_event)
     df = processor.fetch_ageing_from_erp(
-        oracle_config(), log_q, progress_cb=progress_cb, cancel_event=cancel_event,
+        cfg, log_q, progress_cb=progress_cb, cancel_event=cancel_event,
         include_buckets=False,   # this report works out its own ageing buckets
     )
+    region_by_account = regions.result(log_q)
 
-    missing_locations = processor.missing_location_mappings(df, location_map)
-    df = processor.add_location_column(df, location_map)
+    missing_locations = processor.missing_location_mappings(df, location_map, region_by_account)
+    df = processor.add_location_column(df, location_map, region_by_account)
+    if region_by_account:
+        from_erp = processor.count_rows_from_erp_region(df, region_by_account)
+        log_q.put(("info", f"Location from the ERP region for {from_erp:,} of {len(df):,} rows; "
+                           "the rest from the Location mappings"))
 
     resolved_locations = df[processor.LOCATION_COL].astype(str).str.strip()
     missing_incharges = processor.missing_incharge_mappings(

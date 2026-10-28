@@ -20,11 +20,21 @@ incharge_map        : { location: accounts_incharge }
 supplier_site_map   : { raw_erp_location_upper: mapped_location }
 """
 
+import logging
+
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.services.customer_region import migrate_mappings_to_erp_regions
 from app.soft_delete import delete_keyed_row, sync_keyed_rows, upsert_keyed_row
 
 from .models import AccountsInchargeMap, SupplierSiteMap
+
+logger = logging.getLogger(__name__)
+
+# The stored mappings are moved to the ERP's region names once per process (a
+# no-op after the first time anywhere: see migrate_mappings_to_erp_regions).
+_regions_migrated = False
 
 # ── Location mapping (raw ERP value → display name) ───────────────────────
 # Copied verbatim from the original unapplied_processor.py's LOCATION_MAP
@@ -385,6 +395,18 @@ def _maybe_seed(db: Session) -> None:
         db.commit()
 
 
+def _ensure_erp_regions(db: Session) -> None:
+    global _regions_migrated
+    if _regions_migrated:
+        return
+    try:
+        migrate_mappings_to_erp_regions(db, SupplierSiteMap, AccountsInchargeMap)
+        db.commit()
+    except IntegrityError:
+        db.rollback()   # another process did it first
+    _regions_migrated = True
+
+
 def load_all(db: Session) -> tuple[dict[str, str], dict[str, str]]:
     """Return (incharge_map, supplier_site_map) read from the shared MySQL
     tables. Seeds from the hardcoded defaults on first run if empty.
@@ -393,6 +415,7 @@ def load_all(db: Session) -> tuple[dict[str, str], dict[str, str]]:
     supplier_site_map : { raw_erp_location: mapped_location }
     """
     _maybe_seed(db)
+    _ensure_erp_regions(db)
 
     incharge_map: dict[str, str] = {}
     for row in db.query(AccountsInchargeMap).filter(AccountsInchargeMap.is_deleted == False).all():  # noqa: E712

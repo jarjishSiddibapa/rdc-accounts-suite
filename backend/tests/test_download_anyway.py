@@ -14,7 +14,18 @@ from unittest.mock import MagicMock, patch
 import pandas as pd
 
 from app.routers import rdc_payables, trial_balance, unaccounted_txn, unapplied_receipts, untagged_invoices_report
+from app.services import customer_region
 from app.services.untagged_invoices import report_job as untagged_report_job
+
+
+class _NoRegions:
+    """Stands in for the ERP region lookup, which must never reach a real ERP from a test."""
+
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def result(self, log_q=None):
+        return {}
 
 
 def _direct(fn, *args, **kwargs):
@@ -152,6 +163,7 @@ class UnappliedReceiptsTests(_TempDirCase):
         for allow in (False, True):
             output = self.dir / f"ur{allow}.xlsx"
             with patch.object(unapplied_receipts, "SessionLocal", MagicMock()), \
+                    patch.object(customer_region, "RegionFetch", _NoRegions), \
                     patch.object(unapplied_receipts.mapping_store, "load_all", return_value=({}, {})), \
                     patch.object(unapplied_receipts, "run_cpu_phase", _direct), \
                     patch.object(unapplied_receipts.processor, "process_report",
@@ -177,6 +189,7 @@ class UntaggedInvoicesTests(_TempDirCase):
         for allow in (False, True):
             output = self.dir / f"ti{allow}.xlsx"
             with patch.object(untagged_report_job, "SessionLocal", MagicMock()), \
+                    patch.object(customer_region, "RegionFetch", _NoRegions), \
                     patch.object(untagged_report_job.mapping_store, "load_all", return_value=({}, {})), \
                     patch.multiple(
                         proc,

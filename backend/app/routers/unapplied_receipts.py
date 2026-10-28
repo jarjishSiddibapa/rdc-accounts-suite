@@ -23,6 +23,8 @@ one-time ``processor._init_oracle_client()`` call, exactly as
 processor.py's own module docstring says it should.
 """
 
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date
 from pathlib import Path
 from typing import Optional
@@ -46,7 +48,8 @@ from app.database import SessionLocal, get_db
 from app.jobs import cancel_job, get_job, run_cpu_phase, submit_job
 from app.models import User
 from app.permissions import require_app_access
-from app.services.erp_ageing import fetch_ageing_from_erp
+from app.services import customer_region
+from app.services.erp_ageing import TYPE_COL, EitherEvent, fetch_ageing_from_erp
 from app.services.unapplied_receipts import mapping_store, processor
 from app.uploads import save_upload
 
@@ -172,24 +175,39 @@ def _run_process_job(input_path: str, ageing_path: Optional[str], output_path: s
     finally:
         db.close()
 
+    # The ERP work that does not depend on the register - every customer's region
+    # and, when no ageing file was uploaded, the open ageing - starts now, on
+    # connections of their own, while the register is read and its receipts are
+    # looked up. They are waited for only where the result is needed.
+    stop_background = threading.Event()
+    background_cancel = EitherEvent(cancel_event, stop_background)
+    regions = customer_region.RegionFetch(_ORACLE_CFG, background_cancel)
+    ageing_pool = ThreadPoolExecutor(max_workers=1, thread_name_prefix="erp-ageing-job")
+    ageing_job = None
+    if not ageing_path:
+        # the open ageing comes straight from the ERP, so the advance-customer
+        # check is always against today's data
+        ageing_job = ageing_pool.submit(
+            fetch_ageing_from_erp, _ORACLE_CFG, None, None, background_cancel, False,
+        )
+
     try:
         if progress_cb:
             progress_cb(0.08, "Reading register and fetching Oracle ERP data...")
         df, total_input_rows, unidentified_removed_count, df_unidentified, erp_ok = processor.process_report(
             input_path, log_q, as_on_date,
             oracle_cfg=_ORACLE_CFG, supplier_site_map=supplier_site_map,
-            cancel_event=cancel_event,
+            cancel_event=cancel_event, region_lookup=lambda: regions.result(log_q),
         )
 
-        # No ageing file uploaded: the open ageing comes straight from the ERP, so the
-        # advance-customer check is always against today's data.
         ageing_frame = None
-        if not ageing_path:
+        if ageing_job is not None:
             if progress_cb:
-                progress_cb(0.45, "Fetching the open ageing from the ERP...")
-            ageing_frame = fetch_ageing_from_erp(
-                _ORACLE_CFG, log_q=log_q, cancel_event=cancel_event, include_buckets=False,
-            )
+                progress_cb(0.45, "Waiting for the open ageing from the ERP...")
+            ageing_frame = ageing_job.result()
+            log_q.put(("ok", f"Fetched {len(ageing_frame):,} open ageing rows from the ERP"))
+            # only these three columns are read; a slimmer frame is quicker to hand to the CPU process
+            ageing_frame = ageing_frame[["Customer Account", TYPE_COL, "Sales Person Name"]]
 
         if progress_cb:
             progress_cb(0.55, "Classifying and validating...")
@@ -225,6 +243,8 @@ def _run_process_job(input_path: str, ageing_path: Optional[str], output_path: s
         )
         log_q.messages.extend(cpu_log_messages)
     finally:
+        stop_background.set()                 # anything still running is not needed any more
+        ageing_pool.shutdown(wait=True)
         Path(input_path).unlink(missing_ok=True)
         if ageing_path:
             Path(ageing_path).unlink(missing_ok=True)

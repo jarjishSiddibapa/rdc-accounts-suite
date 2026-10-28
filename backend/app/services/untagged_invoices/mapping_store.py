@@ -14,8 +14,10 @@ location_map  : { raw_location_name_upper: mapped_location }
 incharge_map  : { location: accounts_incharge }
 """
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.services.customer_region import migrate_mappings_to_erp_regions
 from app.services.unapplied_receipts.mapping_store import (
     ACCOUNT_INCHARGE_MAP as _SEED_INCHARGE_MAP,
     LOCATION_MAP as _SEED_LOCATION_MAP,
@@ -23,6 +25,10 @@ from app.services.unapplied_receipts.mapping_store import (
 from app.soft_delete import delete_keyed_row, upsert_keyed_row
 
 from .models import AccountsInchargeMap, LocationMap
+
+# The stored mappings are moved to the ERP's region names once per process (a
+# no-op after the first time anywhere: see migrate_mappings_to_erp_regions).
+_regions_migrated = False
 
 
 def _maybe_seed(db: Session) -> None:
@@ -40,10 +46,23 @@ def _maybe_seed(db: Session) -> None:
         db.commit()
 
 
+def _ensure_erp_regions(db: Session) -> None:
+    global _regions_migrated
+    if _regions_migrated:
+        return
+    try:
+        migrate_mappings_to_erp_regions(db, LocationMap, AccountsInchargeMap)
+        db.commit()
+    except IntegrityError:
+        db.rollback()   # another process did it first
+    _regions_migrated = True
+
+
 def load_all(db: Session) -> tuple[dict[str, str], dict[str, str]]:
     """Return (location_map, incharge_map) read from the shared MySQL
     tables. Seeds from the hardcoded defaults on first run if empty."""
     _maybe_seed(db)
+    _ensure_erp_regions(db)
 
     location_map: dict[str, str] = {}
     for row in db.query(LocationMap).filter(LocationMap.is_deleted == False).all():  # noqa: E712
