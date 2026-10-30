@@ -17,6 +17,7 @@ import {
   Landmark,
   Tags,
   MailCheck,
+  ReceiptText,
 } from 'lucide-react'
 
 export type Company = 'RDC' | 'Ultrafine'
@@ -198,6 +199,15 @@ export const TOOLS_CATALOG: ToolCatalogEntry[] = [
     icon: MailCheck,
     appKey: 'debtors-reports-auto-mailer',
     category: 'AR reporting',
+    company: 'RDC',
+  },
+  {
+    to: '/tools/rdc-sales-register-report',
+    title: 'RDC Sales Register Report',
+    description: 'The Accounts Sales Register exactly as it is in the ERP, mailed as one Excel file by hand or on a schedule. Administrators only.',
+    icon: ReceiptText,
+    appKey: 'rdc-sales-register-report',
+    category: 'Sales reporting',
     company: 'RDC',
   },
 ]

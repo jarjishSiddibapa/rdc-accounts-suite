@@ -13,7 +13,7 @@ from app import auth, security, system_mailer
 from app.database import get_db
 from app.models import Application, SystemEmailSettings, User
 from app.permissions import (
-    APP_COMPANIES, APP_KEYS, APP_LABELS, REPORT_RECIPIENT_APP_KEYS, parse_allowed_apps,
+    ADMIN_ONLY_APP_KEYS, APP_COMPANIES, APP_KEYS, APP_LABELS, REPORT_RECIPIENT_APP_KEYS, parse_allowed_apps,
 )
 from app.regional import to_ist_iso
 from app.secret_reveal import reveal_secret
@@ -170,7 +170,7 @@ def list_apps(db: Session = Depends(get_db)):
     """Return searchable application metadata for the admin control panel."""
     applications = (
         db.query(Application)
-        .filter(Application.is_deleted == False)  # noqa: E712
+        .filter(Application.is_deleted == False, Application.key.notin_(ADMIN_ONLY_APP_KEYS))  # noqa: E712
         .order_by(Application.company, Application.label)
         .all()
     )
@@ -476,6 +476,9 @@ def set_permissions(user_id: int, body: PermissionsBody, db: Session = Depends(g
         )
 
     unknown = [k for k in body.allowed_apps if k not in APP_KEYS]
+    admin_only = [k for k in body.allowed_apps if k in ADMIN_ONLY_APP_KEYS]
+    if admin_only:
+        raise HTTPException(status_code=400, detail=f"Only administrators can use: {admin_only}")
     if unknown:
         raise HTTPException(status_code=400, detail=f"Unknown app key(s): {unknown}")
     # Deduplicate while preserving the catalogue order so stored permissions

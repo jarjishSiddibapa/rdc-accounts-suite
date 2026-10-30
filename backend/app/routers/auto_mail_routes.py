@@ -26,8 +26,11 @@ from app.services import scheduled_report_mail as mail
 
 class AutoMailBody(BaseModel):
     enabled: bool
-    days: list[int] = Field(default_factory=list)
+    mode: str = "weekly"                                   # "weekly" (days) or "monthly" (month_days)
+    days: list[int] = Field(default_factory=list)          # weekdays, 0 = Monday
+    month_days: list[int] = Field(default_factory=list)    # days of the month, 0 = the last day
     time: str
+    times: list[str] = Field(default_factory=list)         # every time of day; time is the earliest
     to: list[str] = Field(default_factory=list)
     cc: list[str] = Field(default_factory=list)
     subject_template: str

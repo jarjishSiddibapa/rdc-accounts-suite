@@ -31,6 +31,7 @@ const CreditorsAgeing = lazy(() => import('@/pages/tools/CreditorsAgeing'))
 const TrialBalanceFormatter = lazy(() => import('@/pages/tools/TrialBalanceFormatter'))
 const UntaggedInvoicesReport = lazy(() => import('@/pages/tools/UntaggedInvoicesReport'))
 const DebtorsReportsAutoMailer = lazy(() => import('@/pages/tools/DebtorsReportsAutoMailer'))
+const RdcSalesRegisterReport = lazy(() => import('@/pages/tools/RdcSalesRegisterReport'))
 
 function ScrollToTop() {
   const { pathname } = useLocation()
@@ -246,6 +247,12 @@ export default function App() {
             path="/tools/debtors-reports-auto-mailer"
             element={
               protectedPage(<AppGuard appKey="debtors-reports-auto-mailer"><DebtorsReportsAutoMailer /></AppGuard>)
+            }
+          />
+          <Route
+            path="/tools/rdc-sales-register-report"
+            element={
+              protectedPage(<AppGuard appKey="rdc-sales-register-report"><RdcSalesRegisterReport /></AppGuard>)
             }
           />
 

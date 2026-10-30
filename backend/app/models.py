@@ -418,8 +418,14 @@ class ScheduledReportMail(Base):
     send_when_unmapped = Column(Boolean, default=True, nullable=False)
     # whose own email (Settings) sends the automatic mail; None = the system email
     sender_user_id = Column(Integer, nullable=True)
+    # schedule beyond weekdays + one time: "weekly" (send_days) or "monthly" (send_month_days, 0 = last day),
+    # and several times a day (send_times, "08:30,14:00"; None = just send_time)
+    send_mode = Column(String(10), default="weekly", nullable=False, server_default="weekly")
+    send_month_days = Column(String(100), nullable=True)
+    send_times = Column(String(100), nullable=True)
 
     last_attempt_date = Column(Date, nullable=True)
+    last_attempt_slot = Column(String(16), nullable=True)  # "YYYY-MM-DD HH:MM" of the last slot started
     running_since = Column(DateTime, nullable=True)
     last_run_at = Column(DateTime, nullable=True)
     last_trigger = Column(String(20), nullable=True)

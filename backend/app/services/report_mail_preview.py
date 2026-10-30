@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 
+from app.database import SessionLocal
 from app.services import scheduled_report_mail as mail
 from app.services.mailer_shared import get_email_settings
 
@@ -26,18 +27,31 @@ def _file_entry(path: str) -> dict:
 
 
 def build_preview(app_key: str, build, user_id: int, to: list[str], cc: list[str], subject: str,
-                  intro: str, allow_unmapped: bool = False, progress_cb=None, cancel_event=None) -> dict:
+                  intro: str, allow_unmapped: bool = False, sender: str | None = None,
+                  progress_cb=None, cancel_event=None) -> dict:
     """Result statuses: ``preview`` (ready to confirm), ``needs_mapping_fix``
     (mappings are missing and ``allow_unmapped`` is off) or
-    ``email_not_configured``."""
-    sender = get_email_settings(user_id)
-    if not sender["configured"]:
-        return {"status": "email_not_configured", "message": _SETTINGS_HINT}
+    ``email_not_configured``. ``sender`` (an application that lets the person
+    choose): "me" (the default), "system" or a person's id; see
+    scheduled_report_mail.resolve_manual_sender."""
+    if sender is None:
+        # the person's own email, as every application did before a sender could be chosen
+        sender_info = get_email_settings(user_id)
+        if not sender_info["configured"]:
+            return {"status": "email_not_configured", "message": _SETTINGS_HINT}
+    else:
+        db = SessionLocal()
+        try:
+            sender_info = mail.resolve_manual_sender(db, sender, user_id)
+        finally:
+            db.close()
+        if not sender_info["configured"]:
+            return {"status": "email_not_configured", "message": sender_info["problem"] or _SETTINGS_HINT}
 
     snapshot = {
         "subject_template": subject,
         "intro_template": intro,
-        "signature": sender["signature"],
+        "signature": sender_info["signature"],
         "send_when_unmapped": allow_unmapped,
     }
     payload = build(snapshot, progress_cb, cancel_event)
@@ -57,7 +71,8 @@ def build_preview(app_key: str, build, user_id: int, to: list[str], cc: list[str
         })
     return {
         "status": "preview",
-        "from_email": sender["email"],
+        "from_email": sender_info["email"],
+        "sender": sender or "me",
         "to": to,
         "cc": cc,
         "messages": messages,

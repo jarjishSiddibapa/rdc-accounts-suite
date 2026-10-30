@@ -231,6 +231,17 @@ def _apply_additive_schema_updates() -> None:
                 connection.execute(
                     text("ALTER TABLE `scheduled_report_mail` ADD COLUMN `sender_user_id` INT NULL")
                 )
+        for column, definition in (
+            ("send_mode", "VARCHAR(10) NOT NULL DEFAULT 'weekly'"),
+            ("send_month_days", "VARCHAR(100) NULL"),
+            ("send_times", "VARCHAR(100) NULL"),
+            ("last_attempt_slot", "VARCHAR(16) NULL"),
+        ):
+            if column not in report_mail_columns:
+                with engine.begin() as connection:
+                    connection.execute(
+                        text(f"ALTER TABLE `scheduled_report_mail` ADD COLUMN `{column}` {definition}")
+                    )
 
     # Kept additive because the IOCL monitor was exercised against the live
     # portal during development before its daily retry-cooldown field was

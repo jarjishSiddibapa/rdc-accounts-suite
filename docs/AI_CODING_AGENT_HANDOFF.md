@@ -918,6 +918,32 @@ send log (`scheduled_report_mail*`), a preview-then-send panel, and an admin
 "Send now" (`POST /auto-mail/send-now`). Its jobs share the `oracle-gst`
 resource allowance.
 
+**RDC Sales Register Report** (`rdc-sales-register-report`,
+`app/services/sales_register/`, `app/routers/rdc_sales_register.py`): ADMIN ONLY
+(`permissions.ADMIN_ONLY_APP_KEYS`: never granted to a regular user, not listed
+in the permissions picker, router behind `require_admin`). The Accounts Sales
+Register query (`sql.py`, verbatim; org 102 fixed; the date predicate takes an
+exclusive midnight after the end date) is streamed from the ERP straight into
+one xlsxwriter workbook (`report.build_workbook`, run on the CPU pool): every
+value exactly as the ERP returns it, ERP column names, nothing converted. The
+period is month-to-date through yesterday, or the whole previous month on the
+1st: always ONE period, so always ONE file (a further sheet of the same file past
+Excel's row limit). Size ladder (`auto_mail.fit_in_one_file`): as is, compacted,
+`.xlsb`, then it stops with a message; it is never split. The ERP connection is the
+shared `ORACLE_*` settings, no credentials in the code. The mail text and subject
+are configurable; no tables in the body.
+
+Shared mail changes that came with it: (1) the automatic mail's schedule is now
+weekly (weekdays) OR monthly (days of the month, 0 = last day) and up to 6 times
+a day (`send_mode`, `send_month_days`, `send_times`, `last_attempt_slot` on
+`scheduled_report_mail`, added at startup; `due_slot` / `next_run`; a missed slot
+runs once, not once per missed slot); (2) the automatic mail's sender is a
+setting (`sender_user_id`: None = the system email, else that person's own
+email), checked on save and again at send; (3) `make_report_mail_router(...,
+sender_choice=True)` lets the person pick the From of a mail sent by hand (me /
+system email / another person) and the preview records it, so confirm sends from
+exactly what was previewed.
+
 Gmail rejects messages over 25 MB, and the full report is ~26 MB as openpyxl
 writes it. `app/services/xlsx_compact.py` rewrites the same workbook without the
 redundant per-cell addresses (11 MB, still a normal .xlsx that Excel opens with

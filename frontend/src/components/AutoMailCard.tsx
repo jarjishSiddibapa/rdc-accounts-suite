@@ -6,6 +6,7 @@ import { ErrorBanner } from '@/components/ErrorBanner'
 import { ApiError, get, put } from '@/lib/api'
 import { formatIndianDate, formatIndianDateTime } from '@/lib/regional'
 import { cn } from '@/utils/cn'
+import { segmentClass } from '@/utils/segment'
 
 interface LastRun {
   at: string | null
@@ -17,8 +18,11 @@ interface LastRun {
 
 interface AutoMailSettings {
   enabled: boolean
+  mode: 'weekly' | 'monthly'
   days: number[]
+  month_days: number[]
   time: string
+  times: string[]
   to: string[]
   cc: string[]
   subject_template: string
@@ -96,6 +100,30 @@ const PRESETS: { label: string; days: number[] }[] = [
   { label: 'Mon – Sat', days: [0, 1, 2, 3, 4, 5] },
 ]
 
+function chipClass(on: boolean): string {
+  return cn(
+    'rounded-xl border px-3.5 py-2 text-sm font-semibold transition duration-200',
+    on
+      ? 'border-transparent bg-accent text-white dark:bg-accent-2'
+      : 'border-stroke/70 text-ink-dim hover:bg-surface/70 hover:text-ink',
+  )
+}
+
+const MONTH_DAYS = Array.from({ length: 31 }, (_, index) => index + 1)
+const LAST_DAY = 0    // in month_days: the last day of the month, whatever its length
+const MAX_TIMES = 6
+const MONTH_PRESETS: { label: string; days: number[] }[] = [
+  { label: '1st', days: [1] },
+  { label: '1st and 15th', days: [1, 15] },
+  { label: 'Last day', days: [LAST_DAY] },
+]
+
+function ordinal(day: number): string {
+  const tens = day % 100
+  if (tens >= 11 && tens <= 13) return `${day}th`
+  return `${day}${({ 1: 'st', 2: 'nd', 3: 'rd' } as Record<number, string>)[day % 10] ?? 'th'}`
+}
+
 function splitEmails(value: string): string[] {
   return value.split(/[,;\n]/).map((item) => item.trim()).filter(Boolean)
 }
@@ -107,7 +135,16 @@ function splitEmails(value: string): string[] {
  * and shows what happened. Mailing a report by hand, with a preview first, is
  * ReportMailPanel.
  */
-export function AutoMailCard({ baseUrl, reportName }: { baseUrl: string; reportName: string }) {
+export function AutoMailCard({
+  baseUrl,
+  reportName,
+  showUnmapped = true,
+}: {
+  baseUrl: string
+  reportName: string
+  /** The "if a location has no mapping" choice, for a report that uses mappings. */
+  showUnmapped?: boolean
+}) {
   const [saved, setSaved] = useState<AutoMailSettings | null>(null)
   const [form, setForm] = useState<AutoMailSettings | null>(null)
   const [toText, setToText] = useState('')
@@ -156,7 +193,7 @@ export function AutoMailCard({ baseUrl, reportName }: { baseUrl: string; reportN
   )
   const dirty = useMemo(() => {
     if (!saved || !current) return false
-    const keys = ['enabled', 'days', 'time', 'to', 'cc', 'subject_template', 'intro_template', 'signature', 'send_when_unmapped', 'sender_user_id'] as const
+    const keys = ['enabled', 'mode', 'days', 'month_days', 'times', 'to', 'cc', 'subject_template', 'intro_template', 'signature', 'send_when_unmapped', 'sender_user_id'] as const
     return keys.some((key) => JSON.stringify(saved[key]) !== JSON.stringify(current[key]))
   }, [saved, current])
 
@@ -166,6 +203,19 @@ export function AutoMailCard({ baseUrl, reportName }: { baseUrl: string; reportN
   function update(patch: Partial<AutoMailSettings>) {
     setForm((previous) => (previous ? { ...previous, ...patch } : previous))
     setMessage(null)
+  }
+
+  function toggleMonthDay(day: number) {
+    const days = current!.month_days.includes(day)
+      ? current!.month_days.filter((d) => d !== day)
+      : [...current!.month_days, day]
+    update({ month_days: days.sort((a, b) => a - b) })
+  }
+
+  // the earliest time stays in `time`, which older code and the server read as the (first) send time
+  function setTimes(times: string[]) {
+    const cleaned = times.map((value) => value)
+    update({ times: cleaned, time: [...cleaned].filter(Boolean).sort()[0] ?? '' })
   }
 
   function toggleDay(day: number) {
@@ -180,8 +230,11 @@ export function AutoMailCard({ baseUrl, reportName }: { baseUrl: string; reportN
     try {
       const next = await put<AutoMailSettings>(`${baseUrl}/auto-mail`, {
         enabled: current.enabled,
+        mode: current.mode,
         days: current.days,
-        time: current.time,
+        month_days: current.month_days,
+        time: [...current.times].sort()[0] ?? current.time,
+        times: current.times,
         to: current.to,
         cc: current.cc,
         subject_template: current.subject_template,
@@ -266,53 +319,141 @@ export function AutoMailCard({ baseUrl, reportName }: { baseUrl: string; reportN
       </label>
 
       <div className="flex flex-col gap-2">
-        <span className="text-sm font-medium text-ink-dim">Send on</span>
-        <div className="flex flex-wrap gap-2">
-          {WEEKDAYS.map((name, day) => {
-            const on = current.days.includes(day)
-            return (
-              <button
-                key={name}
-                type="button"
-                aria-pressed={on}
-                onClick={() => toggleDay(day)}
-                className={cn(
-                  'rounded-xl border px-3.5 py-2 text-sm font-semibold transition duration-200',
-                  on
-                    ? 'border-transparent bg-accent text-white dark:bg-accent-2'
-                    : 'border-stroke/70 text-ink-dim hover:bg-surface/70 hover:text-ink',
-                )}
-              >
-                {name}
-              </button>
-            )
-          })}
-        </div>
-        <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
-          {PRESETS.map((preset) => (
+        <span className="text-sm font-medium text-ink-dim">Repeat</span>
+        <div className="segmented-control self-start">
+          {(['weekly', 'monthly'] as const).map((mode) => (
             <button
-              key={preset.label}
+              key={mode}
               type="button"
-              className="font-medium text-accent hover:underline"
-              onClick={() => update({ days: preset.days })}
+              aria-pressed={current.mode === mode}
+              onClick={() => update({ mode })}
+              className={segmentClass(current.mode === mode)}
             >
-              {preset.label}
+              {mode === 'weekly' ? 'Weekly: on days of the week' : 'Monthly: on days of the month'}
             </button>
           ))}
         </div>
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        <label className="flex flex-col gap-1.5 text-sm">
-          <span className="font-medium text-ink-dim">Send time (IST)</span>
-          <input
-            type="time"
-            className="field-control"
-            value={current.time}
-            onChange={(event) => update({ time: event.target.value })}
-          />
-        </label>
-        <label className="flex flex-col gap-1.5 text-sm">
+      {current.mode === 'weekly' ? (
+        <div className="flex flex-col gap-2">
+          <span className="text-sm font-medium text-ink-dim">Send on</span>
+          <div className="flex flex-wrap gap-2">
+            {WEEKDAYS.map((name, day) => {
+              const on = current.days.includes(day)
+              return (
+                <button
+                  key={name}
+                  type="button"
+                  aria-pressed={on}
+                  onClick={() => toggleDay(day)}
+                  className={chipClass(on)}
+                >
+                  {name}
+                </button>
+              )
+            })}
+          </div>
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
+            {PRESETS.map((preset) => (
+              <button
+                key={preset.label}
+                type="button"
+                className="font-medium text-accent hover:underline"
+                onClick={() => update({ days: preset.days })}
+              >
+                {preset.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) : (
+        <div className="flex flex-col gap-2">
+          <span className="text-sm font-medium text-ink-dim">Send on these days of the month</span>
+          <div className="flex flex-wrap gap-2">
+            {MONTH_DAYS.map((day) => {
+              const on = current.month_days.includes(day)
+              return (
+                <button
+                  key={day}
+                  type="button"
+                  aria-pressed={on}
+                  aria-label={ordinal(day)}
+                  onClick={() => toggleMonthDay(day)}
+                  className={cn(chipClass(on), 'min-w-11 px-0 text-center')}
+                >
+                  {day}
+                </button>
+              )
+            })}
+            <button
+              type="button"
+              aria-pressed={current.month_days.includes(LAST_DAY)}
+              onClick={() => toggleMonthDay(LAST_DAY)}
+              className={chipClass(current.month_days.includes(LAST_DAY))}
+            >
+              Last day
+            </button>
+          </div>
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
+            {MONTH_PRESETS.map((preset) => (
+              <button
+                key={preset.label}
+                type="button"
+                className="font-medium text-accent hover:underline"
+                onClick={() => update({ month_days: preset.days })}
+              >
+                {preset.label}
+              </button>
+            ))}
+          </div>
+          <p className="text-xs text-ink-faint">
+            A day a month does not have (the 31st in a 30-day month) is skipped; choose Last day to always
+            send on the month&apos;s final day.
+          </p>
+        </div>
+      )}
+
+      <div className="flex flex-col gap-2">
+        <span className="text-sm font-medium text-ink-dim">
+          Send at (IST){current.times.length > 1 ? `: ${current.times.length} times a day` : ''}
+        </span>
+        <div className="flex flex-wrap items-center gap-2">
+          {current.times.map((value, index) => (
+            <span key={index} className="inline-flex items-center gap-1.5">
+              <input
+                type="time"
+                className="field-control w-36"
+                aria-label={`Send time ${index + 1}`}
+                value={value}
+                onChange={(event) => setTimes(current.times.map((t, i) => (i === index ? event.target.value : t)))}
+              />
+              {current.times.length > 1 && (
+                <button
+                  type="button"
+                  className="rounded-lg px-2 py-1 text-xs font-medium text-ink-dim hover:bg-surface/70 hover:text-red-500"
+                  aria-label={`Remove send time ${index + 1}`}
+                  onClick={() => setTimes(current.times.filter((_, i) => i !== index))}
+                >
+                  Remove
+                </button>
+              )}
+            </span>
+          ))}
+          {current.times.length < MAX_TIMES && (
+            <button
+              type="button"
+              className="rounded-xl border border-dashed border-stroke/70 px-3 py-2 text-sm font-medium text-accent hover:bg-surface/70"
+              onClick={() => setTimes([...current.times, '14:00'])}
+            >
+              + Add another time
+            </button>
+          )}
+        </div>
+      </div>
+
+      {showUnmapped && (
+        <label className="flex flex-col gap-1.5 text-sm sm:max-w-md">
           <span className="font-medium text-ink-dim">If a location or incharge has no mapping</span>
           <select
             className="field-control"
@@ -323,7 +464,7 @@ export function AutoMailCard({ baseUrl, reportName }: { baseUrl: string; reportN
             <option value="hold">Hold the mail until they are mapped</option>
           </select>
         </label>
-      </div>
+      )}
 
       <div className="grid gap-4 sm:grid-cols-2">
         <label className="flex flex-col gap-1.5 text-sm">

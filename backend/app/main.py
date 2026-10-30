@@ -25,6 +25,7 @@ from app.routers import (
     gstr2b,
     job_control,
     rdc_payables,
+    rdc_sales_register,
     settings_routes,
     system_admin_routes,
     trial_balance,
@@ -154,6 +155,7 @@ app.include_router(creditors_ageing.router)
 app.include_router(trial_balance_formatter.router)
 app.include_router(untagged_invoices_report.router)
 app.include_router(debtors_mailer.router)
+app.include_router(rdc_sales_register.router)
 
 # Serve the built React app's JS/CSS bundles directly.
 app.mount("/assets", StaticFiles(directory=str(config.STATIC_DIR / "assets")), name="static-assets")

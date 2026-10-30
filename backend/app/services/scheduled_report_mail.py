@@ -18,6 +18,7 @@ report itself is built and mailed by a durable background job
 
 from __future__ import annotations
 
+import calendar
 import html
 import json
 import logging
@@ -108,6 +109,17 @@ SPECS: dict[str, MailSpec] = {
         ),
         placeholders=("date", "total", "found", "blank"),
     ),
+    "rdc-sales-register-report": MailSpec(
+        app_key="rdc-sales-register-report",
+        label="RDC Sales Register Report",
+        default_subject="RDC Sales Register Report: {from_date} to {to_date}",
+        default_intro=(
+            "Dear Team,\n\n"
+            "Please find attached the RDC Sales Register Report for {from_date} to {to_date} ({period}), "
+            "{rows} rows."
+        ),
+        placeholders=("date", "period", "from_date", "to_date", "rows"),
+    ),
     "ultrafine-cashflow": MailSpec(
         app_key="ultrafine-cashflow",
         label="Ultrafine Cashflow",
@@ -152,6 +164,51 @@ def parse_days(raw: str | None) -> list[int]:
 
 def format_days(days) -> str:
     return ",".join(str(day) for day in sorted({int(day) for day in days}))
+
+
+MAX_TIMES = 6
+LAST_DAY = 0    # in a list of days of the month: the last day, whatever the month's length
+
+
+def parse_month_days(raw: str | None) -> list[int]:
+    """Days of the month, 1-31, and 0 for the last day."""
+    days = set()
+    for part in (raw or "").split(","):
+        part = part.strip()
+        if part.isdigit() and 0 <= int(part) <= 31:
+            days.add(int(part))
+    return sorted(days)
+
+
+def parse_times(row) -> list[str]:
+    """The times of day (IST) the mail is due, earliest first."""
+    found = {part.strip() for part in (row.send_times or "").split(",") if _TIME_RE.fullmatch(part.strip())}
+    if not found and row.send_time and _TIME_RE.fullmatch(row.send_time):
+        found = {row.send_time}
+    return sorted(found)
+
+
+def runs_on(row, day: date) -> bool:
+    """Whether the schedule has the mail go out on ``day``."""
+    if (row.send_mode or "weekly") == "monthly":
+        days = parse_month_days(row.send_month_days)
+        last = calendar.monthrange(day.year, day.month)[1]
+        return day.day in days or (LAST_DAY in days and day.day == last)
+    return day.weekday() in parse_days(row.send_days)
+
+
+def _slot_key(day: date, time_of_day: str) -> str:
+    return f"{day.isoformat()} {time_of_day}"
+
+
+def _attempted_through(row) -> str:
+    """The last slot ("YYYY-MM-DD HH:MM") already started; every slot up to it is done. A row that only
+    knows the day of its last attempt counts the whole of that day as done."""
+    if row.last_attempt_slot:
+        return row.last_attempt_slot
+    if row.last_attempt_date:
+        return _slot_key(row.last_attempt_date, "23:59")
+    return ""
 
 
 def validate_template(template: str, allowed: tuple[str, ...]) -> None:
@@ -234,23 +291,23 @@ def _utcnow() -> datetime:
 
 def next_run(row: ScheduledReportMail, now: datetime | None = None) -> datetime | None:
     """When the next automatic mail is due (IST), or None when switched off."""
-    days = parse_days(row.send_days)
-    if not row.enabled or not days:
+    times = parse_times(row)
+    if not row.enabled or not times:
         return None
     now = now or now_ist()
-    hour, minute = (int(part) for part in row.send_time.split(":"))
-    for offset in range(0, 8):
+    done = _attempted_through(row)
+    for offset in range(0, 100):
         day = now.date() + timedelta(days=offset)
-        if day.weekday() not in days:
+        if not runs_on(row, day):
             continue
-        due = datetime.combine(day, dtime(hour, minute), tzinfo=now.tzinfo)
-        if offset == 0:
-            # today's slot counts until it has been attempted; once its time
-            # has passed it is due right now
-            if row.last_attempt_date == day:
+        for time_of_day in times:
+            if _slot_key(day, time_of_day) <= done:
                 continue
-            return max(due, now)
-        return due
+            hour, minute = (int(part) for part in time_of_day.split(":"))
+            due = datetime.combine(day, dtime(hour, minute), tzinfo=now.tzinfo)
+            # a slot of today counts until it has been attempted; once its time
+            # has passed it is due right now
+            return max(due, now) if offset == 0 else due
     return None
 
 
@@ -317,6 +374,52 @@ def resolve_sender(db: Session, sender_user_id: int | None) -> dict:
     }
 
 
+def manual_sender_options(db: Session, user: User) -> list[dict]:
+    """Who a mail sent by hand can go from: the signed-in person's own email, the system email (for
+    example no-reply@...), and every other person who has set up their own."""
+    own = (
+        db.query(EmailSettings)
+        .filter(EmailSettings.user_id == user.id, EmailSettings.is_deleted.is_(False)).first()
+    )
+    own_email = own.sender_email if own and own.sender_email and own.app_password_encrypted else None
+    system = get_system_email_settings(db)
+    options = [
+        {"value": "me", "label": "Me", "email": own_email, "configured": own_email is not None},
+        {"value": "system", "label": "System email", "email": system.get("sender_email"),
+         "configured": bool(system["configured"])},
+    ]
+    options += [
+        {"value": str(person["user_id"]), "label": person["name"], "email": person["email"], "configured": True}
+        for person in sender_options(db) if person["user_id"] != user.id
+    ]
+    return options
+
+
+def resolve_manual_sender(db: Session, choice: str | None, user_id: int) -> dict:
+    """{email, app_password, signature, configured, problem} for a mail sent by hand. ``choice`` is "me"
+    (or empty), "system", or the id of a person who has set up their own email."""
+    choice = (choice or "me").strip()
+    if choice == "me":
+        own = (
+            db.query(EmailSettings)
+            .filter(EmailSettings.user_id == user_id, EmailSettings.is_deleted.is_(False)).first()
+        )
+        if own is None or not own.sender_email or not own.app_password_encrypted:
+            return {"email": None, "app_password": None, "signature": "", "configured": False,
+                    "problem": "You haven't set up your email sender yet - go to Settings."}
+        return {"email": own.sender_email, "app_password": security.decrypt(own.app_password_encrypted),
+                "signature": own.signature or "", "configured": True, "problem": None}
+    if choice == "system":
+        sender = resolve_sender(db, None)
+    elif choice.isdigit():
+        sender = resolve_sender(db, int(choice))
+    else:
+        return {"email": None, "app_password": None, "signature": "", "configured": False,
+                "problem": "Choose who the mail is sent from from the list."}
+    return {"email": sender["email"], "app_password": sender["app_password"], "signature": "",
+            "configured": sender["configured"], "problem": sender["problem"]}
+
+
 def settings_view(db: Session, app_key: str) -> dict:
     spec = SPECS[app_key]
     row = get_or_create_settings(db, app_key)
@@ -329,8 +432,11 @@ def settings_view(db: Session, app_key: str) -> dict:
         detail = None
     return {
         "enabled": bool(row.enabled),
+        "mode": row.send_mode or "weekly",
         "days": parse_days(row.send_days),
+        "month_days": parse_month_days(row.send_month_days),
         "time": row.send_time,
+        "times": parse_times(row),
         "to": recipients["to"],
         "cc": recipients["cc"],
         "subject_template": row.subject_template,
@@ -361,13 +467,26 @@ def settings_view(db: Session, app_key: str) -> dict:
 def save_settings(db: Session, app_key: str, data: dict) -> dict:
     """Validate and store the admin's choices; ValueError carries a plain message."""
     spec = SPECS[app_key]
+    mode = str(data.get("mode") or "weekly")
+    if mode not in ("weekly", "monthly"):
+        raise ValueError("Choose whether the mail goes out weekly or monthly")
     days = sorted({int(day) for day in data.get("days", []) if isinstance(day, int) and 0 <= day <= 6})
-    send_time = str(data.get("time", "")).strip()
-    if not _TIME_RE.fullmatch(send_time):
-        raise ValueError("Enter the time as HH:MM, for example 08:30")
+    month_days = sorted({
+        int(day) for day in data.get("month_days") or []
+        if isinstance(day, int) and not isinstance(day, bool) and 0 <= day <= 31
+    })
+    raw_times = data.get("times") or [data.get("time", "")]
+    times = sorted({str(value).strip() for value in raw_times})
+    if not times or any(not _TIME_RE.fullmatch(value) for value in times):
+        raise ValueError("Enter each time as HH:MM, for example 08:30")
+    if len(times) > MAX_TIMES:
+        raise ValueError(f"At most {MAX_TIMES} send times a day")
+    send_time = times[0]
     enabled = bool(data.get("enabled"))
-    if enabled and not days:
+    if enabled and mode == "weekly" and not days:
         raise ValueError("Pick at least one day of the week, or switch automatic mail off")
+    if enabled and mode == "monthly" and not month_days:
+        raise ValueError("Pick at least one day of the month, or switch automatic mail off")
 
     subject = str(data.get("subject_template", "")).strip()
     intro = str(data.get("intro_template", "")).strip()
@@ -403,8 +522,11 @@ def save_settings(db: Session, app_key: str, data: dict) -> dict:
     set_report_recipient_defaults(db, app_key, to_list, cc_list)
     row.sender_user_id = sender_user_id
     row.enabled = enabled
+    row.send_mode = mode
     row.send_days = format_days(days)
+    row.send_month_days = ",".join(str(day) for day in month_days) or None
     row.send_time = send_time
+    row.send_times = ",".join(times) if len(times) > 1 else None
     row.subject_template = subject
     row.intro_template = intro
     row.signature = str(data.get("signature", "")).strip()
@@ -412,12 +534,15 @@ def save_settings(db: Session, app_key: str, data: dict) -> dict:
     # Saving must never fire a surprise mail to everyone: if today's time has
     # already passed, the first automatic mail is the next slot, not "now".
     now = now_ist()
-    if enabled and now.strftime("%H:%M") >= send_time:
+    passed = [value for value in times if value <= now.strftime("%H:%M")]
+    if enabled and passed:
         row.last_attempt_date = now.date()
+        row.last_attempt_slot = _slot_key(now.date(), max(passed))
     row.updated_at = datetime.utcnow()
     db.commit()
     audit_middleware.log_event("scheduled_mail.settings_saved", details={
-        "app_key": app_key, "enabled": enabled, "days": days, "time": send_time,
+        "app_key": app_key, "enabled": enabled, "mode": mode, "days": days, "month_days": month_days,
+        "times": times,
     })
     return settings_view(db, app_key)
 
@@ -719,24 +844,34 @@ def _job_for(app_key: str):
         from app.services.untagged_invoices.auto_mail import run_auto_mail_job
     elif app_key == "debtors-reports-auto-mailer":
         from app.services.debtors_mailer.auto_mail import run_auto_mail_job
+    elif app_key == "rdc-sales-register-report":
+        from app.services.sales_register.auto_mail import run_auto_mail_job
     else:
         from app.services.gst_invoice_adder.auto_mail import run_auto_mail_job
     return run_auto_mail_job
 
 
+def due_slot(row: ScheduledReportMail, now: datetime) -> str | None:
+    """The latest slot of today that is due and not yet started, or None. If the
+    scheduler was down across several slots, the mail goes out once."""
+    if not row.enabled or row.is_deleted or not runs_on(row, now.date()):
+        return None
+    done = _attempted_through(row)
+    now_key = now.strftime("%Y-%m-%d %H:%M")
+    due = [
+        key for key in (_slot_key(now.date(), value) for value in parse_times(row))
+        if done < key <= now_key
+    ]
+    return max(due) if due else None
+
+
 def due_now(row: ScheduledReportMail, now: datetime) -> bool:
-    return (
-        bool(row.enabled)
-        and not row.is_deleted
-        and now.weekday() in parse_days(row.send_days)
-        and now.strftime("%H:%M") >= row.send_time
-        and row.last_attempt_date != now.date()
-    )
+    return due_slot(row, now) is not None
 
 
 def enqueue_due_checks() -> list[str]:
     """Called by the scheduler loop. Starts the background job for every
-    application whose mail is due, at most once per calendar day."""
+    application whose mail is due, once per scheduled slot."""
     from app.jobs import submit_job
 
     started: list[str] = []
@@ -752,9 +887,11 @@ def enqueue_due_checks() -> list[str]:
                 .first()
             )
             now = now_ist()
-            if row is None or not due_now(row, now):
+            slot = due_slot(row, now) if row is not None else None
+            if slot is None:
                 continue
             row.last_attempt_date = now.date()
+            row.last_attempt_slot = slot
             db.commit()
         finally:
             db.close()

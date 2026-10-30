@@ -42,6 +42,7 @@ class PreviewBody(BaseModel):
     subject: str
     intro: str
     allow_unmapped: bool = False
+    sender: str | None = None   # only where the application lets the person choose: "me", "system" or a person's id
     month: str | None = None    # only for a report built per month (the cashflow)
 
 
@@ -71,9 +72,12 @@ def _finished_preview(job_id: str, user) -> dict:
     return result
 
 
-def make_report_mail_router(app_key: str, preview_job, per_month: bool = False) -> APIRouter:
+def make_report_mail_router(app_key: str, preview_job, per_month: bool = False,
+                            sender_choice: bool = False) -> APIRouter:
     """``per_month``: the report is one month's (the request names it, and the
-    preview job receives it as ``month=``)."""
+    preview job receives it as ``month=``). ``sender_choice``: the person picks
+    whom the mail goes from (their own email, the system email or another
+    person's); otherwise it always goes from their own."""
     router = APIRouter(prefix="/mail")
     spec = mail.SPECS[app_key]
 
@@ -83,7 +87,7 @@ def make_report_mail_router(app_key: str, preview_job, per_month: bool = False) 
         # To / Cc start from the last mail that was sent, else the admin defaults
         recipients = mailer_shared.get_prefill_recipients(db, app_key)
         sender = mailer_shared.get_email_settings(user.id)
-        return {
+        defaults = {
             "to": recipients["to"],
             "cc": recipients["cc"],
             "subject": settings.subject_template,
@@ -92,10 +96,21 @@ def make_report_mail_router(app_key: str, preview_job, per_month: bool = False) 
             "sender_configured": sender["configured"],
             "sender_email": sender["email"],
         }
+        if sender_choice:
+            options = mail.manual_sender_options(db, user)
+            usable = {option["value"] for option in options if option["configured"]}
+            defaults["sender_options"] = options
+            defaults["sender"] = next((value for value in ("me", "system") if value in usable), "me")
+            defaults["sender_configured"] = bool(usable)
+        return defaults
 
     @router.post("/preview")
-    def start_preview(body: PreviewBody, user=Depends(get_current_user)):
-        if not mailer_shared.get_email_settings(user.id)["configured"]:
+    def start_preview(body: PreviewBody, user=Depends(get_current_user), db: Session = Depends(get_db)):
+        if sender_choice:
+            identity = mail.resolve_manual_sender(db, body.sender, user.id)
+            if not identity["configured"]:
+                raise HTTPException(status_code=400, detail=identity["problem"] or _NOT_CONFIGURED)
+        elif not mailer_shared.get_email_settings(user.id)["configured"]:
             raise HTTPException(status_code=400, detail=_NOT_CONFIGURED)
         try:
             to_list, cc_list = _emails(body.to), _emails(body.cc)
@@ -113,6 +128,8 @@ def make_report_mail_router(app_key: str, preview_job, per_month: bool = False) 
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         extra = {}
+        if sender_choice:
+            extra["sender"] = (body.sender or "me").strip()
         if per_month:
             if not body.month or not re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", body.month):
                 raise HTTPException(status_code=400, detail="Month must look like 2026-09.")
@@ -135,11 +152,17 @@ def make_report_mail_router(app_key: str, preview_job, per_month: bool = False) 
         return FileResponse(path=str(path), filename=path.name, media_type=_XLSX)
 
     @router.post("/confirm-send")
-    def confirm_send(body: ConfirmBody, user=Depends(get_current_user)):
+    def confirm_send(body: ConfirmBody, user=Depends(get_current_user), db: Session = Depends(get_db)):
         result = _finished_preview(body.job_id, user)
-        sender = mailer_shared.get_email_settings(user.id)
-        if not sender["configured"]:
-            raise HTTPException(status_code=400, detail=_NOT_CONFIGURED)
+        if sender_choice:
+            # the sender that was previewed (what the person saw as "From") is the one that sends
+            sender = mail.resolve_manual_sender(db, result.get("sender"), user.id)
+            if not sender["configured"]:
+                raise HTTPException(status_code=400, detail=sender["problem"] or _NOT_CONFIGURED)
+        else:
+            sender = mailer_shared.get_email_settings(user.id)
+            if not sender["configured"]:
+                raise HTTPException(status_code=400, detail=_NOT_CONFIGURED)
 
         claim_state, _ = claim_job_action(body.job_id, owner_id=user.id, action="confirm-send")
         if claim_state != "claimed":
@@ -177,7 +200,12 @@ def make_report_mail_router(app_key: str, preview_job, per_month: bool = False) 
         except Exception as exc:  # noqa: BLE001 - reported to the person, logged, then re-raised as HTTP
             finish_job_action(body.job_id, owner_id=user.id, action="confirm-send", succeeded=False)
             if isinstance(exc, smtplib.SMTPAuthenticationError):
-                problem = "Gmail rejected your sender email or app password. Check them in Settings."
+                problem = (
+                    f"Gmail rejected the email or app password of {sender['email']}. "
+                    "Check them under Email administration (the system email) or in that person's Settings."
+                    if sender_choice
+                    else "Gmail rejected your sender email or app password. Check them in Settings."
+                )
             else:
                 problem = f"The mail could not be sent: {str(exc)[:300]}"
             if sent:

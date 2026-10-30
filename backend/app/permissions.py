@@ -21,7 +21,7 @@ APP_KEYS = [
     "ultrafine-fse-reminder", "ultrafine-cashflow",
     "gst-invoice-adder", "closing-period-report",
     "iocl-balance-monitor", "invoice-booking-tracker", "creditors-ageing-report", "trial-balance-formatter",
-    "untagged-invoices-report", "debtors-reports-auto-mailer",
+    "untagged-invoices-report", "debtors-reports-auto-mailer", "rdc-sales-register-report",
 ]
 RETIRED_APP_KEYS = {"dms", "it-po-lookup"}
 
@@ -44,6 +44,7 @@ APP_LABELS = {
     "trial-balance-formatter": "Ultrafine Trial Balance Formatter",
     "untagged-invoices-report": "Untagged Invoices Report Generator",
     "debtors-reports-auto-mailer": "Debtors Reports Auto Mailer",
+    "rdc-sales-register-report": "RDC Sales Register Report",
 }
 
 APP_COMPANIES = ("RDC", "Ultrafine")
@@ -72,8 +73,13 @@ _ULTRAFINE_APP_KEYS = {
 # doesn't apply to them and they must NOT be offered in that picker.
 REPORT_RECIPIENT_APP_KEYS = {
     "unaccounted", "untagged-invoices-report", "gst-invoice-adder", "ultrafine-cashflow",
-    "debtors-reports-auto-mailer",
+    "debtors-reports-auto-mailer", "rdc-sales-register-report",
 }
+
+
+# Applications only an administrator may open: they are never granted to a regular user (not listed
+# for granting, and ignored if a stored list holds one).
+ADMIN_ONLY_APP_KEYS = {"rdc-sales-register-report"}
 
 
 def parse_allowed_apps(user: User) -> list[str]:
@@ -86,7 +92,7 @@ def parse_allowed_apps(user: User) -> list[str]:
         return []
     if not isinstance(value, list):
         return []
-    return [key for key in value if isinstance(key, str) and key in APP_KEYS]
+    return [key for key in value if isinstance(key, str) and key in APP_KEYS and key not in ADMIN_ONLY_APP_KEYS]
 
 
 def user_has_app_access(user: User, app_key: str) -> bool:

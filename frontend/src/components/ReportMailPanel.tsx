@@ -19,6 +19,16 @@ interface Defaults {
   placeholders: string[]
   sender_configured: boolean
   sender_email: string
+  /** Only where the application lets the person choose whom the mail goes from. */
+  sender_options?: SenderOption[]
+  sender?: string
+}
+
+interface SenderOption {
+  value: string
+  label: string
+  email: string | null
+  configured: boolean
 }
 
 interface FileEntry {
@@ -217,6 +227,7 @@ export function ReportMailPanel({
   onChanged?: () => void
 }) {
   const [defaults, setDefaults] = useState<Defaults | null>(null)
+  const [sender, setSender] = useState('me')
   const [toText, setToText] = useState('')
   const [ccText, setCcText] = useState('')
   const [subject, setSubject] = useState('')
@@ -256,6 +267,7 @@ export function ReportMailPanel({
     try {
       const data = await get<Defaults>(`${baseUrl}/mail/defaults`)
       setDefaults(data)
+      setSender(data.sender ?? 'me')
       setToText(data.to.join(', '))
       setCcText(data.cc.join(', '))
       setSubject(data.subject)
@@ -295,6 +307,7 @@ export function ReportMailPanel({
         subject,
         intro,
         allow_unmapped: allowUnmapped,
+        ...(defaults?.sender_options ? { sender } : {}),
         ...(month ? { month } : {}),
       })
       setJobId(res.job_id)
@@ -389,7 +402,7 @@ export function ReportMailPanel({
         )}
       </div>
 
-      {!defaults.sender_configured && (
+      {!defaults.sender_configured && !defaults.sender_options && (
         <div className="flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
           <div className="flex flex-col gap-2 text-sm">
@@ -399,6 +412,23 @@ export function ReportMailPanel({
             </Link>
           </div>
         </div>
+      )}
+
+      {defaults.sender_options && (
+        <label className="flex flex-col gap-1.5 text-sm sm:max-w-md">
+          <span className="font-medium text-ink-dim">Send from</span>
+          <select className="field-control" value={sender} onChange={(e) => edited(setSender)(e.target.value)}>
+            {defaults.sender_options.map((option) => (
+              <option key={option.value} value={option.value} disabled={!option.configured}>
+                {option.label}{option.email ? ` (${option.email})` : ' (not set up)'}
+              </option>
+            ))}
+          </select>
+          <span className="text-xs text-ink-faint">
+            The mail goes out through this Gmail account. Me and the people listed use the email they set up
+            under Settings; the system email is set up under Email administration.
+          </span>
+        </label>
       )}
 
       <div className="grid gap-4 sm:grid-cols-2">
@@ -425,7 +455,7 @@ export function ReportMailPanel({
       </label>
 
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
-        {defaults.sender_configured && (
+        {defaults.sender_configured && !defaults.sender_options && (
           <span className="text-xs text-ink-faint sm:mr-auto">Sends from {defaults.sender_email}</span>
         )}
         <Button
