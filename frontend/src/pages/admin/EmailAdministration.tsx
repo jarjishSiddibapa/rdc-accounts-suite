@@ -1,7 +1,7 @@
 import { MailCheck, Send } from 'lucide-react'
 import { AppShell } from '@/components/AppShell'
 import { GlassCard } from '@/components/GlassCard'
-import { ReportRecipientsSection, SystemEmailSection } from '@/components/admin/EmailSettingsSections'
+import { NoReplyEmailSection, ReportRecipientsSection, SystemEmailSection } from '@/components/admin/EmailSettingsSections'
 
 export default function EmailAdministration() {
   return (
@@ -40,6 +40,7 @@ export default function EmailAdministration() {
 
         <ReportRecipientsSection />
         <SystemEmailSection />
+        <NoReplyEmailSection />
       </div>
     </AppShell>
   )

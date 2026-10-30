@@ -1,0 +1,1 @@
+import{j as t,f as s}from"./index-Dpl4vSTR.js";function n({children:r,className:e}){return t.jsx("p",{role:"alert",className:s("status-banner border-red-500/25 bg-red-500/8 text-red-500",e),children:r})}export{n as E};

@@ -33,8 +33,9 @@ export default function RdcSalesRegisterReport() {
               </h2>
               <p className="mt-1 text-sm leading-6 text-ink-dim">
                 The Accounts Sales Register straight from the ERP, with every value exactly as the ERP holds it,
-                in one Excel file. It covers the first of the month through yesterday; on the first day of a
-                month it is the whole previous month. If the file is too large for an email it is written more
+                in one Excel file. It covers the first of the month through yesterday. On the first five days of a
+                month it starts from the first of the previous month, so the whole previous month and the month
+                so far come together in the same file. If the file is too large for an email it is written more
                 compactly and, if needed, as .xlsb. It is never split into several files.
               </p>
             </div>

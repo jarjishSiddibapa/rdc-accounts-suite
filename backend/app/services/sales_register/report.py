@@ -1,9 +1,11 @@
 """The RDC Sales Register Report: what is reported, fetched from the ERP and
 written to one Excel workbook with every value exactly as the ERP returned it.
 
-* The reporting period (Asia/Kolkata): on a normal day the first day of the
-  current month through yesterday; on the first day of a month the previous
-  month, first through last day (the current month has no completed day yet).
+* The reporting period (Asia/Kolkata), always one continuous range and so one
+  file: from the first day of the current month through yesterday; but on the
+  first ``PREVIOUS_MONTH_THROUGH_DAY`` days of a month (while the month that
+  just ended is still being closed) from the first day of the *previous* month,
+  so the whole previous month and the current month so far come together.
 * The rows are streamed from the ERP straight into the workbook, so a report of
   several hundred thousand rows never sits in memory. No value is converted,
   rounded, re-typed or re-formatted: text stays text, numbers stay numbers and
@@ -37,17 +39,19 @@ _DATE_FORMAT = "yyyy-mm-dd hh:mm:ss"
 _UNWRITABLE = re.compile("[\ud800-\udfff￾￿]")
 
 
+# the previous month stays in the report through this day of the new month (inclusive)
+PREVIOUS_MONTH_THROUGH_DAY = 5
+
+
 def get_report_periods(run_date: date) -> list[tuple[str, date, date]]:
-    """(label, inclusive_start, inclusive_end) of what this run reports."""
+    """(label, inclusive_start, inclusive_end) of what this run reports: one period, so one file."""
     yesterday = run_date - timedelta(days=1)
-    month_start = run_date.replace(day=1)
-    periods: list[tuple[str, date, date]] = []
-    if run_date.day == 1:
-        # a new month has started: the previous calendar month, in full
-        periods.append(("Previous Month", yesterday.replace(day=1), yesterday))
-    if yesterday >= month_start:
-        periods.append(("Current Month MTD", month_start, yesterday))
-    return periods
+    if run_date.day <= PREVIOUS_MONTH_THROUGH_DAY:
+        # a new month has started: the whole previous month, plus the new month so far (none yet on the 1st)
+        label = "Previous Month" if run_date.day == 1 else "Previous Month + Current Month MTD"
+        previous_month_start = (run_date.replace(day=1) - timedelta(days=1)).replace(day=1)
+        return [(label, previous_month_start, yesterday)]
+    return [("Current Month MTD", run_date.replace(day=1), yesterday)]
 
 
 def report_file_stem(start: date, end: date) -> str:

@@ -369,29 +369,23 @@ def reset_password(user_id: int, body: ResetPasswordBody, db: Session = Depends(
     return {"ok": True}
 
 
-@router.get("/system-email", dependencies=[Depends(auth.require_admin)])
-def get_system_email(db: Session = Depends(get_db)):
-    """The application's own sender identity (password-reset / notification
-    emails) - distinct from each user's personal report-sending identity."""
-    settings = system_mailer.get_system_email_settings(db)
+def _email_account_view(db: Session, account_id: int) -> dict:
+    settings = system_mailer.get_system_email_settings(db, account_id)
+    if settings["sender_email"] is None and account_id == system_mailer.NO_REPLY_ACCOUNT_ID:
+        settings["sender_email"] = system_mailer.NO_REPLY_DEFAULT_ADDRESS
     return {"sender_email": settings["sender_email"], "configured": settings["configured"]}
 
 
-@router.get("/system-email/password")
-def reveal_system_email_password(
-    db: Session = Depends(get_db),
-    admin: User = Depends(auth.require_admin),
-):
-    row = db.query(SystemEmailSettings).filter(SystemEmailSettings.id == 1).first()
-    revealed = reveal_secret(row.app_password_encrypted if row else None, user_id=admin.id, scope="system-email")
+def _email_account_password(db: Session, admin: User, account_id: int, scope: str) -> dict:
+    row = db.query(SystemEmailSettings).filter(SystemEmailSettings.id == account_id).first()
+    revealed = reveal_secret(row.app_password_encrypted if row else None, user_id=admin.id, scope=scope)
     return {"app_password": revealed["value"]}
 
 
-@router.put("/system-email", dependencies=[Depends(auth.require_admin)])
-def put_system_email(body: SystemEmailBody, db: Session = Depends(get_db)):
-    row = db.query(SystemEmailSettings).filter(SystemEmailSettings.id == 1).first()
+def _save_email_account(db: Session, account_id: int, body: SystemEmailBody) -> dict:
+    row = db.query(SystemEmailSettings).filter(SystemEmailSettings.id == account_id).first()
     if row is None:
-        row = SystemEmailSettings(id=1)
+        row = SystemEmailSettings(id=account_id)
         db.add(row)
 
     row.sender_email = body.sender_email
@@ -407,11 +401,10 @@ def put_system_email(body: SystemEmailBody, db: Session = Depends(get_db)):
     }
 
 
-@router.post("/system-email/test", dependencies=[Depends(auth.require_admin)])
-def test_system_email(body: SmtpTestBody, db: Session = Depends(get_db)):
+def _test_email_account(db: Session, account_id: int, body: SmtpTestBody) -> dict:
     password = body.app_password
     if not password:
-        existing = system_mailer.get_system_email_settings(db)
+        existing = system_mailer.get_system_email_settings(db, account_id)
         if not existing["configured"] or existing["sender_email"] != body.sender_email:
             raise HTTPException(
                 status_code=422,
@@ -420,6 +413,55 @@ def test_system_email(body: SmtpTestBody, db: Session = Depends(get_db)):
         password = existing["app_password"]
     ok, message = system_mailer.test_smtp_connection(body.sender_email, password)
     return {"ok": ok, "message": message}
+
+
+@router.get("/system-email", dependencies=[Depends(auth.require_admin)])
+def get_system_email(db: Session = Depends(get_db)):
+    """The application's own sender identity (password-reset / notification
+    emails) - distinct from each user's personal report-sending identity."""
+    return _email_account_view(db, system_mailer.SYSTEM_ACCOUNT_ID)
+
+
+@router.get("/system-email/password")
+def reveal_system_email_password(
+    db: Session = Depends(get_db),
+    admin: User = Depends(auth.require_admin),
+):
+    return _email_account_password(db, admin, system_mailer.SYSTEM_ACCOUNT_ID, "system-email")
+
+
+@router.put("/system-email", dependencies=[Depends(auth.require_admin)])
+def put_system_email(body: SystemEmailBody, db: Session = Depends(get_db)):
+    return _save_email_account(db, system_mailer.SYSTEM_ACCOUNT_ID, body)
+
+
+@router.post("/system-email/test", dependencies=[Depends(auth.require_admin)])
+def test_system_email(body: SmtpTestBody, db: Session = Depends(get_db)):
+    return _test_email_account(db, system_mailer.SYSTEM_ACCOUNT_ID, body)
+
+
+@router.get("/no-reply-email", dependencies=[Depends(auth.require_admin)])
+def get_no_reply_email(db: Session = Depends(get_db)):
+    """The no-reply identity report mails can be sent from (no-reply@rdc.in)."""
+    return _email_account_view(db, system_mailer.NO_REPLY_ACCOUNT_ID)
+
+
+@router.get("/no-reply-email/password")
+def reveal_no_reply_email_password(
+    db: Session = Depends(get_db),
+    admin: User = Depends(auth.require_admin),
+):
+    return _email_account_password(db, admin, system_mailer.NO_REPLY_ACCOUNT_ID, "no-reply-email")
+
+
+@router.put("/no-reply-email", dependencies=[Depends(auth.require_admin)])
+def put_no_reply_email(body: SystemEmailBody, db: Session = Depends(get_db)):
+    return _save_email_account(db, system_mailer.NO_REPLY_ACCOUNT_ID, body)
+
+
+@router.post("/no-reply-email/test", dependencies=[Depends(auth.require_admin)])
+def test_no_reply_email(body: SmtpTestBody, db: Session = Depends(get_db)):
+    return _test_email_account(db, system_mailer.NO_REPLY_ACCOUNT_ID, body)
 
 
 @router.get("/report-recipients", dependencies=[Depends(auth.require_admin)])

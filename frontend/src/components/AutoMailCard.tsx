@@ -38,6 +38,8 @@ interface AutoMailSettings {
   sender_configured: boolean
   sender_problem: string | null
   system_sender_email: string | null
+  no_reply_sender_email: string | null
+  no_reply_configured: boolean
   next_run: string | null
   running: boolean
   last: LastRun
@@ -124,6 +126,42 @@ function ordinal(day: number): string {
   return `${day}${({ 1: 'st', 2: 'nd', 3: 'rd' } as Record<number, string>)[day % 10] ?? 'th'}`
 }
 
+const NO_REPLY_SENDER = -1    // sender_user_id meaning the no-reply address
+const EVERY_DAY = [0, 1, 2, 3, 4, 5, 6]
+
+type Repeat = 'daily' | 'weekly' | 'monthly'
+
+function repeatOf(settings: Pick<AutoMailSettings, 'mode' | 'days'>): Repeat {
+  if (settings.mode === 'monthly') return 'monthly'
+  return settings.days.length === EVERY_DAY.length ? 'daily' : 'weekly'
+}
+
+function clockTime(value: string): string {
+  const [hour, minute] = value.split(':').map(Number)
+  if (Number.isNaN(hour) || Number.isNaN(minute)) return value
+  return `${hour % 12 === 0 ? 12 : hour % 12}:${String(minute).padStart(2, '0')} ${hour < 12 ? 'AM' : 'PM'}`
+}
+
+function listOf(items: string[]): string {
+  return items.length <= 1 ? (items[0] ?? '') : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`
+}
+
+/** The schedule in a sentence, so what will happen is plain without reading the controls. */
+function describeSchedule(settings: AutoMailSettings, repeat: Repeat): string {
+  const times = [...settings.times].filter(Boolean).sort().map(clockTime)
+  if (times.length === 0) return 'Choose at least one send time.'
+  const at = `at ${listOf(times)} IST`
+  if (repeat === 'monthly') {
+    if (settings.month_days.length === 0) return 'Choose at least one day of the month.'
+    const days = settings.month_days.map((day) => (day === LAST_DAY ? 'the last day' : ordinal(day)))
+    return `Every month, on ${listOf(days)} of the month, ${at}.`
+  }
+  if (settings.days.length === 0) return 'Choose at least one day of the week.'
+  if (repeat === 'daily' || settings.days.length === EVERY_DAY.length) return `Every day, ${at}.`
+  const names = settings.days.map((day) => WEEKDAYS[day])
+  return `Every week, on ${listOf(names)}, ${at}.`
+}
+
 function splitEmails(value: string): string[] {
   return value.split(/[,;\n]/).map((item) => item.trim()).filter(Boolean)
 }
@@ -155,10 +193,14 @@ export function AutoMailCard({
   const [log, setLog] = useState<LogPage | null>(null)
   const [logPage, setLogPage] = useState(0)
   const [logError, setLogError] = useState<string | null>(null)
+  // Daily and Weekly are both "weekly" on the server (Daily = all seven days); remembered here so
+  // picking every weekday by hand does not flip the screen to Daily under the person's hands
+  const [repeatChoice, setRepeatChoice] = useState<Repeat | null>(null)
 
   const apply = useCallback((data: AutoMailSettings) => {
     setSaved(data)
     setForm(data)
+    setRepeatChoice(null)
     setToText(data.to.join(', '))
     setCcText(data.cc.join(', '))
   }, [])
@@ -199,6 +241,8 @@ export function AutoMailCard({
 
   if (loadError) return <ErrorBanner>{loadError}</ErrorBanner>
   if (!form || !saved || !current) return null
+
+  const repeat = repeatChoice ?? repeatOf(current)
 
   function update(patch: Partial<AutoMailSettings>) {
     setForm((previous) => (previous ? { ...previous, ...patch } : previous))
@@ -292,19 +336,23 @@ export function AutoMailCard({
           <option value="">
             System email{saved.system_sender_email ? ` (${saved.system_sender_email})` : ' (not set up)'}
           </option>
+          <option value={NO_REPLY_SENDER}>
+            No-reply email ({saved.no_reply_sender_email ?? 'no-reply@rdc.in'}){saved.no_reply_configured ? '' : ' - not set up'}
+          </option>
           {current.sender_options.map((option) => (
             <option key={option.user_id} value={option.user_id}>
               {option.name} ({option.email})
             </option>
           ))}
           {current.sender_user_id !== null
+            && current.sender_user_id !== NO_REPLY_SENDER
             && !current.sender_options.some((option) => option.user_id === current.sender_user_id) && (
               <option value={current.sender_user_id}>Chosen person (no longer available)</option>
             )}
         </select>
         <span className="text-xs text-ink-faint">
-          The mail goes out through this Gmail account. People listed here have set up their own email
-          under Settings. The mail you send by hand always goes from your own email.
+          The mail goes out through this Gmail account. The system email and the no-reply email are set up under
+          Email administration; the people listed have set up their own email under Settings.
         </span>
       </label>
 
@@ -321,21 +369,30 @@ export function AutoMailCard({
       <div className="flex flex-col gap-2">
         <span className="text-sm font-medium text-ink-dim">Repeat</span>
         <div className="segmented-control self-start">
-          {(['weekly', 'monthly'] as const).map((mode) => (
+          {([
+            ['daily', 'Daily: every day'],
+            ['weekly', 'Weekly: on days of the week'],
+            ['monthly', 'Monthly: on days of the month'],
+          ] as const).map(([choice, label]) => (
             <button
-              key={mode}
+              key={choice}
               type="button"
-              aria-pressed={current.mode === mode}
-              onClick={() => update({ mode })}
-              className={segmentClass(current.mode === mode)}
+              aria-pressed={repeat === choice}
+              onClick={() => {
+                setRepeatChoice(choice)
+                if (choice === 'monthly') update({ mode: 'monthly' })
+                else if (choice === 'daily') update({ mode: 'weekly', days: EVERY_DAY })
+                else update({ mode: 'weekly' })
+              }}
+              className={segmentClass(repeat === choice)}
             >
-              {mode === 'weekly' ? 'Weekly: on days of the week' : 'Monthly: on days of the month'}
+              {label}
             </button>
           ))}
         </div>
       </div>
 
-      {current.mode === 'weekly' ? (
+      {repeat === 'daily' ? null : repeat === 'weekly' ? (
         <div className="flex flex-col gap-2">
           <span className="text-sm font-medium text-ink-dim">Send on</span>
           <div className="flex flex-wrap gap-2">
@@ -451,6 +508,11 @@ export function AutoMailCard({
           )}
         </div>
       </div>
+
+      <p className="rounded-xl border border-stroke/60 bg-surface/50 px-3.5 py-2.5 text-sm text-ink">
+        <span className="font-semibold">{current.enabled ? 'Schedule: ' : 'Schedule (automatic mail is off): '}</span>
+        {describeSchedule(current, repeat)}
+      </p>
 
       {showUnmapped && (
         <label className="flex flex-col gap-1.5 text-sm sm:max-w-md">

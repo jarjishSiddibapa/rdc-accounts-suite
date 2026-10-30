@@ -14,23 +14,29 @@ from app.models import SystemEmailSettings
 
 logger = logging.getLogger(__name__)
 
+# Two admin-managed sender identities live in SystemEmailSettings: the platform's own (password
+# resets, notifications) and the no-reply address report mails can go out from. Only the address
+# is seeded; the app password is entered by an administrator under Email administration.
+SYSTEM_ACCOUNT_ID = 1
+NO_REPLY_ACCOUNT_ID = 2
+NO_REPLY_DEFAULT_ADDRESS = "no-reply@rdc.in"
+
 
 def seed_system_email(db: Session) -> None:
-    """Create the singleton row without embedding any credentials."""
-    if db.query(SystemEmailSettings).filter(SystemEmailSettings.id == 1).first() is not None:
-        return
-    row = SystemEmailSettings(
-        id=1,
-        sender_email=None,
-        app_password_encrypted=None,
-    )
-    db.add(row)
+    """Create the sender rows without embedding any credentials."""
+    for account_id, address in ((SYSTEM_ACCOUNT_ID, None), (NO_REPLY_ACCOUNT_ID, NO_REPLY_DEFAULT_ADDRESS)):
+        if db.query(SystemEmailSettings).filter(SystemEmailSettings.id == account_id).first() is None:
+            db.add(SystemEmailSettings(id=account_id, sender_email=address, app_password_encrypted=None))
     db.commit()
 
 
-def get_system_email_settings(db: Session) -> dict:
+def get_no_reply_email_settings(db: Session) -> dict:
+    return get_system_email_settings(db, NO_REPLY_ACCOUNT_ID)
+
+
+def get_system_email_settings(db: Session, account_id: int = SYSTEM_ACCOUNT_ID) -> dict:
     row = db.query(SystemEmailSettings).filter(
-        SystemEmailSettings.id == 1,
+        SystemEmailSettings.id == account_id,
         SystemEmailSettings.is_deleted == False,  # noqa: E712
     ).first()
     if row is None or not row.sender_email or not row.app_password_encrypted:

@@ -420,13 +420,13 @@ export function ReportMailPanel({
           <select className="field-control" value={sender} onChange={(e) => edited(setSender)(e.target.value)}>
             {defaults.sender_options.map((option) => (
               <option key={option.value} value={option.value} disabled={!option.configured}>
-                {option.label}{option.email ? ` (${option.email})` : ' (not set up)'}
+                {option.label}{option.email ? ` (${option.email})` : ''}{option.configured ? '' : ' - not set up'}
               </option>
             ))}
           </select>
           <span className="text-xs text-ink-faint">
             The mail goes out through this Gmail account. Me and the people listed use the email they set up
-            under Settings; the system email is set up under Email administration.
+            under Settings; the system email and the no-reply email are set up under Email administration.
           </span>
         </label>
       )}

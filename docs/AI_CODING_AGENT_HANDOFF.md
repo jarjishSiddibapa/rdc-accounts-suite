@@ -926,8 +926,10 @@ Register query (`sql.py`, verbatim; org 102 fixed; the date predicate takes an
 exclusive midnight after the end date) is streamed from the ERP straight into
 one xlsxwriter workbook (`report.build_workbook`, run on the CPU pool): every
 value exactly as the ERP returns it, ERP column names, nothing converted. The
-period is month-to-date through yesterday, or the whole previous month on the
-1st: always ONE period, so always ONE file (a further sheet of the same file past
+period is month-to-date through yesterday; on days 1-5 of a month
+(`report.PREVIOUS_MONTH_THROUGH_DAY`) it starts on the 1st of the PREVIOUS month, so
+the whole previous month plus the month so far are one continuous range: always
+ONE period (one query), so always ONE file (a further sheet of the same file past
 Excel's row limit). Size ladder (`auto_mail.fit_in_one_file`): as is, compacted,
 `.xlsb`, then it stops with a message; it is never split. The ERP connection is the
 shared `ORACLE_*` settings, no credentials in the code. The mail text and subject
@@ -942,7 +944,14 @@ setting (`sender_user_id`: None = the system email, else that person's own
 email), checked on save and again at send; (3) `make_report_mail_router(...,
 sender_choice=True)` lets the person pick the From of a mail sent by hand (me /
 system email / another person) and the preview records it, so confirm sends from
-exactly what was previewed.
+exactly what was previewed; (4) a second admin-managed sender, the no-reply
+address: `SystemEmailSettings` row id 2 (id 1 stays the platform system email),
+seeded as `no-reply@rdc.in` with NO password (an administrator enters it under
+Email administration, `/admin/no-reply-email*`). It is always listed as "No-reply
+email" in the From choices (`scheduled_report_mail.NO_REPLY_SENDER` = -1 in
+`sender_user_id`, "noreply" in the manual panel), disabled until it has a password.
+The automatic-mail card also has an explicit Daily / Weekly / Monthly choice
+(Daily = weekly with all seven days) and a one-sentence schedule summary.
 
 Gmail rejects messages over 25 MB, and the full report is ~26 MB as openpyxl
 writes it. `app/services/xlsx_compact.py` rewrites the same workbook without the

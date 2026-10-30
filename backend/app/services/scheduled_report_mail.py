@@ -43,7 +43,9 @@ from app.services.mailer_shared import (
     send_mail,
     set_report_recipient_defaults,
 )
-from app.system_mailer import get_system_email_settings
+from app.system_mailer import (
+    NO_REPLY_DEFAULT_ADDRESS, get_no_reply_email_settings, get_system_email_settings,
+)
 from app.validation import normalize_email
 
 logger = logging.getLogger(__name__)
@@ -337,9 +339,28 @@ def sender_options(db: Session) -> list[dict]:
     return sorted(options, key=lambda option: option["name"].lower())
 
 
+# stored in sender_user_id (a real user id is always positive): send from the no-reply address
+NO_REPLY_SENDER = -1
+
+
+def _no_reply_address(db: Session) -> str:
+    return get_no_reply_email_settings(db).get("sender_email") or NO_REPLY_DEFAULT_ADDRESS
+
+
 def resolve_sender(db: Session, sender_user_id: int | None) -> dict:
     """{configured, email, app_password, problem} of whoever sends the automatic mail:
-    the chosen person's own email, or the system email when none is chosen."""
+    the chosen person's own email, the no-reply address, or the system email when none is chosen."""
+    if sender_user_id == NO_REPLY_SENDER:
+        no_reply = get_no_reply_email_settings(db)
+        return {
+            "configured": bool(no_reply["configured"]),
+            "email": no_reply.get("sender_email") or NO_REPLY_DEFAULT_ADDRESS,
+            "app_password": no_reply.get("app_password"),
+            "problem": None if no_reply["configured"] else (
+                f"The no-reply email ({NO_REPLY_DEFAULT_ADDRESS}) has no app password yet. Ask an "
+                "administrator to enter it under Email administration, then try again."
+            ),
+        }
     if sender_user_id is None:
         system = get_system_email_settings(db)
         return {
@@ -387,6 +408,8 @@ def manual_sender_options(db: Session, user: User) -> list[dict]:
         {"value": "me", "label": "Me", "email": own_email, "configured": own_email is not None},
         {"value": "system", "label": "System email", "email": system.get("sender_email"),
          "configured": bool(system["configured"])},
+        {"value": "noreply", "label": "No-reply email", "email": _no_reply_address(db),
+         "configured": bool(get_no_reply_email_settings(db)["configured"])},
     ]
     options += [
         {"value": str(person["user_id"]), "label": person["name"], "email": person["email"], "configured": True}
@@ -411,6 +434,8 @@ def resolve_manual_sender(db: Session, choice: str | None, user_id: int) -> dict
                 "signature": own.signature or "", "configured": True, "problem": None}
     if choice == "system":
         sender = resolve_sender(db, None)
+    elif choice == "noreply":
+        sender = resolve_sender(db, NO_REPLY_SENDER)
     elif choice.isdigit():
         sender = resolve_sender(db, int(choice))
     else:
@@ -452,6 +477,8 @@ def settings_view(db: Session, app_key: str) -> dict:
         "sender_configured": sender["configured"],
         "sender_problem": sender["problem"],
         "system_sender_email": get_system_email_settings(db).get("sender_email"),
+        "no_reply_sender_email": _no_reply_address(db),
+        "no_reply_configured": bool(get_no_reply_email_settings(db)["configured"]),
         "next_run": upcoming.isoformat() if upcoming else None,
         "running": _is_running(row, _utcnow()),
         "last": {
@@ -513,6 +540,9 @@ def save_settings(db: Session, app_key: str, data: dict) -> dict:
             raise ValueError("Choose who the mail is sent from from the list")
         if not resolve_sender(db, raw_sender)["configured"]:
             raise ValueError(
+                f"The no-reply email ({NO_REPLY_DEFAULT_ADDRESS}) has no app password yet - an administrator "
+                "enters it under Email administration"
+                if raw_sender == NO_REPLY_SENDER else
                 "That person has no email sender set up (Settings -> Email), so the mail cannot go out from them"
             )
         sender_user_id = raw_sender

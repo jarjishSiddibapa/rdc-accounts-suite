@@ -27,8 +27,8 @@ class PeriodTests(unittest.TestCase):
     def test_a_normal_day_reports_the_month_so_far_through_yesterday(self):
         self.assertEqual(report.get_report_periods(date(2026, 10, 30)),
                          [("Current Month MTD", date(2026, 10, 1), date(2026, 10, 29))])
-        self.assertEqual(report.get_report_periods(date(2026, 10, 2)),
-                         [("Current Month MTD", date(2026, 10, 1), date(2026, 10, 1))])
+        self.assertEqual(report.get_report_periods(date(2026, 10, 6)),
+                         [("Current Month MTD", date(2026, 10, 1), date(2026, 10, 5))])
 
     def test_the_first_of_a_month_reports_the_whole_previous_month_and_nothing_else(self):
         self.assertEqual(report.get_report_periods(date(2026, 10, 1)),
@@ -37,6 +37,15 @@ class PeriodTests(unittest.TestCase):
                          [("Previous Month", date(2026, 12, 1), date(2026, 12, 31))])
         self.assertEqual(report.get_report_periods(date(2028, 3, 1)),
                          [("Previous Month", date(2028, 2, 1), date(2028, 2, 29))])
+
+    def test_through_the_fifth_the_previous_month_and_the_month_so_far_come_in_one_range(self):
+        label = "Previous Month + Current Month MTD"
+        self.assertEqual(report.get_report_periods(date(2026, 10, 2)),
+                         [(label, date(2026, 9, 1), date(2026, 10, 1))])
+        self.assertEqual(report.get_report_periods(date(2026, 10, 5)),
+                         [(label, date(2026, 9, 1), date(2026, 10, 4))])
+        self.assertEqual(report.get_report_periods(date(2027, 1, 3)),
+                         [(label, date(2026, 12, 1), date(2027, 1, 2))])
 
     def test_there_is_always_at_most_one_period_so_one_file(self):
         day = date(2026, 1, 1)
@@ -295,7 +304,42 @@ class SenderChoiceTests(_Db):
         options = mail.manual_sender_options(self.db, me)
         self.assertEqual([(o["value"], o["email"], o["configured"]) for o in options],
                          [("me", "meera@gmail.com", True), ("system", "no-reply@rdc.in", True),
-                          (str(options[2]["value"]), "asha@gmail.com", True)])
+                          ("noreply", "no-reply@rdc.in", False),
+                          (str(options[3]["value"]), "asha@gmail.com", True)])
+
+    def no_reply(self, password="nr-pass", email="no-reply@rdc.in"):
+        self.db.add(SystemEmailSettings(id=2, sender_email=email, app_password_encrypted=security.encrypt(password),
+                                        is_deleted=False))
+        self.db.commit()
+
+    def test_the_no_reply_address_is_always_offered_and_works_once_it_has_a_password(self):
+        me = self.person("me@rdc.in", "Meera", "meera@gmail.com", "pw1")
+        self.system(email="boss@rdc.in")                     # the system email is someone else's address
+        before = {o["value"]: o for o in mail.manual_sender_options(self.db, me)}
+        self.assertEqual(before["noreply"]["email"], "no-reply@rdc.in")      # shown even before it is set up
+        self.assertFalse(before["noreply"]["configured"])
+        self.assertFalse(mail.resolve_manual_sender(self.db, "noreply", me.id)["configured"])
+        self.assertIn("app password", mail.resolve_manual_sender(self.db, "noreply", me.id)["problem"])
+        self.no_reply()
+        after = mail.resolve_manual_sender(self.db, "noreply", me.id)
+        self.assertEqual((after["email"], after["app_password"], after["configured"]),
+                         ("no-reply@rdc.in", "nr-pass", True))
+        self.assertEqual(mail.resolve_sender(self.db, mail.NO_REPLY_SENDER)["email"], "no-reply@rdc.in")
+        self.assertEqual(mail.resolve_sender(self.db, None)["email"], "boss@rdc.in")   # untouched
+
+    def test_the_automatic_mail_can_be_saved_to_go_from_the_no_reply_address(self):
+        data = {"enabled": False, "days": [0], "time": "08:30", "to": [], "cc": [],
+                "subject_template": "S {date}", "intro_template": "Hi {date}"}
+        with patch.object(mail, "set_report_recipient_defaults"),                 patch.object(mail, "get_report_recipient_defaults", lambda db, key: {"to": [], "cc": []}),                 patch.object(mail.audit_middleware, "log_event"):
+            with self.assertRaises(ValueError) as refused:
+                mail.save_settings(self.db, auto_mail.APP_KEY, {**data, "sender_user_id": mail.NO_REPLY_SENDER})
+            self.assertIn("no-reply", str(refused.exception))
+            self.no_reply()
+            view = mail.save_settings(self.db, auto_mail.APP_KEY, {**data, "sender_user_id": mail.NO_REPLY_SENDER})
+        self.assertEqual(view["sender_user_id"], mail.NO_REPLY_SENDER)
+        self.assertEqual(view["sender_email"], "no-reply@rdc.in")
+        self.assertTrue(view["sender_configured"])
+        self.assertTrue(view["no_reply_configured"])
 
     def test_each_choice_resolves_to_its_own_account(self):
         me = self.person("me@rdc.in", "Meera", "meera@gmail.com", "pw1")

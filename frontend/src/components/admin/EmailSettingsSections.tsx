@@ -145,6 +145,45 @@ export function ReportRecipientsSection() {
  * report-sending identity, which lives on the regular Settings page.
  */
 export function SystemEmailSection() {
+  return (
+    <EmailAccountSection
+      endpoint="/admin/system-email"
+      eyebrow="Platform identity"
+      title="System email"
+      description={`The address the application itself uses to send password-reset links and other
+        notifications. This is separate from the per-user sender identity people configure for emailing
+        their own reports.`}
+    />
+  )
+}
+
+/**
+ * The no-reply address (no-reply@rdc.in) the report mails can be sent from, chosen under "Send from"
+ * on a report's page. Only its app password is needed here; the address is fixed by default.
+ */
+export function NoReplyEmailSection() {
+  return (
+    <EmailAccountSection
+      endpoint="/admin/no-reply-email"
+      eyebrow="Report delivery"
+      title="No-reply email"
+      description={`The no-reply address report mails can be sent from. It appears as "No-reply email" in the
+        Send from choice of the manual mail and of the automatic mail. Enter its Gmail app password to switch it on.`}
+    />
+  )
+}
+
+function EmailAccountSection({
+  endpoint,
+  eyebrow,
+  title,
+  description,
+}: {
+  endpoint: string
+  eyebrow: string
+  title: string
+  description: string
+}) {
   const [info, setInfo] = useState<SystemEmail | null>(null)
   const [senderEmail, setSenderEmail] = useState('')
   const [appPassword, setAppPassword] = useState('')
@@ -155,7 +194,7 @@ export function SystemEmailSection() {
 
   async function load() {
     try {
-      const data = await get<SystemEmail>('/admin/system-email')
+      const data = await get<SystemEmail>(endpoint)
       setInfo(data)
       setSenderEmail(data.sender_email ?? '')
     } catch {
@@ -170,7 +209,7 @@ export function SystemEmailSection() {
   async function revealSaved() {
     if (!info?.configured || appPassword) return
     try {
-      const data = await get<{ app_password: string }>('/admin/system-email/password')
+      const data = await get<{ app_password: string }>(`${endpoint}/password`)
       setAppPassword(data.app_password)
     } catch (err) {
       setSaveMessage(err instanceof Error ? err.message : 'Could not load the saved app password.')
@@ -181,7 +220,7 @@ export function SystemEmailSection() {
     setTesting(true)
     setTestResult(null)
     try {
-      const res = await post<{ ok: boolean; message: string }>('/admin/system-email/test', {
+      const res = await post<{ ok: boolean; message: string }>(`${endpoint}/test`, {
         sender_email: senderEmail,
         app_password: appPassword,
       })
@@ -197,7 +236,7 @@ export function SystemEmailSection() {
     setSaving(true)
     setSaveMessage(null)
     try {
-      await put('/admin/system-email', {
+      await put(endpoint, {
         sender_email: senderEmail,
         app_password: appPassword || undefined,
       })
@@ -213,12 +252,10 @@ export function SystemEmailSection() {
 
   return (
     <GlassCard padding="lg">
-      <p className="text-sm font-semibold text-accent">Platform identity</p>
-      <h2 className="mt-1.5 font-display text-xl font-semibold tracking-[-0.025em] text-ink">System email</h2>
+      <p className="text-sm font-semibold text-accent">{eyebrow}</p>
+      <h2 className="mt-1.5 font-display text-xl font-semibold tracking-[-0.025em] text-ink">{title}</h2>
       <p className="mt-1 text-sm text-ink-dim">
-        The address the application itself uses to send password-reset links and other
-        notifications. This is separate from the per-user sender identity people configure for emailing
-        their own reports.
+        {description}
         {info && (
           <span className="ml-1">
             {info.configured ? (

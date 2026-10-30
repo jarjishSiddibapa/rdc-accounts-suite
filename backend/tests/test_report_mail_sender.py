@@ -8,7 +8,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app import security
 from app.database import Base
-from app.models import EmailSettings, ScheduledReportMail, User
+from app.models import EmailSettings, ScheduledReportMail, SystemEmailSettings, User
 from app.services import scheduled_report_mail as mail
 
 KEY = "debtors-reports-auto-mailer"
@@ -18,7 +18,7 @@ class SenderTests(unittest.TestCase):
     def setUp(self):
         engine = create_engine("sqlite:///:memory:")
         Base.metadata.create_all(engine, tables=[
-            User.__table__, EmailSettings.__table__, ScheduledReportMail.__table__])
+            User.__table__, EmailSettings.__table__, ScheduledReportMail.__table__, SystemEmailSettings.__table__])
         self.db = sessionmaker(bind=engine)()
         self.addCleanup(self.db.close)
         self.ready = self._person("ready@rdc.in", "Asha", "Rao", "asha.rao@gmail.com", "app-pass")
