@@ -319,13 +319,17 @@ class MonthFilesTests(unittest.TestCase):
         self.assertEqual(payload.values["period"], "Previous Month + Current Month MTD")
         self.assertEqual(len(payload.downloads), 2)
         self.assertEqual(payload.detail["attachment"], "2 files, one per month")
-        self.assertTrue(any("Each month is a file of its own" in n for n in payload.notes))
+        self.assertEqual(payload.notes, [])              # no extra explanation in the mail
+        text = mail.render_text(mail.SPECS[auto_mail.APP_KEY].default_intro, payload.values)
+        self.assertIn("attached the RDC Sales Register Report files for 01-Oct-2026 to 01-Nov-2026", text)
 
     def test_later_in_the_month_it_is_one_file(self):
         payload, built = self._build(date(2026, 11, 6))
         self.assertEqual(built, [(date(2026, 11, 1), date(2026, 11, 5))])
         self.assertEqual([len(g) for g in payload.attachment_groups], [1])
         self.assertEqual(payload.detail["attachment"], "complete workbook")
+        text = mail.render_text(mail.SPECS[auto_mail.APP_KEY].default_intro, payload.values)
+        self.assertIn("attached the RDC Sales Register Report for 01-Nov-2026", text)
 
     def test_the_first_of_a_month_is_the_previous_month_only(self):
         payload, built = self._build(date(2026, 11, 1))

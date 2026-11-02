@@ -117,10 +117,10 @@ SPECS: dict[str, MailSpec] = {
         default_subject="RDC Sales Register Report: {from_date} to {to_date}",
         default_intro=(
             "Dear Team,\n\n"
-            "Please find attached the RDC Sales Register Report for {from_date} to {to_date} ({period}), "
+            "Please find attached the {report} for {from_date} to {to_date} ({period}), "
             "{rows} rows."
         ),
-        placeholders=("date", "period", "from_date", "to_date", "rows"),
+        placeholders=("date", "report", "period", "from_date", "to_date", "rows"),
     ),
     "ultrafine-cashflow": MailSpec(
         app_key="ultrafine-cashflow",
@@ -238,6 +238,11 @@ def render_text(template: str, values: dict[str, str]) -> str:
 # still holds one word for word never had its text edited, so it moves to the current default (an edited
 # text is left alone).
 SUPERSEDED_INTROS: dict[str, tuple[str, ...]] = {
+    "rdc-sales-register-report": (
+        "Dear Team,\n\n"
+        "Please find attached the RDC Sales Register Report for {from_date} to {to_date} ({period}), "
+        "{rows} rows.",
+    ),
     "debtors-reports-auto-mailer": (
         "Dear Team,\n\n"
         "Please find below:\n\n"

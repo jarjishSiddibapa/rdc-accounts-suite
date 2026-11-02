@@ -67,7 +67,7 @@ def build(snapshot: dict, progress_cb=None, cancel_event=None) -> mail.MailPaylo
     work_dir = SCRATCH_DIR / f"mail-sales-register-{uuid.uuid4().hex}"
     work_dir.mkdir(parents=True, exist_ok=True)
     payload = mail.MailPayload(
-        values={"date": "", "period": "", "from_date": "", "to_date": "", "rows": ""}, cleanup=[str(work_dir)],
+        values={"date": "", "report": "", "period": "", "from_date": "", "to_date": "", "rows": ""}, cleanup=[str(work_dir)],
     )
 
     run_date = now_ist().date()
@@ -89,6 +89,7 @@ def build(snapshot: dict, progress_cb=None, cancel_event=None) -> mail.MailPaylo
     total_rows = sum(f[3]["rows"] for f in files)
     payload.values = {
         "date": run_date.strftime("%d-%b-%Y"),
+        "report": _ATTACHMENT_LABEL + (" files" if len(files) > 1 else ""),
         "period": " + ".join(f[0] for f in files),
         "from_date": first_start.strftime("%d-%b-%Y"),
         "to_date": last_end.strftime("%d-%b-%Y"),
@@ -106,13 +107,6 @@ def build(snapshot: dict, progress_cb=None, cancel_event=None) -> mail.MailPaylo
             for label, start, end, summary, final, how in files
         ],
     }
-    if len(files) > 1:
-        payload.notes.append(
-            "Each month is a file of its own: " + "; ".join(
-                f"{label} ({start:%d-%b-%Y} to {end:%d-%b-%Y}), {summary['rows']:,} rows"
-                for label, start, end, summary, _, _ in files
-            ) + "."
-        )
     for label, _, _, summary, _, _ in files:
         if summary["sheets"] > 1:
             payload.notes.append(
