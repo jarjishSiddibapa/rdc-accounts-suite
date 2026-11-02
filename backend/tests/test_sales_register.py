@@ -137,6 +137,17 @@ class WorkbookTests(unittest.TestCase):
         self.assertEqual(ws.freeze_panes, "A2")
         self.assertEqual(ws.auto_filter.ref, "A1:G4")
 
+    def test_every_template_heading_belongs_to_a_column_the_query_returns(self):
+        import re
+        from app.services.sales_register.sql import SALES_REGISTER_SQL
+        # the query's own output names: its last alias per select item, e.g. "... AS name" / "expr   name,"
+        sql = re.sub(r"--[^\n]*", "", SALES_REGISTER_SQL).upper()
+        for name in report.COLUMN_HEADINGS:
+            self.assertRegex(sql, rf"[\s\)\.,']{name}\s*(,|/\*|\bFROM\b)", name)
+        self.assertEqual(len(set(report.COLUMN_HEADINGS.values())), len(report.COLUMN_HEADINGS))
+        self.assertEqual(report.column_heading("SALES_ORDER_NUM"), "SALES_ORDER_NUM")
+        self.assertEqual(report.column_heading("invoice_number"), "Transaction Number")
+
     def test_the_query_runs_with_the_fixed_org_and_the_dates_and_no_other_filter(self):
         path = self.dir / "r.xlsx"
         _, cursor = _run_build(["A"], [("x",)], path)

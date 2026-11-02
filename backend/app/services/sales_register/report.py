@@ -45,8 +45,9 @@ _UNWRITABLE = re.compile("[\ud800-\udfff￾￿]")
 PREVIOUS_MONTH_THROUGH_DAY = 5
 
 
-# The headings of the RDC Sales Invoice Details template, for the columns it names.
-# Every other column keeps the ERP's own name.
+# The headings of the RDC Sales Invoice Details template (XXRDC_SALES_INVOICE_REP_V1_NEW_EWB),
+# keyed by the query column each one shows. A column the template has no heading for
+# (INTERFACE_HEADER_ATTRIBUTE1, SALES_ORDER_NUM, ...) keeps the ERP's own name.
 COLUMN_HEADINGS = {
     "GSTIN": "RDC GSTIN",
     "SOURCE": "Source",
@@ -54,6 +55,49 @@ COLUMN_HEADINGS = {
     "COMMENTS": "Comments",
     "INVOICE_DATE": "Invoice Date",
     "GL_DATE": "GL Date",
+    "TRANSACTION_TYPE": "Transaction Type",
+    "TRANSACTION_NAME": "Transaction Name",
+    "DOCUMENT_NUMBER": "Document Number",
+    "REFERENCE": "Reference / SALES ORDER",
+    "IRN_NUMBER": "IRN Number",
+    "ACKN_NUMBER": "Acknowledgement Number",
+    "ACKN_DATE": "Acknowledgement Date",
+    "EWBILL": "E-Way BillNumber",
+    "CUSTOMER_ACCOUNT_NUMBER": "Customer Account Number",
+    "CUSTOMER_NAME": "Customer Name",
+    "CUSTOMER_CLASS_CODE": "Customer Classification",
+    "CUSTOMER_SHIP_TO": "Customer Ship To Add",
+    "CUSTOMER_BILL_TO": "Customer Bill To Add",
+    "CUST_GST_NUM": "Cust GST Number",
+    "ITEM_NAME": "Item Name",
+    "ITEM_DESCRIPTION": "Item Description",
+    "CODE": "HSN/SAC Code",
+    "QUANTITY_INVOICED": "Quantity Invoiced",
+    "UNIT_SELLING_PRICE": "Taxable Value (Per Unit)",
+    "TOTAL_INVOICE_AMOUNT_WOT": "Taxable Value (Total QTY)",
+    "INTERFACE_HEADER_ATTRIBUTE2": "Order Type",
+    "INTERFACE_HEADER_ATTRIBUTE3": "Delivery",
+    "PO_NUMBER": "Po Number",
+    "ORAGANIZATION_NAME": "Organization Name",
+    "TOTAL_LINE_AMOUNT": "Total Invoice Value (Incl TCS)",
+    "TAX_INVOICE_NUM": "Tax Invoice Number",
+    "CGST": "CGST Tax",
+    "SGST": "SGST Tax",
+    "IGST": "IGST Tax",
+    "TCS": "TCS TAX",
+    "CGST_CENT": "CGST Tax Rate",
+    "CGST_AMT": "CGST Amount",
+    "SGST_CENT": "SGST Tax Rate",
+    "SGST_AMT": "SGST Amount",
+    "IGST_CENT": "IGST Tax Rate",
+    "IGST_AMT": "IGST Amount",
+    "TCS_CENT": "TCS Tax Rate",
+    "TCS_AMT": "TCS Amount",
+    "ACCOUNT_CLASS": "Account Class",
+    "GL_CODE_COMBINATION": "GL Code Combination",
+    "GL_POSTED_DATE": "GL Posted Date",
+    "LOCATION": "Location",
+    "SALES_PER": "Sales Person",
 }
 
 
