@@ -1,11 +1,13 @@
 """Automatic and on-demand mail of the RDC Sales Register Report.
 
-One workbook, always one file: the report is fetched from the ERP and written
-exactly as the ERP returns it (see app.services.sales_register.report). If it is
-over the email size limit it is first written more compactly, then converted to
-.xlsb (Excel opens it as it opens .xlsx, with every value unchanged) - it is
-never split into several files. See app.services.scheduled_report_mail for
-scheduling, recipients and sending.
+One workbook per calendar month (see report.get_report_periods): each is fetched
+from the ERP and written exactly as the ERP returns it (see
+app.services.sales_register.report). If a month's file is over the email size
+limit it is first written more compactly, then converted to .xlsb (Excel opens
+it as it opens .xlsx, with every value unchanged) - a month is never split into
+several files. The month files go in one mail, or in one mail each if together
+they are over the limit. See app.services.scheduled_report_mail for scheduling,
+recipients and sending.
 """
 
 from __future__ import annotations
@@ -72,38 +74,61 @@ def build(snapshot: dict, progress_cb=None, cancel_event=None) -> mail.MailPaylo
     periods = report.get_report_periods(run_date)
     if not periods:
         raise JobUserError("There is no completed day to report on yet.")
-    label, start, end = periods[0]
 
-    path = work_dir / f"{report.report_file_stem(start, end)}.xlsx"
-    scaled = (lambda frac, msg: progress_cb(frac * 0.9, msg)) if progress_cb else None
-    summary = run_cpu_phase(report.build_workbook, oracle_config(), start, end, str(path), progress_cb=scaled)
+    # one file per month: each is fetched, written and fitted to the email limit on its own
+    files = []                       # (label, start, end, summary, final path, how)
+    for index, (label, start, end) in enumerate(periods):
+        low, span = index / len(periods), 1 / len(periods)
+        scaled = (lambda frac, msg, low=low, span=span: progress_cb((low + frac * span) * 0.9, msg)) if progress_cb else None
+        path = work_dir / f"{report.report_file_stem(start, end)}.xlsx"
+        summary = run_cpu_phase(report.build_workbook, oracle_config(), start, end, str(path), progress_cb=scaled)
+        final, how = fit_in_one_file(path, progress_cb)
+        files.append((label, start, end, summary, final, how))
 
-    final, how = fit_in_one_file(path, progress_cb)
-
+    first_start, last_end = files[0][1], files[-1][2]
+    total_rows = sum(f[3]["rows"] for f in files)
     payload.values = {
         "date": run_date.strftime("%d-%b-%Y"),
-        "period": label,
-        "from_date": start.strftime("%d-%b-%Y"),
-        "to_date": end.strftime("%d-%b-%Y"),
-        "rows": f"{summary['rows']:,}",
+        "period": " + ".join(f[0] for f in files),
+        "from_date": first_start.strftime("%d-%b-%Y"),
+        "to_date": last_end.strftime("%d-%b-%Y"),
+        "rows": f"{total_rows:,}",
     }
     payload.detail = {
-        "period": label,
-        "from": start.isoformat(),
-        "to": end.isoformat(),
-        "rows": summary["rows"],
-        "sheets": summary["sheets"],
-        "attachment": how,
-        "file": final.name,
-        "bytes": final.stat().st_size,
+        "period": payload.values["period"],
+        "from": first_start.isoformat(),
+        "to": last_end.isoformat(),
+        "rows": total_rows,
+        "attachment": files[0][5] if len(files) == 1 else f"{len(files)} files, one per month",
+        "files": [
+            {"period": label, "from": start.isoformat(), "to": end.isoformat(), "rows": summary["rows"],
+             "sheets": summary["sheets"], "attachment": how, "file": final.name, "bytes": final.stat().st_size}
+            for label, start, end, summary, final, how in files
+        ],
     }
-    if summary["sheets"] > 1:
+    if len(files) > 1:
         payload.notes.append(
-            f"The report has {summary['rows']:,} rows, more than one Excel sheet holds, so it continues on "
-            f"{summary['sheets']} sheets of the same file."
+            "Each month is a file of its own: " + "; ".join(
+                f"{label} ({start:%d-%b-%Y} to {end:%d-%b-%Y}), {summary['rows']:,} rows"
+                for label, start, end, summary, _, _ in files
+            ) + "."
         )
-    payload.attachment_groups = [[str(final)]]
-    payload.downloads = [(_ATTACHMENT_LABEL, str(final))]
+    for label, _, _, summary, _, _ in files:
+        if summary["sheets"] > 1:
+            payload.notes.append(
+                f"The {label} file has {summary['rows']:,} rows, more than one Excel sheet holds, so it "
+                f"continues on {summary['sheets']} sheets of the same file."
+            )
+
+    # all the month files in one mail when they fit the limit together, otherwise one mail per file
+    paths = [str(f[4]) for f in files]
+    if sum(f[4].stat().st_size for f in files) <= mail.MAX_ATTACHMENT_BYTES:
+        payload.attachment_groups = [paths]
+    else:
+        payload.attachment_groups = [[p] for p in paths]
+    payload.downloads = [
+        (f"{_ATTACHMENT_LABEL} - {f[0]}" if len(files) > 1 else _ATTACHMENT_LABEL, str(f[4])) for f in files
+    ]
     return payload
 
 

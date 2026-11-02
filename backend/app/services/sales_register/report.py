@@ -1,11 +1,10 @@
 """The RDC Sales Register Report: what is reported, fetched from the ERP and
 written to one Excel workbook with every value exactly as the ERP returned it.
 
-* The reporting period (Asia/Kolkata), always one continuous range and so one
-  file: from the first day of the current month through yesterday; but on the
-  first ``PREVIOUS_MONTH_THROUGH_DAY`` days of a month (while the month that
-  just ended is still being closed) from the first day of the *previous* month,
-  so the whole previous month and the current month so far come together.
+* The reporting period (Asia/Kolkata): the current month through yesterday; but
+  on the first ``PREVIOUS_MONTH_THROUGH_DAY`` days of a month (while the month
+  that just ended is still being closed) the whole previous month as well. Each
+  month is a file of its own, never two months in one file.
 * The rows are streamed from the ERP straight into the workbook, so a report of
   several hundred thousand rows never sits in memory. No value is converted,
   rounded, re-typed or re-formatted: text stays text, numbers stay numbers and
@@ -119,14 +118,20 @@ def _column_picker(names: list[str]) -> tuple[list[str], "callable"]:
 
 
 def get_report_periods(run_date: date) -> list[tuple[str, date, date]]:
-    """(label, inclusive_start, inclusive_end) of what this run reports: one period, so one file."""
+    """(label, inclusive_start, inclusive_end) of what this run reports, one entry
+    per calendar month and so one file per month: just the month so far on a normal
+    day, but through the first ``PREVIOUS_MONTH_THROUGH_DAY`` days of a month the
+    whole previous month (its own file) and then the month so far (its own file;
+    there is none yet on the 1st)."""
     yesterday = run_date - timedelta(days=1)
+    month_start = run_date.replace(day=1)
     if run_date.day <= PREVIOUS_MONTH_THROUGH_DAY:
-        # a new month has started: the whole previous month, plus the new month so far (none yet on the 1st)
-        label = "Previous Month" if run_date.day == 1 else "Previous Month + Current Month MTD"
-        previous_month_start = (run_date.replace(day=1) - timedelta(days=1)).replace(day=1)
-        return [(label, previous_month_start, yesterday)]
-    return [("Current Month MTD", run_date.replace(day=1), yesterday)]
+        previous_month_end = month_start - timedelta(days=1)
+        periods = [("Previous Month", previous_month_end.replace(day=1), previous_month_end)]
+        if yesterday >= month_start:
+            periods.append(("Current Month MTD", month_start, yesterday))
+        return periods
+    return [("Current Month MTD", month_start, yesterday)]
 
 
 def report_file_stem(start: date, end: date) -> str:

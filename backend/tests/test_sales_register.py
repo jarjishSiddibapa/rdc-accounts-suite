@@ -1,5 +1,5 @@
 """RDC Sales Register Report: the reporting period, the workbook written exactly
-as the ERP returned the rows, always one file, admin-only access, and the
+as the ERP returned the rows, one file per month, admin-only access, and the
 richer schedule and sender choice it comes with."""
 
 import tempfile
@@ -38,19 +38,26 @@ class PeriodTests(unittest.TestCase):
         self.assertEqual(report.get_report_periods(date(2028, 3, 1)),
                          [("Previous Month", date(2028, 2, 1), date(2028, 2, 29))])
 
-    def test_through_the_fifth_the_previous_month_and_the_month_so_far_come_in_one_range(self):
-        label = "Previous Month + Current Month MTD"
-        self.assertEqual(report.get_report_periods(date(2026, 10, 2)),
-                         [(label, date(2026, 9, 1), date(2026, 10, 1))])
+    def test_through_the_fifth_the_previous_month_and_the_month_so_far_are_separate_periods(self):
+        self.assertEqual(report.get_report_periods(date(2026, 11, 2)),
+                         [("Previous Month", date(2026, 10, 1), date(2026, 10, 31)),
+                          ("Current Month MTD", date(2026, 11, 1), date(2026, 11, 1))])
         self.assertEqual(report.get_report_periods(date(2026, 10, 5)),
-                         [(label, date(2026, 9, 1), date(2026, 10, 4))])
+                         [("Previous Month", date(2026, 9, 1), date(2026, 9, 30)),
+                          ("Current Month MTD", date(2026, 10, 1), date(2026, 10, 4))])
         self.assertEqual(report.get_report_periods(date(2027, 1, 3)),
-                         [(label, date(2026, 12, 1), date(2027, 1, 2))])
+                         [("Previous Month", date(2026, 12, 1), date(2026, 12, 31)),
+                          ("Current Month MTD", date(2027, 1, 1), date(2027, 1, 2))])
 
-    def test_there_is_always_at_most_one_period_so_one_file(self):
+    def test_each_period_is_within_one_month_so_no_file_mixes_months(self):
         day = date(2026, 1, 1)
-        for _ in range(400):
-            self.assertEqual(len(report.get_report_periods(day)), 1)
+        for _ in range(800):
+            periods = report.get_report_periods(day)
+            self.assertTrue(1 <= len(periods) <= 2)
+            for _, start, end in periods:
+                self.assertLessEqual(start, end)
+                self.assertEqual((start.year, start.month), (end.year, end.month))
+            self.assertEqual(len(periods), 2 if 2 <= day.day <= 5 else 1)
             day += timedelta(days=1)
 
     def test_the_query_is_the_supplied_one_with_its_binds(self):
@@ -277,6 +284,58 @@ class OneFileTests(unittest.TestCase):
         self.assertEqual([r[0] for r in got], [r[0] for r in xlsx_values])
         self.assertEqual([r[1] for r in got][1:], [1234.5, 10.0, 0.0])
         self.assertEqual([r[3] for r in got][1:], ["a & b <c>", "=1+1", "multi\nline"])
+
+
+class MonthFilesTests(unittest.TestCase):
+    """auto_mail.build: one file per month, the files in one mail while they fit."""
+
+    def _build(self, today, sizes=None):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        built = []
+
+        def fake_cpu_phase(fn, cfg, start, end, path, progress_cb=None):
+            Path(path).write_bytes(b"x" * (sizes or {}).get(start, 100))
+            built.append((start, end))
+            return {"rows": 10 * len(built), "columns": 50, "sheets": 1}
+
+        with patch.object(auto_mail, "SCRATCH_DIR", Path(tmp.name)), \
+                patch.object(auto_mail, "now_ist", lambda: datetime(today.year, today.month, today.day, 9, 0)), \
+                patch.object(auto_mail, "run_cpu_phase", fake_cpu_phase), \
+                patch.object(auto_mail, "oracle_config", lambda: None):
+            payload = auto_mail.build({})
+        return payload, built
+
+    def test_early_in_a_month_each_month_is_its_own_file_in_one_mail(self):
+        payload, built = self._build(date(2026, 11, 2))
+        self.assertEqual(built, [(date(2026, 10, 1), date(2026, 10, 31)), (date(2026, 11, 1), date(2026, 11, 1))])
+        self.assertEqual(len(payload.attachment_groups), 1)
+        names = [Path(p).name for p in payload.attachment_groups[0]]
+        self.assertEqual(names, ["RDC_Sales_Register_Report_2026-10-01_to_2026-10-31.xlsx",
+                                 "RDC_Sales_Register_Report_2026-11-01_to_2026-11-01.xlsx"])
+        self.assertEqual(payload.values["from_date"], "01-Oct-2026")
+        self.assertEqual(payload.values["to_date"], "01-Nov-2026")
+        self.assertEqual(payload.values["rows"], "30")
+        self.assertEqual(payload.values["period"], "Previous Month + Current Month MTD")
+        self.assertEqual(len(payload.downloads), 2)
+        self.assertEqual(payload.detail["attachment"], "2 files, one per month")
+        self.assertTrue(any("Each month is a file of its own" in n for n in payload.notes))
+
+    def test_later_in_the_month_it_is_one_file(self):
+        payload, built = self._build(date(2026, 11, 6))
+        self.assertEqual(built, [(date(2026, 11, 1), date(2026, 11, 5))])
+        self.assertEqual([len(g) for g in payload.attachment_groups], [1])
+        self.assertEqual(payload.detail["attachment"], "complete workbook")
+
+    def test_the_first_of_a_month_is_the_previous_month_only(self):
+        payload, built = self._build(date(2026, 11, 1))
+        self.assertEqual(built, [(date(2026, 10, 1), date(2026, 10, 31))])
+        self.assertEqual(payload.values["period"], "Previous Month")
+
+    def test_files_too_big_together_go_one_per_mail(self):
+        with patch.object(mail, "MAX_ATTACHMENT_BYTES", 1000):
+            payload, _ = self._build(date(2026, 11, 2), sizes={date(2026, 10, 1): 700, date(2026, 11, 1): 700})
+        self.assertEqual([len(g) for g in payload.attachment_groups], [1, 1])
 
 
 class AdminOnlyTests(unittest.TestCase):

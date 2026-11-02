@@ -929,12 +929,15 @@ value exactly as the ERP returns it, nothing converted. The columns, headings an
 order are those of the ERP report's RDC Sales Invoice Details RTF template
 (`report.TEMPLATE_COLUMNS`, 50 columns; the query columns the template does not
 use are left out, and Cust PAN Number is empty because the query returns no PAN). The
-period is month-to-date through yesterday; on days 1-5 of a month
-(`report.PREVIOUS_MONTH_THROUGH_DAY`) it starts on the 1st of the PREVIOUS month, so
-the whole previous month plus the month so far are one continuous range: always
-ONE period (one query), so always ONE file (a further sheet of the same file past
-Excel's row limit). Size ladder (`auto_mail.fit_in_one_file`): as is, compacted,
-`.xlsb`, then it stops with a message; it is never split. The ERP connection is the
+period is month-to-date through yesterday; on days 2-5 of a month
+(`report.PREVIOUS_MONTH_THROUGH_DAY`) the whole previous month is reported too, and
+ONE FILE PER MONTH: `get_report_periods` returns one period per calendar month (the
+previous month, then the month so far; only the previous month on the 1st), each is its own
+query and its own file (a further sheet of the same file past Excel's row limit),
+never two months in one file. The month files go in one mail while together under
+`MAX_ATTACHMENT_BYTES`, else one mail each. Size ladder per file
+(`auto_mail.fit_in_one_file`): as is, compacted, `.xlsb`, then it stops with a
+message; a month is never split. The ERP connection is the
 shared `ORACLE_*` settings, no credentials in the code. The mail text and subject
 are configurable; no tables in the body.
 
