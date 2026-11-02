@@ -925,7 +925,10 @@ in the permissions picker, router behind `require_admin`). The Accounts Sales
 Register query (`sql.py`, verbatim; org 102 fixed; the date predicate takes an
 exclusive midnight after the end date) is streamed from the ERP straight into
 one xlsxwriter workbook (`report.build_workbook`, run on the CPU pool): every
-value exactly as the ERP returns it, ERP column names, nothing converted. The
+value exactly as the ERP returns it, nothing converted. The columns, headings and
+order are those of the ERP report's RDC Sales Invoice Details RTF template
+(`report.TEMPLATE_COLUMNS`, 50 columns; the query columns the template does not
+use are left out, and Cust PAN Number is empty because the query returns no PAN). The
 period is month-to-date through yesterday; on days 1-5 of a month
 (`report.PREVIOUS_MONTH_THROUGH_DAY`) it starts on the 1st of the PREVIOUS month, so
 the whole previous month plus the month so far are one continuous range: always

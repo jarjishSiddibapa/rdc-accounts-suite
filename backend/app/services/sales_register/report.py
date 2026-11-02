@@ -9,9 +9,8 @@ written to one Excel workbook with every value exactly as the ERP returned it.
 * The rows are streamed from the ERP straight into the workbook, so a report of
   several hundred thousand rows never sits in memory. No value is converted,
   rounded, re-typed or re-formatted: text stays text, numbers stay numbers and
-  dates stay dates. The columns are the query's, in its order, named as the ERP
-  names them except the few the RDC Sales Invoice Details template renames
-  (see ``COLUMN_HEADINGS``).
+  dates stay dates. The columns, their headings and their order are those of the
+  ERP report's RDC Sales Invoice Details template (see ``TEMPLATE_COLUMNS``).
 * ``build_workbook`` is a module-level function so it can run in the CPU process
   pool (see app.jobs.run_cpu_phase): the ERP fetch and the writing then never
   slow the web server down.
@@ -21,6 +20,7 @@ from __future__ import annotations
 
 import re
 from datetime import date, datetime, time, timedelta
+from operator import itemgetter
 from pathlib import Path
 
 from app.jobs import JobCancelled, JobUserError
@@ -45,64 +45,77 @@ _UNWRITABLE = re.compile("[\ud800-\udfff￾￿]")
 PREVIOUS_MONTH_THROUGH_DAY = 5
 
 
-# The headings of the RDC Sales Invoice Details template (XXRDC_SALES_INVOICE_REP_V1_NEW_EWB),
-# keyed by the query column each one shows. A column the template has no heading for
-# (INTERFACE_HEADER_ATTRIBUTE1, SALES_ORDER_NUM, ...) keeps the ERP's own name.
-COLUMN_HEADINGS = {
-    "GSTIN": "RDC GSTIN",
-    "SOURCE": "Source",
-    "INVOICE_NUMBER": "Transaction Number",
-    "COMMENTS": "Comments",
-    "INVOICE_DATE": "Invoice Date",
-    "GL_DATE": "GL Date",
-    "TRANSACTION_TYPE": "Transaction Type",
-    "TRANSACTION_NAME": "Transaction Name",
-    "DOCUMENT_NUMBER": "Document Number",
-    "REFERENCE": "Reference / SALES ORDER",
-    "IRN_NUMBER": "IRN Number",
-    "ACKN_NUMBER": "Acknowledgement Number",
-    "ACKN_DATE": "Acknowledgement Date",
-    "EWBILL": "E-Way BillNumber",
-    "CUSTOMER_ACCOUNT_NUMBER": "Customer Account Number",
-    "CUSTOMER_NAME": "Customer Name",
-    "CUSTOMER_CLASS_CODE": "Customer Classification",
-    "CUSTOMER_SHIP_TO": "Customer Ship To Add",
-    "CUSTOMER_BILL_TO": "Customer Bill To Add",
-    "CUST_GST_NUM": "Cust GST Number",
-    "ITEM_NAME": "Item Name",
-    "ITEM_DESCRIPTION": "Item Description",
-    "CODE": "HSN/SAC Code",
-    "QUANTITY_INVOICED": "Quantity Invoiced",
-    "UNIT_SELLING_PRICE": "Taxable Value (Per Unit)",
-    "TOTAL_INVOICE_AMOUNT_WOT": "Taxable Value (Total QTY)",
-    "INTERFACE_HEADER_ATTRIBUTE2": "Order Type",
-    "INTERFACE_HEADER_ATTRIBUTE3": "Delivery",
-    "PO_NUMBER": "Po Number",
-    "ORAGANIZATION_NAME": "Organization Name",
-    "TOTAL_LINE_AMOUNT": "Total Invoice Value (Incl TCS)",
-    "TAX_INVOICE_NUM": "Tax Invoice Number",
-    "CGST": "CGST Tax",
-    "SGST": "SGST Tax",
-    "IGST": "IGST Tax",
-    "TCS": "TCS TAX",
-    "CGST_CENT": "CGST Tax Rate",
-    "CGST_AMT": "CGST Amount",
-    "SGST_CENT": "SGST Tax Rate",
-    "SGST_AMT": "SGST Amount",
-    "IGST_CENT": "IGST Tax Rate",
-    "IGST_AMT": "IGST Amount",
-    "TCS_CENT": "TCS Tax Rate",
-    "TCS_AMT": "TCS Amount",
-    "ACCOUNT_CLASS": "Account Class",
-    "GL_CODE_COMBINATION": "GL Code Combination",
-    "GL_POSTED_DATE": "GL Posted Date",
-    "LOCATION": "Location",
-    "SALES_PER": "Sales Person",
-}
+# The columns of the ERP report, as its RDC Sales Invoice Details template
+# (XXRDC_SALES_INVOICE_REP_V1_NEW_EWB) lays them out: (query column, heading), in the
+# template's order. The report shows exactly these; the query columns the template does
+# not use (INTERFACE_HEADER_ATTRIBUTE1, SALES_ORDER_NUM, ...) are left out, as in the ERP.
+# The template has a Cust PAN Number column but the query returns no PAN, so it is empty,
+# as it is in the ERP.
+TEMPLATE_COLUMNS = [
+    ("GSTIN", "RDC GSTIN"),
+    ("SOURCE", "Source"),
+    ("INVOICE_NUMBER", "Transaction Number"),
+    ("COMMENTS", "Comments"),
+    ("INVOICE_DATE", "Invoice Date"),
+    ("GL_DATE", "GL Date"),
+    ("TRANSACTION_TYPE", "Transaction Type"),
+    ("TRANSACTION_NAME", "Transaction Name"),
+    ("DOCUMENT_NUMBER", "Document Number"),
+    ("REFERENCE", "Reference / SALES ORDER"),
+    ("IRN_NUMBER", "IRN Number"),
+    ("ACKN_NUMBER", "Acknowledgement Number"),
+    ("ACKN_DATE", "Acknowledgement Date"),
+    ("EWBILL", "E-Way BillNumber"),
+    ("CUSTOMER_ACCOUNT_NUMBER", "Customer Account Number"),
+    ("CUSTOMER_NAME", "Customer Name"),
+    ("CUSTOMER_CLASS_CODE", "Customer Classification"),
+    ("CUSTOMER_SHIP_TO", "Customer Ship To Add"),
+    ("CUSTOMER_BILL_TO", "Customer Bill To Add"),
+    ("CUST_GST_NUM", "Cust GST Number"),
+    ("CUST_PAN_NUM", "Cust PAN Number"),
+    ("ITEM_NAME", "Item Name"),
+    ("ITEM_DESCRIPTION", "Item Description"),
+    ("CODE", "HSN/SAC Code"),
+    ("QUANTITY_INVOICED", "Quantity Invoiced"),
+    ("UNIT_SELLING_PRICE", "Taxable Value (Per Unit)"),
+    ("TOTAL_INVOICE_AMOUNT_WOT", "Taxable Value (Total QTY)"),
+    ("INTERFACE_HEADER_ATTRIBUTE2", "Order Type"),
+    ("INTERFACE_HEADER_ATTRIBUTE3", "Delivery"),
+    ("PO_NUMBER", "Po Number"),
+    ("ORAGANIZATION_NAME", "Organization Name"),
+    ("TOTAL_LINE_AMOUNT", "Total Invoice Value (Incl TCS)"),
+    ("TAX_INVOICE_NUM", "Tax Invoice Number"),
+    ("CGST", "CGST Tax"),
+    ("SGST", "SGST Tax"),
+    ("IGST", "IGST Tax"),
+    ("TCS", "TCS TAX"),
+    ("CGST_CENT", "CGST Tax Rate"),
+    ("CGST_AMT", "CGST Amount"),
+    ("SGST_CENT", "SGST Tax Rate"),
+    ("SGST_AMT", "SGST Amount"),
+    ("IGST_CENT", "IGST Tax Rate"),
+    ("IGST_AMT", "IGST Amount"),
+    ("TCS_CENT", "TCS Tax Rate"),
+    ("TCS_AMT", "TCS Amount"),
+    ("ACCOUNT_CLASS", "Account Class"),
+    ("GL_CODE_COMBINATION", "GL Code Combination"),
+    ("GL_POSTED_DATE", "GL Posted Date"),
+    ("LOCATION", "Location"),
+    ("SALES_PER", "Sales Person"),
+]
 
 
-def column_heading(name: str) -> str:
-    return COLUMN_HEADINGS.get(str(name).upper(), name)
+def _column_picker(names: list[str]) -> tuple[list[str], "callable"]:
+    """The template's headings and a function turning one fetched row into the
+    template's cells. A template column the query does not return is left empty."""
+    position = {str(name).upper(): i for i, name in enumerate(names)}
+    blank = len(names)
+    picks = [position.get(column, blank) for column, _ in TEMPLATE_COLUMNS]
+    headings = [heading for _, heading in TEMPLATE_COLUMNS]
+    get = itemgetter(*picks)
+    if len(picks) == 1:                      # itemgetter then returns the bare value, not a tuple
+        return headings, lambda row: (get((*row, None)),)
+    return headings, lambda row: get((*row, None))
 
 
 def get_report_periods(run_date: date) -> list[tuple[str, date, date]]:
@@ -228,14 +241,14 @@ def build_workbook(oracle_cfg: OracleConfig, start: date, end: date, path: str,
                 p_trkinv=None, p_location=None, p_cust_name=None, p_cust_number=None,
                 p_org_id=P_ORG_ID,
             )
-            columns = [column_heading(d[0]) for d in cur.description]
+            columns, pick = _column_picker([d[0] for d in cur.description])
             writer = _Writer(path, columns)
             while True:
                 batch = cur.fetchmany(_FETCH_ROWS)
                 if not batch:
                     break
                 for row in batch:
-                    writer.add(row)
+                    writer.add(pick(row))
                 progress(writer.rows)
         except JobCancelled:
             raise

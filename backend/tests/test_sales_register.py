@@ -92,10 +92,14 @@ class _FakeConnection:
         pass
 
 
-def _run_build(columns, rows, path, **patches):
+def _run_build(columns, rows, path, layout=None):
+    """Runs build_workbook on a fake cursor. Unless a layout is given the workbook
+    simply mirrors the cursor's columns, so the writing can be tested on its own."""
     cursor = _FakeCursor(columns, rows)
+    layout = [(c, c) for c in columns] if layout is None else layout
     with patch.object(report, "_init_oracle_client"), \
             patch.object(report, "_connect_oracle", lambda cfg: _FakeConnection(cursor)), \
+            patch.object(report, "TEMPLATE_COLUMNS", layout), \
             patch.object(report, "_FETCH_ROWS", 2):
         summary = report.build_workbook(SimpleNamespace(instant_client_dir=""), date(2026, 10, 1),
                                         date(2026, 10, 29), str(path))
@@ -121,10 +125,7 @@ class WorkbookTests(unittest.TestCase):
         self.assertEqual(summary, {"rows": 3, "columns": 7, "sheets": 1})
 
         ws = openpyxl.load_workbook(path)[report.SHEET_NAME]
-        # the template's headings where it names the column, the ERP's own name for the rest
-        self.assertEqual([c.value for c in ws[1]], [
-            "Transaction Number", "Invoice Date", "LINE_AMOUNT", "QTY", "SALES_ORDER_DATE", "NOTE", "RDC GSTIN",
-        ])
+        self.assertEqual([c.value for c in ws[1]], columns)
         first, second, third = ([c.value for c in ws[i]] for i in (2, 3, 4))
         self.assertEqual(first, ["0012345", "05-OCT-2026", 1234.5, 3, stamp, "=SUM(A1:A2)", None])
         self.assertIsInstance(first[0], str)               # leading zeros kept: text stays text
@@ -137,16 +138,36 @@ class WorkbookTests(unittest.TestCase):
         self.assertEqual(ws.freeze_panes, "A2")
         self.assertEqual(ws.auto_filter.ref, "A1:G4")
 
-    def test_every_template_heading_belongs_to_a_column_the_query_returns(self):
+    def test_the_workbook_has_the_templates_columns_in_its_order_and_nothing_else(self):
+        # the cursor returns the query's order, with columns the template does not use
+        returned = ["SALES_ORDER_NUM", "GSTIN", "LINE_AMOUNT", "SOURCE", "INVOICE_NUMBER", "GL_DATE"]
+        rows = [("SO-1", "27AAAAA0000A1Z5", 99, "Manual", "0012345", "05-OCT-2026")]
+        layout = [("INVOICE_NUMBER", "Transaction Number"), ("GSTIN", "RDC GSTIN"), ("CUST_PAN_NUM", "Cust PAN Number"),
+                  ("GL_DATE", "GL Date"), ("SOURCE", "Source")]
+        path = self.dir / "t.xlsx"
+        summary, _ = _run_build(returned, rows, path, layout=layout)
+        self.assertEqual(summary["columns"], 5)
+        ws = openpyxl.load_workbook(path)[report.SHEET_NAME]
+        self.assertEqual([c.value for c in ws[1]], ["Transaction Number", "RDC GSTIN", "Cust PAN Number", "GL Date", "Source"])
+        # the PAN is not in the query, so its column is empty; every other value is as returned
+        self.assertEqual([c.value for c in ws[2]], ["0012345", "27AAAAA0000A1Z5", None, "05-OCT-2026", "Manual"])
+        self.assertEqual(ws.auto_filter.ref, "A1:E2")
+
+    def test_the_real_template_matches_the_erp_report(self):
         import re
         from app.services.sales_register.sql import SALES_REGISTER_SQL
-        # the query's own output names: its last alias per select item, e.g. "... AS name" / "expr   name,"
+        headings = [heading for _, heading in report.TEMPLATE_COLUMNS]
+        self.assertEqual(len(headings), 50)
+        self.assertEqual(len(set(headings)), 50)
+        self.assertEqual(headings[:6], ["RDC GSTIN", "Source", "Transaction Number", "Comments", "Invoice Date", "GL Date"])
+        self.assertEqual(headings[-2:], ["Location", "Sales Person"])
+        # every column but the PAN is one the query really returns (its output name ends a select item)
         sql = re.sub(r"--[^\n]*", "", SALES_REGISTER_SQL).upper()
-        for name in report.COLUMN_HEADINGS:
-            self.assertRegex(sql, rf"[\s\)\.,']{name}\s*(,|/\*|\bFROM\b)", name)
-        self.assertEqual(len(set(report.COLUMN_HEADINGS.values())), len(report.COLUMN_HEADINGS))
-        self.assertEqual(report.column_heading("SALES_ORDER_NUM"), "SALES_ORDER_NUM")
-        self.assertEqual(report.column_heading("invoice_number"), "Transaction Number")
+        for column, heading in report.TEMPLATE_COLUMNS:
+            if column == "CUST_PAN_NUM":
+                self.assertNotIn(column, sql)
+                continue
+            self.assertRegex(sql, rf"[\s\)\.,']{column}\s*(,|/\*|\bFROM\b)", f"{heading} ({column})")
 
     def test_the_query_runs_with_the_fixed_org_and_the_dates_and_no_other_filter(self):
         path = self.dir / "r.xlsx"

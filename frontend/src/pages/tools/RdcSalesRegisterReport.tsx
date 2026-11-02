@@ -32,7 +32,8 @@ export default function RdcSalesRegisterReport() {
                 RDC Sales Register Report
               </h2>
               <p className="mt-1 text-sm leading-6 text-ink-dim">
-                The Accounts Sales Register straight from the ERP, with every value exactly as the ERP holds it,
+                The Accounts Sales Register straight from the ERP, laid out as the ERP&apos;s RDC Sales Invoice
+                Details report (same columns, headings and order), with every value exactly as the ERP holds it,
                 in one Excel file. It covers the first of the month through yesterday. On the first five days of a
                 month it starts from the first of the previous month, so the whole previous month and the month
                 so far come together in the same file. If the file is too large for an email it is written more
