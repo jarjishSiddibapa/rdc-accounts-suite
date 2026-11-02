@@ -9,7 +9,9 @@ written to one Excel workbook with every value exactly as the ERP returned it.
 * The rows are streamed from the ERP straight into the workbook, so a report of
   several hundred thousand rows never sits in memory. No value is converted,
   rounded, re-typed or re-formatted: text stays text, numbers stay numbers and
-  dates stay dates. The columns are the ERP's own, in the query's order.
+  dates stay dates. The columns are the query's, in its order, named as the ERP
+  names them except the few the RDC Sales Invoice Details template renames
+  (see ``COLUMN_HEADINGS``).
 * ``build_workbook`` is a module-level function so it can run in the CPU process
   pool (see app.jobs.run_cpu_phase): the ERP fetch and the writing then never
   slow the web server down.
@@ -41,6 +43,22 @@ _UNWRITABLE = re.compile("[\ud800-\udfff￾￿]")
 
 # the previous month stays in the report through this day of the new month (inclusive)
 PREVIOUS_MONTH_THROUGH_DAY = 5
+
+
+# The headings of the RDC Sales Invoice Details template, for the columns it names.
+# Every other column keeps the ERP's own name.
+COLUMN_HEADINGS = {
+    "GSTIN": "RDC GSTIN",
+    "SOURCE": "Source",
+    "INVOICE_NUMBER": "Transaction Number",
+    "COMMENTS": "Comments",
+    "INVOICE_DATE": "Invoice Date",
+    "GL_DATE": "GL Date",
+}
+
+
+def column_heading(name: str) -> str:
+    return COLUMN_HEADINGS.get(str(name).upper(), name)
 
 
 def get_report_periods(run_date: date) -> list[tuple[str, date, date]]:
@@ -166,7 +184,7 @@ def build_workbook(oracle_cfg: OracleConfig, start: date, end: date, path: str,
                 p_trkinv=None, p_location=None, p_cust_name=None, p_cust_number=None,
                 p_org_id=P_ORG_ID,
             )
-            columns = [d[0] for d in cur.description]
+            columns = [column_heading(d[0]) for d in cur.description]
             writer = _Writer(path, columns)
             while True:
                 batch = cur.fetchmany(_FETCH_ROWS)

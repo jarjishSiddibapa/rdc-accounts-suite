@@ -121,7 +121,10 @@ class WorkbookTests(unittest.TestCase):
         self.assertEqual(summary, {"rows": 3, "columns": 7, "sheets": 1})
 
         ws = openpyxl.load_workbook(path)[report.SHEET_NAME]
-        self.assertEqual([c.value for c in ws[1]], columns)
+        # the template's headings where it names the column, the ERP's own name for the rest
+        self.assertEqual([c.value for c in ws[1]], [
+            "Transaction Number", "Invoice Date", "LINE_AMOUNT", "QTY", "SALES_ORDER_DATE", "NOTE", "RDC GSTIN",
+        ])
         first, second, third = ([c.value for c in ws[i]] for i in (2, 3, 4))
         self.assertEqual(first, ["0012345", "05-OCT-2026", 1234.5, 3, stamp, "=SUM(A1:A2)", None])
         self.assertIsInstance(first[0], str)               # leading zeros kept: text stays text
