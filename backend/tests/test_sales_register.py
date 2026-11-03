@@ -730,10 +730,14 @@ class SaveScheduleTests(_Db):
         self.assertFalse(mail.SPECS["gst-invoice-adder"].fixed_sender)
         self.assertFalse(self.save()["sender_fixed"])
 
-    def test_only_the_sales_register_offers_every_few_hours(self):
+    def test_every_automatic_mail_offers_every_few_hours(self):
+        for key, spec in mail.SPECS.items():
+            self.assertEqual(spec.allow_hourly, spec.scheduled, key)      # only a mail that is never scheduled lacks it
+        view = self.save(every_hours=4, every_start="09:00")
+        self.assertEqual((view["allow_hourly"], view["every_hours"], view["every_start"]), (True, 4, "09:00"))
+        self.assertEqual(view["days"], self.DATA["days"])                  # next to the days / times, not instead
         with self.assertRaises(ValueError):
-            self.save(every_hours=4, every_start="09:00")
-        self.assertFalse(self.save()["allow_hourly"])
+            self.save(every_hours=1, every_start="09:00")
         with self.assertRaises(ValueError):
             self.save(mode="hourly")
 

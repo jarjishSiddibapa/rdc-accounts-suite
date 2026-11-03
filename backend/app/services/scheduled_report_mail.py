@@ -71,7 +71,7 @@ class MailSpec:
     default_intro: str
     placeholders: tuple[str, ...]
     scheduled: bool = True      # False: only ever mailed by hand (preview, then confirm)
-    allow_hourly: bool = False  # offers "every N hours" as a repeat option
+    allow_hourly: bool = True   # offers the every-N-hours schedule next to the days / times one
     fixed_sender: bool = False  # always sent from the system email; nobody can choose another sender
 
 
@@ -123,7 +123,6 @@ SPECS: dict[str, MailSpec] = {
             "{rows} rows."
         ),
         placeholders=("date", "report", "period", "from_date", "to_date", "rows"),
-        allow_hourly=True,
         fixed_sender=True,
     ),
     "ultrafine-cashflow": MailSpec(
@@ -136,6 +135,7 @@ SPECS: dict[str, MailSpec] = {
         ),
         placeholders=("date", "date_plain", "month"),
         scheduled=False,
+        allow_hourly=False,
     ),
 }
 

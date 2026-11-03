@@ -944,7 +944,7 @@ ignores any `sender_user_id`, a stored one is cleared (`get_or_create_settings`)
 ignored at run time, and `report_mail_routes` forces `sender="system"` for the manual
 preview and confirm; the page shows it read-only (`sender_fixed`). SCHEDULE: the
 usual days / times schedule (`send_mode` weekly or monthly) PLUS a second,
-independent every-few-hours schedule (`MailSpec.allow_hourly`; `send_every_hours` 2-23,
+independent every-few-hours schedule (offered by every scheduled mailer: `MailSpec.allow_hourly` defaults True, False only for the never-scheduled Ultrafine Cashflow; `send_every_hours` 2-23,
 `send_every_start`, `last_every_slot`, `send_times_enabled`, all added at startup):
 round the clock, every day, in steps of N hours from the last slot started
 (`hourly_anchor` sets it on save, so saving never fires a mail and the first mail is
