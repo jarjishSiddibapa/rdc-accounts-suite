@@ -32,6 +32,8 @@ import zipfile
 from decimal import Decimal
 from fractions import Fraction
 
+from app.services.erp_converter.io_retry import with_retry
+
 logger = logging.getLogger(__name__)
 
 _MAX_ROWS = 1_048_576
@@ -342,7 +344,7 @@ def _splice(path: str, sheets: list) -> None:
                                 break
                             out.write(block)
                     out.write(xml[at + len(_PLACEHOLDER):])
-        os.replace(tmp, path)
+        with_retry(lambda: os.replace(tmp, path), path, "replace")   # antivirus may hold a fresh file for a moment
     finally:
         if os.path.exists(tmp):
             os.unlink(tmp)

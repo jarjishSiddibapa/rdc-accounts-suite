@@ -924,6 +924,196 @@ def _sheet_records(sheet: _Sheet, margins: bytes) -> tuple[bytes, bytes]:
     return b"".join(head), b"".join(tail)
 
 
+# ---------------------------------------------------------------------------
+# plain rows, converted without the XML parser
+# ---------------------------------------------------------------------------
+# A report is mostly millions of cells that are plain text, numbers or empty styled cells, and the XML
+# parser calls Python for every element of them. Rows made only of such cells are converted straight from
+# their text instead, into exactly the records the parser route produces; any other row (a formula, a
+# boolean, an error, rich text, a row with attributes, an entity other than & < >) still goes through the
+# parser, so unusual content is handled, and refused, exactly as before.
+
+_FAST_ROWS = True
+
+_CELL_FORMS = (
+    r'<c(?: r="[A-Z]{1,3}[0-9]{1,7}")?(?: s="[0-9]+")?(?: t="inlineStr")?'
+    r'(?:/>|>(?:<is><t(?: xml:space="preserve")?>[^<]*</t></is>|<v>[^<]*</v>)</c>)'
+)
+_PLAIN_BODY = re.compile(f"(?:{_CELL_FORMS})*")          # a row's cells, and nothing else
+_PLAIN_CELL = re.compile(
+    r'<c(?: r="([A-Z]{1,3})[0-9]{1,7}")?(?: s="([0-9]+)")?(?: (t)="inlineStr")?'
+    r'(?:/>|>(?:<is><t(?: xml:space="preserve")?>([^<]*)</t></is>|<v>([^<]*)</v>)</c>)'
+)
+_OTHER_ENTITY = re.compile(r"&(?!amp;|lt;|gt;)")
+_COLUMNS: dict[str, int] = {}
+_COLUMN_HEADS = [struct.pack("<I", col) for col in range(_MAX_COLS)]
+_NUMBERS: dict[str, tuple[bytes, bytes, float]] = {}      # a number's text -> (record start, record end, value)
+_NUMBERS_LIMIT = 100_000
+
+
+def _number_parts(value: float) -> tuple[bytes, bytes]:
+    """_cell_number split around the column and style: what goes before them and what after."""
+    if not math.isfinite(value):
+        raise Unsupported("number that is not finite")
+    if value == 0:
+        value = 0.0                                   # Excel does not keep a negative zero
+    if abs(value) < 2 ** 29 and value == int(value):
+        return b"\x02\x0c", struct.pack("<I", ((int(value) << 2) | 2) & 0xFFFFFFFF)
+    bits = struct.unpack("<Q", struct.pack("<d", value))[0]
+    if bits & 0xFFFFFFFF == 0 and (bits >> 32) & 3 == 0:
+        return b"\x02\x0c", struct.pack("<I", bits >> 32)
+    return b"\x05\x10", struct.pack("<d", value)
+
+
+def _plain_row(reader: "_SheetReader", number: int, body: str) -> bool:
+    """Convert one ``<row r="N">...</row>`` of plain cells. False, with nothing changed, if the row holds
+    anything else: the caller then hands the row to the XML parser."""
+    if _PLAIN_BODY.fullmatch(body) is None:
+        return False
+    heads = reader.__dict__.setdefault("_plain_heads", {})        # (column, style) -> the record's column + style
+    styles, style_count = reader.styles, reader.style_count
+    items = []                          # (text, column, head, number text): checked before anything is changed
+    col = -1
+    for letters, style, is_text, text, value in _PLAIN_CELL.findall(body):
+        if letters:
+            col = _COLUMNS.get(letters)
+            if col is None:
+                col = _COLUMNS[letters] = _column_index(letters)
+        else:
+            col += 1
+        key = (col, style)
+        head = heads.get(key)
+        if head is None:
+            index = int(style) if style else 0
+            if col >= _MAX_COLS or index >= style_count:
+                return False
+            head = heads[key] = _COLUMN_HEADS[col] + styles[index]
+        if is_text:
+            if "&" in text:
+                if _OTHER_ENTITY.search(text):
+                    return False
+                text = text.replace("&lt;", "<").replace("&gt;", ">").replace("&amp;", "&")
+            if "\r" in text:            # the XML parser turns CRLF and a lone CR into LF
+                text = text.replace("\r\n", "\n").replace("\r", "\n")
+            if "_x" in text:
+                text = _unescape(text)
+            items.append((text, col, head, None))
+        elif value:
+            items.append((None, col, head, value))
+        else:
+            items.append(("", col, head, None))
+    # nothing can fall back from here on: add to the string table and build the records
+    cells: list[bytes] = []
+    add = cells.append
+    strings = reader.strings.add
+    remember = reader.remembering
+    remembered = []
+    for text, column, head, number_text in items:
+        if number_text is not None:
+            entry = _NUMBERS.get(number_text)
+            if entry is None:
+                number_value = float(number_text)
+                start, end = _number_parts(number_value)
+                if len(_NUMBERS) >= _NUMBERS_LIMIT:
+                    _NUMBERS.clear()
+                entry = _NUMBERS[number_text] = (start, end, number_value)
+            add(entry[0] + head + entry[1])
+            if remember:
+                remembered.append((column, entry[2]))
+        elif text == "":
+            add(b"\x01\x08" + head)
+        else:
+            add(b"\x07\x0c" + head + struct.pack("<I", strings(text)))
+            if remember:
+                remembered.append((column, text))
+    # the reader's own state, as the parser route leaves it, then its own end-of-row
+    reader._start_row({"r": str(number)})
+    reader.cells = cells
+    reader.first_col = items[0][1] if items else None
+    if items:
+        reader.last_col = items[-1][1]
+    if remember:
+        known, row = reader.known, reader.row
+        for column, stored in remembered:
+            if len(known) >= _EVAL_CELL_LIMIT:
+                reader.remembering = False
+                known.clear()
+                break
+            known[(row, column)] = stored
+    reader._end_row()
+    return True
+
+
+def _feed_rows(text: str, reader: "_SheetReader", parser) -> None:
+    """The rows between two cut points (each ends with </row>): plain ones directly, anything else through
+    the parser."""
+    pieces = text.split("</row>")
+    last = pieces.pop()                 # what follows the final </row>: nothing, normally
+    for piece in pieces:
+        if piece.startswith('<row r="'):
+            rest = piece[8:]
+            quote = rest.find('">')
+            if quote > 0 and rest[:quote].isdigit() and _plain_row(reader, int(rest[:quote]), rest[quote + 2:]):
+                continue
+        parser.feed((piece + "</row>").encode("utf-8"))
+    if last:
+        parser.feed(last.encode("utf-8"))
+
+
+def _feed_sheet(stream, reader: "_SheetReader", parser) -> None:
+    """Give a worksheet's XML to ``parser`` (the reader's), converting the plain rows directly."""
+    pending = b""
+    inside = False                      # past <sheetData>
+    done = False                        # past </sheetData>: the rest is for the parser
+    while True:
+        block = stream.read(1 << 20)
+        if block:
+            pending += block
+        if done or not _FAST_ROWS:
+            if pending:
+                parser.feed(pending)
+                pending = b""
+            if block:
+                continue
+            return
+        if not inside:
+            at = pending.find(b"<sheetData>")
+            if at < 0:
+                if block:
+                    continue
+                parser.feed(pending)
+                return
+            at += len(b"<sheetData>")
+            parser.feed(pending[:at])
+            pending = pending[at:]
+            inside = True
+        end = pending.find(b"</sheetData>")
+        if end >= 0:
+            rows, pending = pending[:end], pending[end:]
+            done = True
+        else:
+            cut = pending.rfind(b"</row>")
+            if cut < 0:
+                if block:
+                    continue
+                parser.feed(pending)
+                return
+            cut += len(b"</row>")
+            rows, pending = pending[:cut], pending[cut:]
+        if rows:
+            _feed_rows(rows.decode("utf-8"), reader, parser)
+        if done:
+            parser.feed(pending)
+            pending = b""
+            if block:
+                continue
+            return
+        if not block:
+            if pending:
+                parser.feed(pending)
+            return
+
+
 _CONTENT_TYPES = (
     '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n'
     '<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">'
@@ -1022,11 +1212,7 @@ def _convert(source: Path, destination: Path) -> None:
                     reader = _SheetReader(sheet, strings, shared, style_count, body)
                     parser = ET.XMLParser(target=reader)
                     with archive.open(part) as stream:
-                        while True:
-                            block = stream.read(1 << 20)
-                            if not block:
-                                break
-                            parser.feed(block)
+                        _feed_sheet(stream, reader, parser)
                     parser.close()
                     head, tail = _sheet_records(sheet, reader.margins)
                     with out.open(path, "w", force_zip64=True) as target:

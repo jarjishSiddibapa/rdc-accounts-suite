@@ -21,16 +21,23 @@ import tempfile
 import zipfile
 from pathlib import Path
 
+from app.services.erp_converter.io_retry import with_retry
+
 _CELL_ADDRESS = re.compile(rb'<c r="([A-Z]{1,3})([0-9]{1,7})"')
+_CELL_COLUMN = re.compile(rb'<c r="([A-Z]{1,3})[0-9]{1,7}"')
 _ROW = re.compile(rb"<row\b[^>]*?(?<!/)>.*?</row>", re.DOTALL)
 _CHUNK_BYTES = 8 * 1024 * 1024
 
 
-def _column_number(letters: bytes) -> int:
-    number = 0
-    for letter in letters:
-        number = number * 26 + (letter - 64)
-    return number
+def _column_name(number: int) -> bytes:
+    letters = b""
+    while number:
+        number, remainder = divmod(number - 1, 26)
+        letters = bytes((65 + remainder,)) + letters
+    return letters
+
+
+_COLUMN_NAMES = [_column_name(n) for n in range(1, 16385)]   # A .. XFD, every column a sheet can have
 
 
 def _strip_row(match: re.Match) -> bytes:
@@ -39,11 +46,9 @@ def _strip_row(match: re.Match) -> bytes:
     relies on the address to place the next one, so a row with a gap keeps its
     addresses and is copied unchanged."""
     row = match.group(0)
-    expected = 1
-    for letters, _ in _CELL_ADDRESS.findall(row):
-        if _column_number(letters) != expected:
-            return row
-        expected += 1
+    letters = _CELL_COLUMN.findall(row)
+    if letters != _COLUMN_NAMES[:len(letters)]:
+        return row
     return _CELL_ADDRESS.sub(b"<c", row)
 
 
@@ -122,7 +127,7 @@ def compact_xlsx_in_place(path: str | Path) -> int:
     os.close(fd)
     try:
         compact_xlsx(path, tmp_name)
-        os.replace(tmp_name, path)
+        with_retry(lambda: os.replace(tmp_name, path), path, "replace")   # antivirus may hold a fresh file for a moment
     finally:
         Path(tmp_name).unlink(missing_ok=True)
     return before - path.stat().st_size

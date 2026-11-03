@@ -264,4 +264,5 @@ def inject_cached_values(path: str, values_by_sheet: dict[str, dict[str, float]]
             import os
             os.close(fd)
 
-    shutil.move(tmp_path, path)
+    from app.services.erp_converter.io_retry import with_retry
+    with_retry(lambda: shutil.move(tmp_path, path), path, "replace")   # antivirus may hold a fresh file for a moment
