@@ -23,6 +23,7 @@ from operator import itemgetter
 from pathlib import Path
 
 from app.jobs import JobCancelled, JobUserError
+from app.services import fast_xlsx
 from app.services.sales_register.sql import SALES_REGISTER_SQL
 from app.services.unapplied_receipts.processor import (
     OracleConfig, _connect_oracle, _init_oracle_client, _start_cancel_watcher,
@@ -177,6 +178,8 @@ class _Writer:
         self.header = self.workbook.add_format({"bold": True})
         self.sheets = 0
         self.sheet = None
+        self.sinks = []                  # each sheet's row writer (fast_xlsx), closed with the workbook
+        self.sink = None
         self.row = 0
         self.rows = 0
         self.widths = [len(c) for c in columns]
@@ -189,6 +192,9 @@ class _Writer:
         self.sheet = self.workbook.add_worksheet(name[:31])
         self.sheet.write_row(0, 0, self.columns, self.header)
         self.sheet.freeze_panes(1, 0)
+        # the rows are written by fast_xlsx (the same cells and XML as xlsxwriter's own writing, much quicker)
+        self.sink = fast_xlsx.new_sheet(self.sheet)
+        self.sinks.append(self.sink)
         self.row = 1
 
     def add(self, values) -> None:
@@ -196,7 +202,12 @@ class _Writer:
             self._close_sheet()
             self._new_sheet()
         cells = [_cell(v) for v in values]
-        self.sheet.write_row(self.row, 0, cells)
+        sink = self.sink
+        sink.begin_row(self.row)
+        auto = sink.auto
+        for ci, v in enumerate(cells):
+            auto(ci, v)
+        sink.end_row()
         self.row += 1
         self.rows += 1
         if self.sampled < _WIDTH_SAMPLE_ROWS:
@@ -212,7 +223,7 @@ class _Writer:
 
     def close(self) -> None:
         self._close_sheet()
-        self.workbook.close()
+        fast_xlsx.close_workbook(self.workbook, self.sinks)
 
 
 def build_workbook(oracle_cfg: OracleConfig, start: date, end: date, path: str,

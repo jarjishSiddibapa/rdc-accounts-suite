@@ -71,7 +71,7 @@ from openpyxl.utils import column_index_from_string, get_column_letter
 
 from app.jobs import JobCancelled, JobUserError
 from app.oracle_runtime import initialize_oracle_client
-from app.services import tabular_input
+from app.services import fast_xlsx, tabular_input
 from app.services.report_dash import DASH, FMT_DEC, FMT_INT, is_blank
 
 logger = logging.getLogger(__name__)
@@ -408,23 +408,23 @@ def _cell_value_for_output(raw_val, is_date_col: bool):
     return raw_val, False
 
 
-def _write_plain(ws, row, col, value, date_fmt, int_fmt, dec_fmt, txt_fmt) -> None:
+def _write_plain(sheet, col, value, date_fmt, int_fmt, dec_fmt, txt_fmt) -> None:
     """One non-GST data cell, typed the way the previous openpyxl writer did:
     numbers get the dash-for-zero formats, dates a date format, anything else
-    is text (never parsed as a formula or link)."""
+    is text (never parsed as a formula or link). ``sheet`` is a fast_xlsx row writer."""
     if isinstance(value, bool):
-        ws.write_boolean(row, col, value, txt_fmt)
+        sheet.boolean(col, value, txt_fmt)
     elif isinstance(value, numbers.Real):
         if value != value or value in (float("inf"), float("-inf")):
-            ws.write_string(row, col, DASH, txt_fmt)
+            sheet.text(col, DASH, txt_fmt)
         else:
-            ws.write_number(row, col, value, int_fmt if isinstance(value, numbers.Integral) else dec_fmt)
+            sheet.number(col, value, int_fmt if isinstance(value, numbers.Integral) else dec_fmt)
     elif isinstance(value, (datetime, _date_type)):
-        ws.write_datetime(row, col, value, date_fmt)
+        sheet.date(col, value, date_fmt)
     elif isinstance(value, str):
-        ws.write_string(row, col, value if value.strip() else DASH, txt_fmt)
+        sheet.text(col, value if value.strip() else DASH, txt_fmt)
     else:
-        ws.write_string(row, col, str(value), txt_fmt)
+        sheet.text(col, str(value), txt_fmt)
 
 
 def build_gst_report_pure_python(
@@ -530,13 +530,16 @@ def build_gst_report_pure_python(
     # bound methods, and a dispatch on the exact Python type instead of numbers.Real / isinstance chains
     # (those abstract-class checks were a fifth of this loop). Anything not a plain str / float / int
     # still goes through _write_plain, so the written file is unchanged.
-    write_string, write_number, write_datetime = ws.write_string, ws.write_number, ws.write_datetime
+    # the rows are written by fast_xlsx (the same cells and XML as xlsxwriter's own writing, much quicker)
+    sheet = fast_xlsx.new_sheet(ws)
+    write_string, write_number, write_datetime = sheet.text, sheet.number, sheet.date
     inv_list, date_list, valid_list = inv_values.tolist(), oracle_dates.tolist(), valid_array.tolist()
     not_a_number = (float("inf"), float("-inf"))
     for position, row in enumerate(df.itertuples(index=False, name=None)):
         if not valid_list[position]:
             continue
         out_row += 1
+        sheet.begin_row(out_row)
         gst = gst_map.get((inv_list[position], date_list[position]), "")
         if gst:
             found += 1
@@ -545,39 +548,40 @@ def build_gst_report_pure_python(
 
         for ci, source in enumerate(source_for_output):
             if ci == gst_index:
-                write_string(out_row, ci, gst if gst else DASH, gst_fmt)
+                write_string(ci, gst if gst else DASH, gst_fmt)
                 continue
             value = row[source]
             if ci == date_index:
                 value, is_date = _cell_value_for_output(value, True)
                 if is_blank(value):
-                    write_string(out_row, ci, DASH, date_fmt)
+                    write_string(ci, DASH, date_fmt)
                 elif is_date:
-                    write_datetime(out_row, ci, value, date_fmt)
+                    write_datetime(ci, value, date_fmt)
                 else:
-                    _write_plain(ws, out_row, ci, value, date_fmt, int_fmt, dec_fmt, txt_fmt)
+                    _write_plain(sheet, ci, value, date_fmt, int_fmt, dec_fmt, txt_fmt)
                 continue
             kind = type(value)
             if kind is str:
                 if ci in whole_number_cols:
                     digits = value.strip()
                     if digits.isdigit() and not digits.startswith("0"):
-                        write_number(out_row, ci, int(digits), id_fmt)
+                        write_number(ci, int(digits), id_fmt)
                         continue
-                    write_string(out_row, ci, value if digits else DASH, txt_fmt)
+                    write_string(ci, value if digits else DASH, txt_fmt)
                 else:
-                    write_string(out_row, ci, value if value.strip() else DASH, txt_fmt)
+                    write_string(ci, value if value.strip() else DASH, txt_fmt)
             elif kind is float:
                 if value != value or value in not_a_number:
-                    write_string(out_row, ci, DASH, txt_fmt)
+                    write_string(ci, DASH, txt_fmt)
                 else:
-                    write_number(out_row, ci, value, dec_fmt)
+                    write_number(ci, value, dec_fmt)
             elif kind is int:
-                write_number(out_row, ci, value, int_fmt)
+                write_number(ci, value, int_fmt)
             elif value is None or value is pd.NA or value is pd.NaT:
-                write_string(out_row, ci, DASH, txt_fmt)
+                write_string(ci, DASH, txt_fmt)
             else:
-                _write_plain(ws, out_row, ci, value, date_fmt, int_fmt, dec_fmt, txt_fmt)
+                _write_plain(sheet, ci, value, date_fmt, int_fmt, dec_fmt, txt_fmt)
+        sheet.end_row()
 
         if progress_cb and (out_row % 5000 == 0 or out_row == total):
             progress_cb(
@@ -586,7 +590,7 @@ def build_gst_report_pure_python(
             )
 
     log_q.put(("info", "Saving enriched output..."))
-    wb.close()
+    fast_xlsx.close_workbook(wb, [sheet])
     log_q.put(("ok", f"Saved - total={total} found={found} blank={blank}"))
     return total, found, blank
 

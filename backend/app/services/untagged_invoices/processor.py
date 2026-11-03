@@ -46,7 +46,7 @@ import xlsxwriter
 from openpyxl.utils import get_column_letter
 
 from app.jobs import JobUserError
-from app.services import customer_region, tabular_input
+from app.services import customer_region, fast_xlsx, tabular_input
 from app.services.erp_ageing import fetch_ageing_from_erp  # noqa: F401 - tests and callers reach it through this module
 from app.services.report_dash import DASH as _DASH, FMT_DEC as _FMT_DEC, FMT_INT as _FMT_INT, is_blank as _is_blank
 from app.services.report_progress import row_progress_reporter
@@ -589,9 +589,10 @@ def _display_length(val, numeric: bool, is_days: bool) -> int:
 
 
 def _write_detail_sheet(wb, fmts: _Formats, title: str, df: pd.DataFrame, tab_color: str,
-                        log_q=None, progress_cb=None, base: float = 0.0, span: float = 0.3) -> None:
+                        log_q=None, progress_cb=None, base: float = 0.0, span: float = 0.3):
     """Write a full-detail sheet (Ageing / Untagged Detailed Ageing) - every
-    original column plus Location."""
+    original column plus Location. Returns the sheet's row writer, which the
+    workbook has to be closed with (fast_xlsx.close_workbook)."""
     ws = wb.add_worksheet(title)
     ws.set_tab_color("#" + tab_color)
     ws.hide_gridlines(2)
@@ -620,34 +621,41 @@ def _write_detail_sheet(wb, fmts: _Formats, title: str, df: pd.DataFrame, tab_co
         ws.write_string(0, ci, str(col_name).strip(), fmts.header)
 
     num_int, num_dec, text, date, id_int = fmts.num_int, fmts.num_dec, fmts.text, fmts.date, fmts.id_int
+    # the rows are written by fast_xlsx (the same cells and XML as xlsxwriter's own writing, much quicker)
+    sheet = fast_xlsx.new_sheet(ws)
+    write_datetime, write_number, write_string, begin_row, end_row = (
+        sheet.date, sheet.number, sheet.text, sheet.begin_row, sheet.end_row)
     for ri, row_vals in enumerate(df.itertuples(index=False, name=None), 1):
         parity = 1 if (ri + 1) % 2 == 0 else 0     # stripe by the sheet row, as before
+        begin_row(ri)
         for ci, val in enumerate(row_vals):
             blank = _is_blank(val)
             if not blank and isinstance(val, _dt.datetime):
                 # a date is never a number, whatever its column is called
-                ws.write_datetime(ri, ci, val, date[parity])
+                write_datetime(ci, val, date[parity])
             elif ci in whole_number_cols and _whole_number(val) is not None:
-                ws.write_number(ri, ci, _whole_number(val), id_int[parity])
+                write_number(ci, _whole_number(val), id_int[parity])
             elif numeric_cols[ci]:
                 is_days = ci == days_os_idx
                 cell_fmt = (num_int if is_days else num_dec)[parity]
                 if blank:
-                    ws.write_string(ri, ci, _DASH, cell_fmt)
+                    write_string(ci, _DASH, cell_fmt)
                     continue
                 try:
                     number = int(val) if is_days else float(val)
                     if number != number or number in (float("inf"), float("-inf")):
                         raise ValueError
-                    ws.write_number(ri, ci, number, cell_fmt)
+                    write_number(ci, number, cell_fmt)
                 except (TypeError, ValueError, OverflowError):
-                    ws.write_string(ri, ci, str(val), cell_fmt)
+                    write_string(ci, str(val), cell_fmt)
             else:
-                ws.write_string(ri, ci, _DASH if blank else str(val), text[parity])
+                write_string(ci, _DASH if blank else str(val), text[parity])
+        end_row()
         report_row(ri)
 
     if n_rows:
         ws.autofilter(0, 0, n_rows, n_cols - 1)
+    return sheet
 
 
 def _write_pivot_sheet(wb, fmts: _Formats, title: str, df: pd.DataFrame, tab_color: str,
@@ -811,6 +819,7 @@ def write_report(
     wb = xlsxwriter.Workbook(str(output_path), {"constant_memory": True})
     fmts = _Formats(wb, look)
 
+    sheets = []                      # the detail sheets' row writers, closed with the workbook
     if not only_full_ageing:
         if progress_cb:
             progress_cb(0.55, "Writing Untagged Summary...")
@@ -818,10 +827,10 @@ def write_report(
 
         if progress_cb:
             progress_cb(0.60, "Writing Untagged Ageing...")
-        _write_detail_sheet(
+        sheets.append(_write_detail_sheet(
             wb, fmts, "Untagged Ageing", df_untagged_ageing, "37474F",
             log_q=log_q, progress_cb=progress_cb, base=0.60, span=0.03,
-        )
+        ))
 
         if progress_cb:
             progress_cb(0.65, "Writing Below 1k Summary...")
@@ -829,20 +838,20 @@ def write_report(
 
         if progress_cb:
             progress_cb(0.68, "Writing Below 1k Ageing...")
-        _write_detail_sheet(
+        sheets.append(_write_detail_sheet(
             wb, fmts, "Below 1k Ageing", df_below_1k_ageing, "C0CA33",
             log_q=log_q, progress_cb=progress_cb, base=0.68, span=0.05,
-        )
+        ))
 
     if include_full_ageing or only_full_ageing:
         if progress_cb:
             progress_cb(0.73, "Writing Ageing (full detail)...")
-        _write_detail_sheet(
+        sheets.append(_write_detail_sheet(
             wb, fmts, "Ageing", df_ageing, "1F3864",
             log_q=log_q, progress_cb=progress_cb, base=0.73, span=0.25,
-        )
+        ))
 
-    wb.close()
+    fast_xlsx.close_workbook(wb, sheets)
     if log_q:
         log_q.put(("success", f"Saved -> {output_path}"))
     if progress_cb:
