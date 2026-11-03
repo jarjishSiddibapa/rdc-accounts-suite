@@ -215,12 +215,18 @@ def build(snapshot: dict, progress_cb=None, cancel_event=None) -> mail.MailPaylo
         )
 
     def build_untagged():
-        return untagged_job.build_report(
+        result = untagged_job.build_report(
             str(untagged_path), allow_unmapped=allow_unmapped, progress_cb=reporter("untagged"),
             cancel_event=cancel, maps=(location_map, incharge_map),
             ageing=lambda: _without_buckets(shared.get()), regions=regions.result,
             write=_cpu_write_untagged,
         )
+        # A workbook that is over the email limit by itself is always compacted by _fit_attachments
+        # (nothing can bring the total under the limit without it), so do it now, while the other reports
+        # are still waiting on the ERP, instead of afterwards. The same result, sooner.
+        if untagged_path.exists() and untagged_path.stat().st_size > mail.MAX_ATTACHMENT_BYTES:
+            xlsx_compact.compact_xlsx_in_place(untagged_path)
+        return result
 
     def build_unapplied():
         register = fetch_register_from_erp(cfg, None, cancel)

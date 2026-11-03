@@ -1017,6 +1017,18 @@ Do not rely only on SQLAlchemy `create_all` when a change needs data migration,
 backfill, index replacement, or production-visible operator steps. Add an
 idempotent, dated SQL script and document the exact Workbench commands.
 
+**Fast report writing** (`app/services/fast_xlsx.py`, `xlsb_writer._feed_sheet`, `xlsx_compact.worth_compacting`):
+xlsxwriter costs ~8 us a cell, so the big sheets (GST ageing, Untagged detail sheets, Sales Register) write their data rows
+through `fast_xlsx.new_sheet(ws)` instead of `ws.write_*`: plain string formatting spliced into the workbook xlsxwriter
+writes for everything else. It produces xlsxwriter's own sheet XML character for character (same escaping, number format,
+format numbering) - `tests/test_fast_xlsx.py` compares every part of the file - and `fast_xlsx.enabled()` re-checks that once
+per process on a sample, falling back to xlsxwriter itself if it ever differs (xlsxwriter is not pinned in requirements.txt).
+`FAST_XLSX=0` in `.env` switches it off. The .xlsb converter reads rows made only of plain text / number / blank cells straight
+from their text (`_plain_row`) and hands every other row to the XML parser as before (`tests/test_xlsb_direct_rows.py`
+compares the two routes byte for byte); compaction skips files whose rows have gaps (`worth_compacting`); file replacements
+retry on transient Windows locks (`io_retry.with_retry`). Measured on the dev PC: Debtors mail 167 s -> 75 s, Sales Register
+110 s -> 67 s (35 s of which is the ERP query).
+
 **Unidentified Entries** (`unidentified-entries`, `app/services/unidentified_entries/auto_mail.py`,
 `app/routers/unidentified_entries.py`): the Unapplied Receipts Register's `***** Unidentified`
 receipts (each with its Bank Description, the receipt's Comments in the ERP) as an application of its
