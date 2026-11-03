@@ -831,20 +831,19 @@ def _with_real_dates(df: pd.DataFrame) -> pd.DataFrame:
 def _apply_accounts_look(wb) -> None:
     """Restyle the finished workbook in the look of the Unaccounted / MRN / PO
     reports: Calibri 11, black thin borders, plain white rows, light-blue column
-    headers and title bars on the lists, pink headers and totals on the summary,
-    and the dash-for-zero number formats shared by the other debtors reports.
-    Values and formulas are untouched."""
+    headers on the lists, pink headers and totals on the summary, and the
+    dash-for-zero number formats shared by the other debtors reports. The sheets
+    carry no title bar or note above the table: the header is row 1. Values and
+    formulas are untouched."""
     side = Side(style="thin", color="000000")
     border = Border(left=side, right=side, top=side, bottom=side)
 
     def fill(rgb):
         return PatternFill("solid", fgColor=rgb)
 
-    white, blue, title, pink = fill("FFFFFF"), fill("C2D8ED"), fill("DAEAF7"), fill("F4B8C8")
+    white, blue, pink = fill("FFFFFF"), fill("C2D8ED"), fill("F4B8C8")
     plain = Font(name="Calibri", size=11, color="000000")
     bold = Font(name="Calibri", size=11, bold=True, color="000000")
-    big_bold = Font(name="Calibri", size=12, bold=True, color="000000")
-    note = Font(name="Calibri", size=10, italic=True, color="595959")
 
     def number_format(current):
         if current == "#,##0.00":
@@ -855,21 +854,16 @@ def _apply_accounts_look(wb) -> None:
 
     for ws in wb.worksheets:
         last = ws.max_row
-        if last < 3:
+        if last < 2:                  # an empty sheet holds only its "no entries" line
             continue
         is_summary = ws.title == "Summary"
-        header_row = 3 if is_summary else 2
         for row in ws.iter_rows(min_row=1, max_row=last):
             r = row[0].row
             total_row = r == last and str(row[0].value or "").strip() == "Grand Total"
             for c in row:
                 if r == 1:
-                    c.fill, c.font = title, big_bold
-                elif is_summary and r == 2:
-                    c.font = note
-                elif r == header_row:
                     c.fill, c.font, c.border = (pink if is_summary else blue), bold, border
-                elif r > header_row:
+                else:
                     c.border = border
                     if total_row:
                         c.fill, c.font = pink, bold
@@ -887,13 +881,14 @@ def _thin_border():
 
 
 def _write_totals_row(ws, df: pd.DataFrame, cols: list, n_rows: int,
-                      bdr, hdr_bg: str = "1F3864"):
+                      bdr, hdr_bg: str = "1F3864", first: int = 3):
     """
     Append a bold Grand Total row immediately after the last data row.
     Sums all _CURRENCY_COLS; other cells are left blank (except column 1 = 'Total').
-    Row layout: title(1) + header(2) + data(3 … n_rows+2) + totals(n_rows+3)
+    Row layout: title(1) + header(2) + data(3 … n_rows+2) + totals(n_rows+3);
+    ``first`` is the first data row, 2 when the sheet has no title bar.
     """
-    tr          = n_rows + 3
+    tr          = n_rows + first
     tot_font_w  = Font(name="Segoe UI", bold=True, size=10, color="FFFFFF")
     tot_num_f   = Font(name="Consolas",  bold=True, size=10, color="FFFFFF")
     tot_fill    = PatternFill("solid", fgColor=hdr_bg)
@@ -914,7 +909,7 @@ def _write_totals_row(ws, df: pd.DataFrame, cols: list, n_rows: int,
             col_sum = pd.to_numeric(df[col_name], errors="coerce").fillna(0).sum()
             if col_sum:
                 col_letter = get_column_letter(ci)
-                c.value = f"=SUBTOTAL(9,{col_letter}3:{col_letter}{tr - 1})"
+                c.value = f"=SUBTOTAL(9,{col_letter}{first}:{col_letter}{tr - 1})"
             else:
                 c.value = None
             c.number_format = "#,##0.00"
@@ -937,6 +932,10 @@ def write_formatted_excel(df_main: pd.DataFrame, df_advance: pd.DataFrame,
     wb = Workbook()
     ws = wb.active
     ws.title = "Unapplied Receipts"
+    # the Accounts look has no title bar above the table: the header is row 1
+    titles = look != "accounts"
+    hdr = 2 if titles else 1
+    first = hdr + 1
 
     df       = _with_real_dates(df_main)
     cols     = list(df.columns)
@@ -953,26 +952,27 @@ def write_formatted_excel(df_main: pd.DataFrame, df_advance: pd.DataFrame,
     TITLE_BG = "152748"
 
     # ── Row 1: report title ───────────────────────────────────────────────────
-    ws.row_dimensions[1].height = 28
-    title_cell = ws.cell(row=1, column=1,
-                          value=f"RDC Unapplied Receipts  —  As On {as_on_date.strftime('%d-%b-%Y')}")
-    title_cell.font      = Font(name="Segoe UI", bold=True, size=13, color="FFFFFF")
-    title_cell.fill      = PatternFill("solid", fgColor=TITLE_BG)
-    title_cell.alignment = Alignment(horizontal="left", vertical="center",
-                                      indent=1)
-    ws.merge_cells(start_row=1, start_column=1,
-                   end_row=1,   end_column=n_cols)
-    for c in range(2, n_cols + 1):
-        ws.cell(row=1, column=c).fill = PatternFill("solid", fgColor=TITLE_BG)
+    if titles:
+        ws.row_dimensions[1].height = 28
+        title_cell = ws.cell(row=1, column=1,
+                              value=f"RDC Unapplied Receipts  —  As On {as_on_date.strftime('%d-%b-%Y')}")
+        title_cell.font      = Font(name="Segoe UI", bold=True, size=13, color="FFFFFF")
+        title_cell.fill      = PatternFill("solid", fgColor=TITLE_BG)
+        title_cell.alignment = Alignment(horizontal="left", vertical="center",
+                                          indent=1)
+        ws.merge_cells(start_row=1, start_column=1,
+                       end_row=1,   end_column=n_cols)
+        for c in range(2, n_cols + 1):
+            ws.cell(row=1, column=c).fill = PatternFill("solid", fgColor=TITLE_BG)
 
     # ── Row 2: column headers ─────────────────────────────────────────────────
-    ws.row_dimensions[2].height = 32
+    ws.row_dimensions[hdr].height = 32
     hdr_font  = Font(name="Segoe UI", bold=True, size=10, color=HDR_FG)
     hdr_fill  = PatternFill("solid", fgColor=HDR_BG)
     hdr_align = Alignment(horizontal="center", vertical="center",
                            wrap_text=True)
     for ci, col_name in enumerate(cols, 1):
-        c            = ws.cell(row=2, column=ci, value=col_name)
+        c            = ws.cell(row=hdr, column=ci, value=col_name)
         c.font       = hdr_font
         c.fill       = hdr_fill
         c.alignment  = hdr_align
@@ -993,7 +993,7 @@ def write_formatted_excel(df_main: pd.DataFrame, df_advance: pd.DataFrame,
     align_right  = Alignment(horizontal="right", vertical="center")
     align_left   = Alignment(horizontal="left", vertical="center", indent=1)
 
-    for ri, row_vals in enumerate(df.itertuples(index=False), 3):
+    for ri, row_vals in enumerate(df.itertuples(index=False), first):
         ws.row_dimensions[ri].height = 18
         row_fill = fill_even if (ri % 2 == 0) else fill_odd
 
@@ -1054,14 +1054,14 @@ def write_formatted_excel(df_main: pd.DataFrame, df_advance: pd.DataFrame,
             c.font      = txt_font
             c.alignment = align_left
             c.value     = val if val is not None else ""
-        report_row(ri - 2)
+        report_row(ri - hdr)
 
     # ── Auto column widths ────────────────────────────────────────────────────
     for ci, col_name in enumerate(cols, 1):
         col_letter = get_column_letter(ci)
         # measure header + sample values
         max_len = len(col_name)
-        for ri in range(3, min(3 + n_rows, 3 + 200)):   # sample up to 200 rows
+        for ri in range(first, min(first + n_rows, first + 200)):   # sample up to 200 rows
             v = ws.cell(row=ri, column=ci).value
             if v is not None:
                 max_len = max(max_len, len(str(v)))
@@ -1069,31 +1069,31 @@ def write_formatted_excel(df_main: pd.DataFrame, df_advance: pd.DataFrame,
         ws.column_dimensions[col_letter].width = width
 
     # ── Grand Total row (Sheet 1) ─────────────────────────────────────────────
-    _write_totals_row(ws, df_main, cols, n_rows, bdr, HDR_BG)
+    _write_totals_row(ws, df_main, cols, n_rows, bdr, HDR_BG, first)
 
     # ── Freeze panes & auto filter ────────────────────────────────────────────
-    ws.freeze_panes = "A3"
+    ws.freeze_panes = f"A{first}"
     ws.auto_filter.ref = (
-        f"A2:{get_column_letter(n_cols)}{n_rows + 2}"
+        f"A{hdr}:{get_column_letter(n_cols)}{n_rows + hdr}"
     )
 
     # ── Tab colour ────────────────────────────────────────────────────────────
     ws.sheet_properties.tabColor = "00B61D"
 
     # ── Advance of Customers sheet ────────────────────────────────────────────
-    _write_advance_sheet(wb, df_advance, as_on_date)
+    _write_advance_sheet(wb, df_advance, as_on_date, titles=titles)
 
     # ── Unidentified Customers sheet ──────────────────────────────────────────
     _write_unidentified_sheet(
         wb,
         df_unidentified if df_unidentified is not None else pd.DataFrame(),
-        as_on_date)
+        as_on_date, titles=titles)
 
     # ── Summary sheet: openpyxl formatted table (Location × Ageing Bucket) ──────
     # Added to the workbook already in memory and saved once. It used to be
     # saved, re-read from disk, given the Summary and saved again - three
     # passes over every data cell for one small sheet.
-    _write_pivot_sheet(wb, df_main, as_on_date, incharge_map=incharge_map or {})
+    _write_pivot_sheet(wb, df_main, as_on_date, incharge_map=incharge_map or {}, titles=titles)
     summary_idx = wb.sheetnames.index("Summary")
     wb.move_sheet("Summary", offset=-summary_idx)
     if look == "accounts":
@@ -1107,7 +1107,7 @@ def write_formatted_excel(df_main: pd.DataFrame, df_advance: pd.DataFrame,
 
 
 def _write_pivot_sheet(wb, df: pd.DataFrame, as_on_date: _dt.date,
-                       incharge_map: dict = None):
+                       incharge_map: dict = None, titles: bool = True):
     """Add a Summary sheet: Location × Ageing Bucket, ALL values in Lakhs.
     Grand Total (in Lakhs) is the FIRST column after Location Name."""
     incharge_map = incharge_map or {}
@@ -1174,38 +1174,40 @@ def _write_pivot_sheet(wb, df: pd.DataFrame, as_on_date: _dt.date,
     ws = wb.create_sheet(title="Summary")
     ws.sheet_properties.tabColor = "1F3864"
     ws.sheet_view.showGridLines   = False
+    head = 3 if titles else 1       # the column-header row; the data starts below it
 
     # Row 1 — title
-    ws.row_dimensions[1].height = 26
-    tc = ws.cell(row=1, column=1,
-                 value=f"Unapplied Receipts  |  Location × Ageing  |  As On {as_on_date.strftime('%d-%b-%Y')}")
-    tc.font      = Font(name="Segoe UI", bold=True, size=12, color="FFFFFF")
-    tc.fill      = PatternFill("solid", fgColor=TITLE_BG)
-    tc.alignment = Alignment(horizontal="left", vertical="center", indent=1)
-    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=total_sheet_cols)
-    for c in range(2, total_sheet_cols + 1):
-        ws.cell(row=1, column=c).fill = PatternFill("solid", fgColor=TITLE_BG)
+    if titles:
+        ws.row_dimensions[1].height = 26
+        tc = ws.cell(row=1, column=1,
+                     value=f"Unapplied Receipts  |  Location × Ageing  |  As On {as_on_date.strftime('%d-%b-%Y')}")
+        tc.font      = Font(name="Segoe UI", bold=True, size=12, color="FFFFFF")
+        tc.fill      = PatternFill("solid", fgColor=TITLE_BG)
+        tc.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+        ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=total_sheet_cols)
+        for c in range(2, total_sheet_cols + 1):
+            ws.cell(row=1, column=c).fill = PatternFill("solid", fgColor=TITLE_BG)
 
-    # Row 2 — sub-label
-    ws.row_dimensions[2].height = 14
-    sl = ws.cell(row=2, column=1,
-                 value="All amounts in Lakhs (÷ 1,00,000)")
-    sl.font      = Font(name="Segoe UI", size=9, italic=True, color="888888")
-    sl.alignment = c_left
+        # Row 2 — sub-label
+        ws.row_dimensions[2].height = 14
+        sl = ws.cell(row=2, column=1,
+                     value="All amounts in Lakhs (÷ 1,00,000)")
+        sl.font      = Font(name="Segoe UI", size=9, italic=True, color="888888")
+        sl.alignment = c_left
 
     # Row 3 — column headers
     # Col 1: Location Name | Col 2: Accounts Incharge | Col 3+: data columns
-    ws.row_dimensions[3].height = 30
-    corner = ws.cell(row=3, column=1, value="Location Name")
+    ws.row_dimensions[head].height = 30
+    corner = ws.cell(row=head, column=1, value="Location Name")
     corner.font = hdr_font; corner.fill = hdr_fill
     corner.alignment = c_left; corner.border = bdr
 
-    ic_hdr = ws.cell(row=3, column=2, value="Accounts Incharge")
+    ic_hdr = ws.cell(row=head, column=2, value="Accounts Incharge")
     ic_hdr.font = hdr_font; ic_hdr.fill = hdr_fill
     ic_hdr.alignment = c_center; ic_hdr.border = bdr
 
     for ci, col_name in enumerate(all_cols, 3):   # data cols start at column 3
-        c = ws.cell(row=3, column=ci, value=col_name)
+        c = ws.cell(row=head, column=ci, value=col_name)
         c.border    = bdr
         c.alignment = c_center
         # All column headers use the same navy style (Grand Total included)
@@ -1213,7 +1215,7 @@ def _write_pivot_sheet(wb, df: pd.DataFrame, as_on_date: _dt.date,
         c.fill = hdr_fill
 
     # Data rows
-    for ri, (loc, row_data) in enumerate(pivot.iterrows(), 4):
+    for ri, (loc, row_data) in enumerate(pivot.iterrows(), head + 1):
         ws.row_dimensions[ri].height = 17
         bg = ROW_EVEN if ri % 2 == 0 else ROW_ODD
 
@@ -1255,7 +1257,7 @@ def _write_pivot_sheet(wb, df: pd.DataFrame, as_on_date: _dt.date,
                 c.fill = PatternFill("solid", fgColor=bg)
 
     # Grand Total row (bottom)
-    gr = 4 + len(pivot)
+    gr = head + 1 + len(pivot)
     ws.row_dimensions[gr].height = 22
 
     gt = ws.cell(row=gr, column=1, value="Grand Total")
@@ -1273,7 +1275,7 @@ def _write_pivot_sheet(wb, df: pd.DataFrame, as_on_date: _dt.date,
         c = ws.cell(row=gr, column=ci)
         if val and val != 0:
             col_letter = get_column_letter(ci)
-            c.value = f"=SUBTOTAL(9,{col_letter}4:{col_letter}{gr - 1})"
+            c.value = f"=SUBTOTAL(9,{col_letter}{head + 1}:{col_letter}{gr - 1})"
         else:
             c.value = None
         c.number_format = "#,##0.00"
@@ -1292,7 +1294,7 @@ def _write_pivot_sheet(wb, df: pd.DataFrame, as_on_date: _dt.date,
     # No freeze panes on Summary sheet (user preference)
 
 
-def _write_advance_sheet(wb, df_advance: pd.DataFrame, as_on_date: _dt.date):
+def _write_advance_sheet(wb, df_advance: pd.DataFrame, as_on_date: _dt.date, titles: bool = True):
     """Add Advance of Customers sheet — same formatting as main sheet."""
     ws = wb.create_sheet(title="Advance of Customers")
     ws.sheet_properties.tabColor = "FF7043"
@@ -1306,6 +1308,8 @@ def _write_advance_sheet(wb, df_advance: pd.DataFrame, as_on_date: _dt.date):
     cols   = list(df_advance.columns)
     n_cols = len(cols)
     n_rows = len(df_advance)
+    hdr = 2 if titles else 1        # the Accounts look has no title bar
+    first = hdr + 1
 
     HDR_BG   = "7B2D00"   # burnt orange — distinct from main sheet
     TITLE_BG = "5C1F00"
@@ -1320,20 +1324,21 @@ def _write_advance_sheet(wb, df_advance: pd.DataFrame, as_on_date: _dt.date):
     num_font  = Font(name="Consolas",  size=10)
 
     # Row 1: title
-    ws.row_dimensions[1].height = 28
-    tc = ws.cell(row=1, column=1,
-                 value=f"Advance of Customers  —  As On {as_on_date.strftime('%d-%b-%Y')}")
-    tc.font      = Font(name="Segoe UI", bold=True, size=13, color="FFFFFF")
-    tc.fill      = PatternFill("solid", fgColor=TITLE_BG)
-    tc.alignment = Alignment(horizontal="left", vertical="center", indent=1)
-    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=n_cols)
-    for c in range(2, n_cols + 1):
-        ws.cell(row=1, column=c).fill = PatternFill("solid", fgColor=TITLE_BG)
+    if titles:
+        ws.row_dimensions[1].height = 28
+        tc = ws.cell(row=1, column=1,
+                     value=f"Advance of Customers  —  As On {as_on_date.strftime('%d-%b-%Y')}")
+        tc.font      = Font(name="Segoe UI", bold=True, size=13, color="FFFFFF")
+        tc.fill      = PatternFill("solid", fgColor=TITLE_BG)
+        tc.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+        ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=n_cols)
+        for c in range(2, n_cols + 1):
+            ws.cell(row=1, column=c).fill = PatternFill("solid", fgColor=TITLE_BG)
 
     # Row 2: headers
-    ws.row_dimensions[2].height = 32
+    ws.row_dimensions[hdr].height = 32
     for ci, col_name in enumerate(cols, 1):
-        c = ws.cell(row=2, column=ci, value=col_name)
+        c = ws.cell(row=hdr, column=ci, value=col_name)
         c.font = hdr_font; c.fill = hdr_fill
         c.alignment = hdr_align; c.border = bdr
 
@@ -1345,7 +1350,7 @@ def _write_advance_sheet(wb, df_advance: pd.DataFrame, as_on_date: _dt.date):
     align_right = Alignment(horizontal="right", vertical="center")
     align_left  = Alignment(horizontal="left", vertical="center", indent=1)
 
-    for ri, row_vals in enumerate(df_advance.itertuples(index=False), 3):
+    for ri, row_vals in enumerate(df_advance.itertuples(index=False), first):
         ws.row_dimensions[ri].height = 18
         row_fill = fill_even if ri % 2 == 0 else fill_odd
 
@@ -1383,20 +1388,20 @@ def _write_advance_sheet(wb, df_advance: pd.DataFrame, as_on_date: _dt.date):
     # Auto column widths
     for ci, col_name in enumerate(cols, 1):
         max_len = len(col_name)
-        for ri in range(3, min(3 + n_rows, 203)):
+        for ri in range(first, min(first + n_rows, first + 200)):
             v = ws.cell(row=ri, column=ci).value
             if v is not None:
                 max_len = max(max_len, len(str(v)))
         ws.column_dimensions[get_column_letter(ci)].width = min(max(max_len + 3, 10), 45)
 
     # Grand Total row — Advance sheet uses burnt-orange header colour
-    _write_totals_row(ws, df_advance, cols, n_rows, bdr, "7B2D00")
+    _write_totals_row(ws, df_advance, cols, n_rows, bdr, "7B2D00", first)
 
-    ws.freeze_panes = "A3"
-    ws.auto_filter.ref = f"A2:{get_column_letter(n_cols)}{n_rows + 2}"
+    ws.freeze_panes = f"A{first}"
+    ws.auto_filter.ref = f"A{hdr}:{get_column_letter(n_cols)}{n_rows + hdr}"
 
 
-def _write_unidentified_sheet(wb, df_unid: pd.DataFrame, as_on_date: _dt.date):
+def _write_unidentified_sheet(wb, df_unid: pd.DataFrame, as_on_date: _dt.date, titles: bool = True):
     """Add Unidentified Customers sheet — rows where Customer Name was ***** Unidentified."""
     ws = wb.create_sheet(title="Unidentified Customers")
     ws.sheet_properties.tabColor = "607D8B"   # slate grey — visually distinct
@@ -1410,6 +1415,8 @@ def _write_unidentified_sheet(wb, df_unid: pd.DataFrame, as_on_date: _dt.date):
     cols   = list(df_unid.columns)
     n_cols = len(cols)
     n_rows = len(df_unid)
+    hdr = 2 if titles else 1        # the Accounts look has no title bar
+    first = hdr + 1
 
     HDR_BG   = "37474F"   # dark slate
     TITLE_BG = "263238"
@@ -1424,20 +1431,21 @@ def _write_unidentified_sheet(wb, df_unid: pd.DataFrame, as_on_date: _dt.date):
     num_font  = Font(name="Consolas",  size=10)
 
     # Row 1: title
-    ws.row_dimensions[1].height = 28
-    tc = ws.cell(row=1, column=1,
-                 value=f"Unidentified Customers  —  As On {as_on_date.strftime('%d-%b-%Y')}")
-    tc.font      = Font(name="Segoe UI", bold=True, size=13, color="FFFFFF")
-    tc.fill      = PatternFill("solid", fgColor=TITLE_BG)
-    tc.alignment = Alignment(horizontal="left", vertical="center", indent=1)
-    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=n_cols)
-    for c in range(2, n_cols + 1):
-        ws.cell(row=1, column=c).fill = PatternFill("solid", fgColor=TITLE_BG)
+    if titles:
+        ws.row_dimensions[1].height = 28
+        tc = ws.cell(row=1, column=1,
+                     value=f"Unidentified Customers  —  As On {as_on_date.strftime('%d-%b-%Y')}")
+        tc.font      = Font(name="Segoe UI", bold=True, size=13, color="FFFFFF")
+        tc.fill      = PatternFill("solid", fgColor=TITLE_BG)
+        tc.alignment = Alignment(horizontal="left", vertical="center", indent=1)
+        ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=n_cols)
+        for c in range(2, n_cols + 1):
+            ws.cell(row=1, column=c).fill = PatternFill("solid", fgColor=TITLE_BG)
 
     # Row 2: headers
-    ws.row_dimensions[2].height = 32
+    ws.row_dimensions[hdr].height = 32
     for ci, col_name in enumerate(cols, 1):
-        c = ws.cell(row=2, column=ci, value=col_name)
+        c = ws.cell(row=hdr, column=ci, value=col_name)
         c.font = hdr_font; c.fill = hdr_fill
         c.alignment = hdr_align; c.border = bdr
 
@@ -1449,7 +1457,7 @@ def _write_unidentified_sheet(wb, df_unid: pd.DataFrame, as_on_date: _dt.date):
     align_right = Alignment(horizontal="right", vertical="center")
     align_left  = Alignment(horizontal="left", vertical="center", indent=1)
 
-    for ri, row_vals in enumerate(df_unid.itertuples(index=False), 3):
+    for ri, row_vals in enumerate(df_unid.itertuples(index=False), first):
         ws.row_dimensions[ri].height = 18
         row_fill = fill_even if ri % 2 == 0 else fill_odd
 
@@ -1486,14 +1494,14 @@ def _write_unidentified_sheet(wb, df_unid: pd.DataFrame, as_on_date: _dt.date):
     # Auto column widths
     for ci, col_name in enumerate(cols, 1):
         max_len = len(col_name)
-        for ri in range(3, min(3 + n_rows, 203)):
+        for ri in range(first, min(first + n_rows, first + 200)):
             v = ws.cell(row=ri, column=ci).value
             if v is not None:
                 max_len = max(max_len, len(str(v)))
         ws.column_dimensions[get_column_letter(ci)].width = min(max(max_len + 3, 10), 45)
 
     # Grand Total row — Unidentified sheet uses slate header colour
-    _write_totals_row(ws, df_unid, cols, n_rows, bdr, "37474F")
+    _write_totals_row(ws, df_unid, cols, n_rows, bdr, "37474F", first)
 
-    ws.freeze_panes = "A3"
-    ws.auto_filter.ref = f"A2:{get_column_letter(n_cols)}{n_rows + 2}"
+    ws.freeze_panes = f"A{first}"
+    ws.auto_filter.ref = f"A{hdr}:{get_column_letter(n_cols)}{n_rows + hdr}"

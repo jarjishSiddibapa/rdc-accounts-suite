@@ -143,40 +143,71 @@ class UnappliedAccountsLookTests(unittest.TestCase):
     def test_payment_dates_are_real_dates_on_every_list(self):
         for sheet in ("Unapplied Receipts", "Advance of Customers", "Unidentified Customers"):
             ws = self.wb[sheet]
-            headers = [c.value for c in ws[2]]
-            cell = ws.cell(row=3, column=headers.index("Payment Date") + 1)
+            headers = [c.value for c in ws[1]]
+            cell = ws.cell(row=2, column=headers.index("Payment Date") + 1)
             self.assertIsInstance(cell.value, dt.datetime, sheet)
             self.assertEqual(cell.number_format, "DD-MMM-YYYY", sheet)
         ws = self.wb["Unapplied Receipts"]
-        headers = [c.value for c in ws[2]]
-        self.assertEqual(ws.cell(row=3, column=headers.index("Payment Date") + 1).value, dt.datetime(2026, 10, 9))
+        headers = [c.value for c in ws[1]]
+        self.assertEqual(ws.cell(row=2, column=headers.index("Payment Date") + 1).value, dt.datetime(2026, 10, 9))
 
     def test_amounts_and_days_are_numbers_and_every_total_is_a_formula(self):
         ws = self.wb["Unapplied Receipts"]
-        headers = [c.value for c in ws[2]]
+        headers = [c.value for c in ws[1]]
         unapplied_col = headers.index("Unapplied Amount") + 1
-        self.assertEqual(ws.cell(row=3, column=unapplied_col).value, 40000.0)
-        self.assertIn("#,##0.00", ws.cell(row=3, column=unapplied_col).number_format)
-        self.assertEqual(ws.cell(row=3, column=headers.index("Customer Number") + 1).value, 139554)
+        self.assertEqual(ws.cell(row=2, column=unapplied_col).value, 40000.0)
+        self.assertIn("#,##0.00", ws.cell(row=2, column=unapplied_col).number_format)
+        self.assertEqual(ws.cell(row=2, column=headers.index("Customer Number") + 1).value, 139554)
         last = ws.max_row
         self.assertEqual(ws.cell(row=last, column=1).value, "Grand Total")
-        self.assertEqual(ws.cell(row=last, column=unapplied_col).value, "=SUBTOTAL(9,{0}3:{0}{1})".format(
-            ws.cell(row=2, column=unapplied_col).column_letter, last - 1))
+        self.assertEqual(ws.cell(row=last, column=unapplied_col).value, "=SUBTOTAL(9,{0}2:{0}{1})".format(
+            ws.cell(row=1, column=unapplied_col).column_letter, last - 1))
         summary = self.wb["Summary"]
         grand_row = summary.max_row
-        self.assertTrue(str(summary.cell(row=4, column=3).value).startswith("=SUM("))
+        self.assertTrue(str(summary.cell(row=2, column=3).value).startswith("=SUM("))
         self.assertTrue(str(summary.cell(row=grand_row, column=3).value).startswith("=SUBTOTAL(9,"))
 
     def test_the_look_is_the_unaccounted_one(self):
         ws = self.wb["Unapplied Receipts"]
-        self.assertEqual(_rgb(ws.cell(row=2, column=1)), BLUE)
+        self.assertEqual(_rgb(ws.cell(row=1, column=1)), BLUE)
+        self.assertEqual(_rgb(ws.cell(row=2, column=1)), "FFFFFF")
         self.assertEqual(_rgb(ws.cell(row=3, column=1)), "FFFFFF")
-        self.assertEqual(_rgb(ws.cell(row=4, column=1)), "FFFFFF")
         self.assertEqual(_rgb(ws.cell(row=ws.max_row, column=1)), PINK)
         summary = self.wb["Summary"]
-        self.assertEqual(_rgb(summary.cell(row=3, column=1)), PINK)
-        self.assertEqual(summary.cell(row=4, column=3).alignment.horizontal, "center")
-        self.assertEqual(summary.cell(row=4, column=4).font.name, "Calibri")
+        self.assertEqual(_rgb(summary.cell(row=1, column=1)), PINK)
+        self.assertEqual(summary.cell(row=2, column=3).alignment.horizontal, "center")
+        self.assertEqual(summary.cell(row=2, column=4).font.name, "Calibri")
+
+    def test_there_is_no_title_or_note_above_any_table(self):
+        for ws in self.wb.worksheets:
+            self.assertFalse(ws.merged_cells.ranges, ws.title)
+            first_row = [c.value for c in ws[1]]
+            text = " ".join(str(v) for v in first_row if v is not None)
+            self.assertNotIn("As On", text, ws.title)
+            self.assertNotIn("Lakhs", text, ws.title)
+            self.assertNotIn("Location \u00d7 Ageing", text, ws.title)
+        self.assertEqual([c.value for c in self.wb["Summary"][1]][:3], ["Location Name", "Accounts Incharge", "Grand Total"])
+        for sheet in ("Unapplied Receipts", "Advance of Customers", "Unidentified Customers"):
+            ws = self.wb[sheet]
+            self.assertEqual(ws.freeze_panes, "A2", sheet)
+            self.assertTrue(ws.auto_filter.ref.startswith("A1:"), sheet)
+            self.assertEqual(ws.cell(row=1, column=1).value, "Customer Name", sheet)
+
+    def test_the_standalone_report_keeps_its_title_bars(self):
+        main = pd.DataFrame({
+            "Customer Name": ["A Ltd"], "Customer Number": ["139554"], "Payment Method": ["HDFC"],
+            "Payment Number": ["ON/1"], "Payment Date": ["09-OCT-26"], "Location": ["Mumbai"],
+            "Sales Person": ["S"], "On Account/ Prepayment Amount": [0.0], "Unapplied Amount": [40000.0],
+            "Due Days": [19], "Ageing Bucket": ["16 - 30"],
+        })
+        path = self.path.replace("unapplied.xlsx", "standalone.xlsx")
+        unapplied.write_formatted_excel(main, main.iloc[0:0], path, dt.date(2026, 10, 28),
+                                        incharge_map={"Mumbai": "Haresh"})
+        wb = load_workbook(path)
+        self.assertIn("As On 28-Oct-2026", wb["Unapplied Receipts"]["A1"].value)
+        self.assertIn("Location", wb["Summary"]["A1"].value)
+        self.assertIn("Lakhs", wb["Summary"]["A2"].value)
+        self.assertEqual(wb["Unapplied Receipts"].freeze_panes, "A3")
 
 
 class GstWorkbookTypesTests(unittest.TestCase):

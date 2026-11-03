@@ -290,13 +290,12 @@ def build(snapshot: dict, progress_cb=None, cancel_event=None) -> mail.MailPaylo
     untagged_processor.write_summary_workbook(
         untagged.untagged_summary, untagged.below_1k_summary, summary_path, look=LOOK)
     payload.intro_note = f"Note: {untagged_processor.LAKHS_NOTE}"
-    # The ageing with GST numbers is only an attachment (the intro lists it). The Unapplied
-    # sheet's first two rows are its title bar ("... | Location × Ageing | ...") and the lakhs
-    # label; both are left out of the mail because the heading above the table names it and
-    # the note above the sections already says the amounts are in lakhs.
+    # The ageing with GST numbers is only an attachment (the intro lists it). The reports carry
+    # no title bar or lakhs label above their tables; the heading above each table names it and
+    # the note above the sections says the amounts are in lakhs.
     payload.sections = [
         ("2. Unapplied Receipts (Summary):",
-         sheet_to_html(str(unapplied_path), "Summary", payload.css, "r", skip_rows=(1, 2))),
+         sheet_to_html(str(unapplied_path), "Summary", payload.css, "r")),
         ("3. Untagged Invoices (Summary):", sheet_to_html(str(summary_path), "Untagged Summary", payload.css, "u")),
         ("4. Below 1k Invoices (Summary):", sheet_to_html(str(summary_path), "Below 1k Summary", payload.css, "b")),
     ]
