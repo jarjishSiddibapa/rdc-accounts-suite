@@ -526,11 +526,18 @@ def build_gst_report_pure_python(
     source_for_output = [source_indices.get(name) for name in new_cols]
     found = blank = 0
     out_row = 0
+    # The loop below runs once per cell (millions of them): plain lists instead of per-row pandas lookups,
+    # bound methods, and a dispatch on the exact Python type instead of numbers.Real / isinstance chains
+    # (those abstract-class checks were a fifth of this loop). Anything not a plain str / float / int
+    # still goes through _write_plain, so the written file is unchanged.
+    write_string, write_number, write_datetime = ws.write_string, ws.write_number, ws.write_datetime
+    inv_list, date_list, valid_list = inv_values.tolist(), oracle_dates.tolist(), valid_array.tolist()
+    not_a_number = (float("inf"), float("-inf"))
     for position, row in enumerate(df.itertuples(index=False, name=None)):
-        if not valid_array[position]:
+        if not valid_list[position]:
             continue
         out_row += 1
-        gst = gst_map.get((inv_values.iat[position], oracle_dates.iat[position]), "")
+        gst = gst_map.get((inv_list[position], date_list[position]), "")
         if gst:
             found += 1
         else:
@@ -538,30 +545,39 @@ def build_gst_report_pure_python(
 
         for ci, source in enumerate(source_for_output):
             if ci == gst_index:
-                if gst:
-                    ws.write_string(out_row, ci, gst, gst_fmt)
-                else:
-                    ws.write_string(out_row, ci, DASH, gst_fmt)
+                write_string(out_row, ci, gst if gst else DASH, gst_fmt)
                 continue
             value = row[source]
             if ci == date_index:
                 value, is_date = _cell_value_for_output(value, True)
                 if is_blank(value):
-                    ws.write_string(out_row, ci, DASH, date_fmt)
+                    write_string(out_row, ci, DASH, date_fmt)
                 elif is_date:
-                    ws.write_datetime(out_row, ci, value, date_fmt)
+                    write_datetime(out_row, ci, value, date_fmt)
                 else:
                     _write_plain(ws, out_row, ci, value, date_fmt, int_fmt, dec_fmt, txt_fmt)
                 continue
-            if value is None or value is pd.NA or value is pd.NaT:
-                ws.write_string(out_row, ci, DASH, txt_fmt)
-                continue
-            if ci in whole_number_cols and isinstance(value, str):
-                digits = value.strip()
-                if digits.isdigit() and not digits.startswith("0"):
-                    ws.write_number(out_row, ci, int(digits), id_fmt)
-                    continue
-            _write_plain(ws, out_row, ci, value, date_fmt, int_fmt, dec_fmt, txt_fmt)
+            kind = type(value)
+            if kind is str:
+                if ci in whole_number_cols:
+                    digits = value.strip()
+                    if digits.isdigit() and not digits.startswith("0"):
+                        write_number(out_row, ci, int(digits), id_fmt)
+                        continue
+                    write_string(out_row, ci, value if digits else DASH, txt_fmt)
+                else:
+                    write_string(out_row, ci, value if value.strip() else DASH, txt_fmt)
+            elif kind is float:
+                if value != value or value in not_a_number:
+                    write_string(out_row, ci, DASH, txt_fmt)
+                else:
+                    write_number(out_row, ci, value, dec_fmt)
+            elif kind is int:
+                write_number(out_row, ci, value, int_fmt)
+            elif value is None or value is pd.NA or value is pd.NaT:
+                write_string(out_row, ci, DASH, txt_fmt)
+            else:
+                _write_plain(ws, out_row, ci, value, date_fmt, int_fmt, dec_fmt, txt_fmt)
 
         if progress_cb and (out_row % 5000 == 0 or out_row == total):
             progress_cb(

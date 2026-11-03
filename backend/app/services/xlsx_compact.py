@@ -81,9 +81,42 @@ def compact_xlsx(source: str | Path, destination: str | Path) -> None:
                 zout.writestr(info.filename, zin.read(info.filename))
 
 
+_SAMPLE_BYTES = 4 * 1024 * 1024
+_SAMPLE_ROWS = 500
+_WORTH_IT = 0.2          # share of the sampled rows that lose their cell addresses
+
+
+def worth_compacting(path: str | Path) -> bool:
+    """Whether compacting would shrink this workbook. A row is only compacted when its cells
+    run A, B, C, ... with no gap, so a report whose rows have empty cells in them (the Sales
+    Register's) keeps its size: sampling the first rows of the biggest sheet says so in a
+    fraction of a second, instead of rewriting the whole file (several seconds) for nothing."""
+    try:
+        with zipfile.ZipFile(path) as z:
+            sheets = [i for i in z.infolist() if i.filename.startswith("xl/worksheets/") and i.filename.endswith(".xml")]
+            if not sheets:
+                return False
+            biggest = max(sheets, key=lambda i: i.file_size)
+            with z.open(biggest) as fin:
+                head = fin.read(_SAMPLE_BYTES)
+    except (OSError, zipfile.BadZipFile):
+        return True                  # not sure: do what was always done
+    rows = changed = 0
+    for match in _ROW.finditer(head):
+        rows += 1
+        if _strip_row(match) != match.group(0):
+            changed += 1
+        if rows >= _SAMPLE_ROWS:
+            break
+    return rows > 0 and changed / rows >= _WORTH_IT
+
+
 def compact_xlsx_in_place(path: str | Path) -> int:
-    """Replace ``path`` with its compact copy and return the bytes saved."""
+    """Replace ``path`` with its compact copy and return the bytes saved (0, with the file left
+    alone, when compacting would not shrink it)."""
     path = Path(path)
+    if not worth_compacting(path):
+        return 0
     before = path.stat().st_size
     fd, tmp_name = tempfile.mkstemp(suffix=".xlsx", dir=str(path.parent))
     os.close(fd)

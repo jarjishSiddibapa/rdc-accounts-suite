@@ -111,6 +111,25 @@ class CompactTests(unittest.TestCase):
         self.assertEqual(openpyxl.load_workbook(self.src)["Second"]["B2"].value, 2)
         self.assertEqual([p.name for p in Path(self.tmp.name).iterdir()], ["a.xlsx"])   # no temp file left
 
+    def test_a_workbook_whose_rows_all_have_gaps_is_left_alone(self):
+        wb = Workbook(write_only=True)
+        ws = wb.create_sheet("Data")
+        for i in range(300):
+            ws.append([f"row {i}", None, i, None, "x"])            # an empty cell in every row
+        wb.save(self.src)
+        self.assertFalse(xlsx_compact.worth_compacting(self.src))
+        before = self.src.read_bytes()
+        self.assertEqual(xlsx_compact.compact_xlsx_in_place(self.src), 0)
+        self.assertEqual(self.src.read_bytes(), before)             # not even rewritten
+
+    def test_a_workbook_with_gapless_rows_is_worth_compacting(self):
+        _workbook(self.src, gaps=False)
+        self.assertTrue(xlsx_compact.worth_compacting(self.src))
+
+    def test_an_unreadable_file_is_treated_as_worth_trying(self):
+        self.src.write_bytes(b"not a zip")
+        self.assertTrue(xlsx_compact.worth_compacting(self.src))
+
 
 if __name__ == "__main__":
     unittest.main()
