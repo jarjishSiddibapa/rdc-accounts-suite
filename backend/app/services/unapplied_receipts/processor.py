@@ -383,6 +383,49 @@ def _fetch_comments(receipts: list, log_q, oracle_cfg: OracleConfig,
     return comments_map
 
 
+def split_unidentified(df: pd.DataFrame, log_q, oracle_cfg: OracleConfig, cancel_event=None) -> tuple:
+    """The register's "***** Unidentified" rows set apart from the rest (none is
+    deleted), each with its Bank Description (the receipt's Comments in the ERP).
+    Returns (the other rows, the Unidentified rows). Shared by the Unapplied
+    Receipts report, whose "Unidentified Customers" sheet they fill, and by the
+    Unidentified Entries application."""
+    cust_col = "Customer Name"
+    if cust_col not in df.columns:
+        raise JobUserError(
+            f"Could not find expected column '{cust_col}' after reading. "
+            f"Columns found: {', '.join(str(c) for c in list(df.columns)[:10])}.")
+    cleaned         = df[cust_col].astype(str).str.strip()
+    is_unidentified = cleaned.isin({"***** Unidentified", "*****  Unidentified"})
+    df_unidentified = df[is_unidentified].reset_index(drop=True)
+    df              = df[~is_unidentified].reset_index(drop=True)
+    removed         = len(df_unidentified)
+    log_q.put(("ok", f"Separated {removed} Unidentified rows → Unidentified Customers sheet  "
+                     f"| {len(df)} rows remaining for processing"))
+
+    # ── Fetch Description (Comments) from ERP for Unidentified rows ───────────
+    pay_num_col = "Payment Number"
+    if not df_unidentified.empty and pay_num_col in df_unidentified.columns:
+        unid_receipts = [
+            str(r).strip() for r in df_unidentified[pay_num_col].dropna().unique()
+            if str(r).strip() and str(r).strip().lower() not in ("nan", "none", "")
+        ]
+        if unid_receipts:
+            try:
+                comments_map = _fetch_comments(
+                    unid_receipts, log_q, oracle_cfg, cancel_event=cancel_event
+                )
+                df_unidentified["Bank Description"] = df_unidentified[pay_num_col].apply(
+                    lambda x: comments_map.get(str(x).strip(), ""))
+            except JobCancelled:
+                raise
+            except Exception as exc:
+                log_q.put(("warn", f"Could not fetch ERP Comments for Unidentified rows: {exc}"))
+                df_unidentified["Bank Description"] = ""
+        else:
+            df_unidentified["Bank Description"] = ""
+    return df, df_unidentified
+
+
 def process_report(input_path: str, log_q, as_on_date: _dt.date = None, *,
                     oracle_cfg: OracleConfig, supplier_site_map: dict,
                     cancel_event=None, region_lookup=None, register_frame=None) -> tuple:
@@ -453,41 +496,10 @@ def process_report(input_path: str, log_q, as_on_date: _dt.date = None, *,
             df = df.drop(columns=col)
 
     # ── Separate "***** Unidentified" rows → own sheet, not deleted ──────────
-    cust_col = "Customer Name"
-    if cust_col not in df.columns:
-        raise JobUserError(
-            f"Could not find expected column '{cust_col}' after reading. "
-            f"Columns found: {', '.join(str(c) for c in list(df.columns)[:10])}.")
-    before         = len(df)
-    cleaned        = df[cust_col].astype(str).str.strip()
-    is_unidentified = cleaned.isin({"***** Unidentified", "*****  Unidentified"})
-    df_unidentified = df[is_unidentified].reset_index(drop=True)
-    df              = df[~is_unidentified].reset_index(drop=True)
-    removed         = len(df_unidentified)
-    log_q.put(("ok", f"Separated {removed} Unidentified rows → Unidentified Customers sheet  "
-                     f"| {len(df)} rows remaining for processing"))
-
-    # ── Fetch Description (Comments) from ERP for Unidentified rows ───────────
     pay_num_col = "Payment Number"
-    if not df_unidentified.empty and pay_num_col in df_unidentified.columns:
-        unid_receipts = [
-            str(r).strip() for r in df_unidentified[pay_num_col].dropna().unique()
-            if str(r).strip() and str(r).strip().lower() not in ("nan", "none", "")
-        ]
-        if unid_receipts:
-            try:
-                comments_map = _fetch_comments(
-                    unid_receipts, log_q, oracle_cfg, cancel_event=cancel_event
-                )
-                df_unidentified["Bank Description"] = df_unidentified[pay_num_col].apply(
-                    lambda x: comments_map.get(str(x).strip(), ""))
-            except JobCancelled:
-                raise
-            except Exception as exc:
-                log_q.put(("warn", f"Could not fetch ERP Comments for Unidentified rows: {exc}"))
-                df_unidentified["Bank Description"] = ""
-        else:
-            df_unidentified["Bank Description"] = ""
+    before = len(df)
+    df, df_unidentified = split_unidentified(df, log_q, oracle_cfg, cancel_event)
+    removed = len(df_unidentified)
 
     # ── Fetch Location from Oracle ERP ────────────────────────────────────────
     if pay_num_col not in df.columns:
@@ -1505,3 +1517,16 @@ def _write_unidentified_sheet(wb, df_unid: pd.DataFrame, as_on_date: _dt.date, t
 
     ws.freeze_panes = f"A{first}"
     ws.auto_filter.ref = f"A{hdr}:{get_column_letter(n_cols)}{n_rows + hdr}"
+
+
+def write_unidentified_workbook(df_unid: pd.DataFrame, path: str, as_on_date: _dt.date, look: str = "default") -> None:
+    """A workbook holding only the Unidentified Customers sheet, laid out exactly
+    as in the Unapplied Receipts report (the Unidentified Entries application)."""
+    wb = Workbook()
+    wb.remove(wb.active)
+    _write_unidentified_sheet(wb, df_unid, as_on_date, titles=look != "accounts")
+    if look == "accounts":
+        _apply_accounts_look(wb)
+    cached_values = cache_formula_values(wb)
+    wb.save(path)
+    inject_cached_values(path, cached_values)

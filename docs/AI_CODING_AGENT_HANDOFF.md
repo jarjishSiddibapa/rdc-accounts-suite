@@ -1017,6 +1017,20 @@ Do not rely only on SQLAlchemy `create_all` when a change needs data migration,
 backfill, index replacement, or production-visible operator steps. Add an
 idempotent, dated SQL script and document the exact Workbench commands.
 
+**Unidentified Entries** (`unidentified-entries`, `app/services/unidentified_entries/auto_mail.py`,
+`app/routers/unidentified_entries.py`): the Unapplied Receipts Register's `***** Unidentified`
+receipts (each with its Bank Description, the receipt's Comments in the ERP) as an application of its
+own. The rows come from `processor.split_unidentified` (shared with the Unapplied Receipts report,
+whose "Unidentified Customers" sheet is unchanged) and are written by
+`processor.write_unidentified_workbook` in the Accounts look (no title bar, header in row 1) to one
+`Unidentified_Entries_As_On_<date>.xlsx`. It has every shared automatic-mail option (days / times,
+the every-few-hours schedule, recipients, wording, send log, "send now", "Mail this report now" with a
+preview), `fixed_sender=True` (always the system email) and, like the Sales Register, is managed by
+whoever is granted the application (`make_auto_mail_router(..., access=require_app_access(KEY))`).
+Its jobs run on the `oracle-gst` resource allowance. The Debtors Reports Auto Mailer is a
+`fixed_sender` report too (manual and automatic mail both from the system email); its automatic-mail
+settings are still administrator-only.
+
 ## 8. Verification and evidence
 
 Run from `backend/`:

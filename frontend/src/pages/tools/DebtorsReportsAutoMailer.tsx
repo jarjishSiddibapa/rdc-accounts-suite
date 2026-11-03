@@ -159,7 +159,7 @@ export default function DebtorsReportsAutoMailer() {
         <ReportMailPanel
           baseUrl={BASE}
           reportName={REPORT_NAME}
-          description="Builds the three reports from the live ERP and shows you the exact mail before anything is sent. It goes out from your own email."
+          description="Builds the three reports from the live ERP and shows you the exact mail before anything is sent. It always goes from the system email."
           unmappedHint='Map each value above and preview again, or preview anyway - they show as "-".'
           mappingFixes={MAIL_MAPPING_FIXES}
         />
@@ -167,7 +167,7 @@ export default function DebtorsReportsAutoMailer() {
         {isAdmin && (
           <SendNowCard
             baseUrl={BASE}
-            description="Runs the scheduled mail right away: it builds the three reports and sends them to the saved recipients, from the sender chosen in the automatic mail settings, with the saved subject and text. It is recorded in the send log below like any scheduled mail. To review the mail first, or to send it from your own email, use Mail this report above."
+            description="Runs the scheduled mail right away: it builds the three reports and sends them to the saved recipients, from the system email, with the saved subject and text. It is recorded in the send log below like any scheduled mail. To review the mail first, use Mail this report above."
             onFinished={() => setRefreshKey((key) => key + 1)}
           />
         )}

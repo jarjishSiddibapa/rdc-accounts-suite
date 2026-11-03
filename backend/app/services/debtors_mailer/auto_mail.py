@@ -320,9 +320,10 @@ def run_auto_mail_job(trigger: str = "scheduled", requested_by: str | None = Non
 
 
 def run_preview_job(user_id: int, to: list, cc: list, subject: str, intro: str,
-                    allow_unmapped: bool = False, progress_cb=None, cancel_event=None) -> dict:
+                    allow_unmapped: bool = False, sender: str | None = None,
+                    progress_cb=None, cancel_event=None) -> dict:
     """Build the reports and the exact mail for review. Sends nothing."""
     return report_mail_preview.build_preview(
-        APP_KEY, build, user_id, to, cc, subject, intro, allow_unmapped,
+        APP_KEY, build, user_id, to, cc, subject, intro, allow_unmapped, sender=sender,
         progress_cb=progress_cb, cancel_event=cancel_event,
     )

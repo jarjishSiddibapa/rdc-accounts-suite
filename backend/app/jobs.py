@@ -73,10 +73,12 @@ _ALLOWED_TASKS = frozenset(
         "app.services.gst_invoice_adder.auto_mail:run_auto_mail_job",
         "app.services.debtors_mailer.auto_mail:run_auto_mail_job",
         "app.services.sales_register.auto_mail:run_auto_mail_job",
+        "app.services.unidentified_entries.auto_mail:run_auto_mail_job",
         "app.services.untagged_invoices.auto_mail:run_preview_job",
         "app.services.gst_invoice_adder.auto_mail:run_preview_job",
         "app.services.debtors_mailer.auto_mail:run_preview_job",
         "app.services.sales_register.auto_mail:run_preview_job",
+        "app.services.unidentified_entries.auto_mail:run_preview_job",
         "app.routers.ultrafine_balance_confirmation:_job_preview",
         "app.routers.ultrafine_balance_confirmation:_job_send",
         "app.routers.ultrafine_payment_reminder:_job_preview",
@@ -100,6 +102,9 @@ _RESOURCE_BY_TASK = {
     # the sales register query is a heavy one on the same ERP: one at a time with the others
     "app.services.sales_register.auto_mail:run_auto_mail_job": "oracle-gst",
     "app.services.sales_register.auto_mail:run_preview_job": "oracle-gst",
+    # the unapplied receipts register and the receipts' comments: the same ERP, one at a time with the others
+    "app.services.unidentified_entries.auto_mail:run_auto_mail_job": "oracle-gst",
+    "app.services.unidentified_entries.auto_mail:run_preview_job": "oracle-gst",
 }
 
 # Dispatch jobs are intentionally server-owned once accepted. Cancelling one

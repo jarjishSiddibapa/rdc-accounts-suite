@@ -6,8 +6,8 @@ mails them together (see app.services.debtors_mailer.auto_mail):
 
   /auto-mail/...   - admin: schedule (weekdays, time), recipients, wording,
                      the send log, and "send now".
-  /mail/...        - anyone with access: preview the mail, then send it from
-                     their own email identity.
+  /mail/...        - anyone with access: preview the mail, then send it. It always
+                     goes from the system email; nobody can choose another sender.
   /jobs/{id}       - poll / cancel the background jobs above.
   /mappings/...    - the two mapping tables the reports use (Location Name ->
                      Location, Location -> Accounts Incharge).
@@ -36,7 +36,7 @@ router = APIRouter(
 )
 
 router.include_router(make_auto_mail_router(APP_KEY, run_job=auto_mail.run_auto_mail_job))
-router.include_router(make_report_mail_router(APP_KEY, auto_mail.run_preview_job))
+router.include_router(make_report_mail_router(APP_KEY, auto_mail.run_preview_job, sender_choice=True))
 
 
 @router.get("/jobs/{job_id}")

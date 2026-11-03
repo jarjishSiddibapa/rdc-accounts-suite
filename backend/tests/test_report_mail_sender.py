@@ -11,7 +11,7 @@ from app.database import Base
 from app.models import EmailSettings, ScheduledReportMail, SystemEmailSettings, User
 from app.services import scheduled_report_mail as mail
 
-KEY = "debtors-reports-auto-mailer"
+KEY = "untagged-invoices-report"   # a report whose sender can still be chosen
 
 
 class SenderTests(unittest.TestCase):

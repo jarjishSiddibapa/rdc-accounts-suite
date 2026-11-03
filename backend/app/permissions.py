@@ -22,6 +22,7 @@ APP_KEYS = [
     "gst-invoice-adder", "closing-period-report",
     "iocl-balance-monitor", "invoice-booking-tracker", "creditors-ageing-report", "trial-balance-formatter",
     "untagged-invoices-report", "debtors-reports-auto-mailer", "rdc-sales-register-report",
+    "unidentified-entries",
 ]
 RETIRED_APP_KEYS = {"dms", "it-po-lookup"}
 
@@ -45,6 +46,7 @@ APP_LABELS = {
     "untagged-invoices-report": "Untagged Invoices Report Generator",
     "debtors-reports-auto-mailer": "Debtors Reports Auto Mailer",
     "rdc-sales-register-report": "RDC Sales Register Report",
+    "unidentified-entries": "Unidentified Entries",
 }
 
 APP_COMPANIES = ("RDC", "Ultrafine")
@@ -73,7 +75,7 @@ _ULTRAFINE_APP_KEYS = {
 # doesn't apply to them and they must NOT be offered in that picker.
 REPORT_RECIPIENT_APP_KEYS = {
     "unaccounted", "untagged-invoices-report", "gst-invoice-adder", "ultrafine-cashflow",
-    "debtors-reports-auto-mailer", "rdc-sales-register-report",
+    "debtors-reports-auto-mailer", "rdc-sales-register-report", "unidentified-entries",
 }
 
 

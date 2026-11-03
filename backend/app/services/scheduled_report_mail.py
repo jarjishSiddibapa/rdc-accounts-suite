@@ -112,6 +112,7 @@ SPECS: dict[str, MailSpec] = {
             "report are attached."
         ),
         placeholders=("date", "total", "found", "blank"),
+        fixed_sender=True,
     ),
     "rdc-sales-register-report": MailSpec(
         app_key="rdc-sales-register-report",
@@ -123,6 +124,17 @@ SPECS: dict[str, MailSpec] = {
             "{rows} rows."
         ),
         placeholders=("date", "report", "period", "from_date", "to_date", "rows"),
+        fixed_sender=True,
+    ),
+    "unidentified-entries": MailSpec(
+        app_key="unidentified-entries",
+        label="Unidentified Entries",
+        default_subject="Unidentified Entries as on {date}",
+        default_intro=(
+            "Dear Team,\n\n"
+            "Please find attached the Unidentified Entries as on {date} ({rows} entries)."
+        ),
+        placeholders=("date", "rows"),
         fixed_sender=True,
     ),
     "ultrafine-cashflow": MailSpec(
@@ -980,6 +992,8 @@ def _job_for(app_key: str):
         from app.services.debtors_mailer.auto_mail import run_auto_mail_job
     elif app_key == "rdc-sales-register-report":
         from app.services.sales_register.auto_mail import run_auto_mail_job
+    elif app_key == "unidentified-entries":
+        from app.services.unidentified_entries.auto_mail import run_auto_mail_job
     else:
         from app.services.gst_invoice_adder.auto_mail import run_auto_mail_job
     return run_auto_mail_job

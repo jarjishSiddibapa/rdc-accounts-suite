@@ -80,6 +80,11 @@ def cpu_write_report(df_main, df_advance, output_path, as_on_date, df_unidentifi
     return log_q.messages
 
 
+def cpu_write_unidentified(df_unid, output_path, as_on_date, look="default"):
+    """The Unidentified Entries workbook (the Unidentified Customers sheet on its own)."""
+    processor.write_unidentified_workbook(df_unid, output_path, as_on_date, look=look)
+
+
 def slim_ageing(ageing_frame):
     """Only the three ageing columns the advance-customer check reads; a
     slimmer frame is quicker to hand to the CPU process."""

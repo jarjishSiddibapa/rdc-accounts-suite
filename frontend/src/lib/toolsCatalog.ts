@@ -18,6 +18,7 @@ import {
   Tags,
   MailCheck,
   ReceiptText,
+  UserRoundSearch,
 } from 'lucide-react'
 
 export type Company = 'RDC' | 'Ultrafine'
@@ -208,6 +209,15 @@ export const TOOLS_CATALOG: ToolCatalogEntry[] = [
     icon: ReceiptText,
     appKey: 'rdc-sales-register-report',
     category: 'Sales reporting',
+    company: 'RDC',
+  },
+  {
+    to: '/tools/unidentified-entries',
+    title: 'Unidentified Entries',
+    description: 'The receipts held against "***** Unidentified" in the ERP, with their bank descriptions, mailed as an Excel file by hand or on a schedule.',
+    icon: UserRoundSearch,
+    appKey: 'unidentified-entries',
+    category: 'AR reporting',
     company: 'RDC',
   },
 ]
