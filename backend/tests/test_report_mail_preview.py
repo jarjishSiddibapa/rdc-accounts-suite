@@ -252,5 +252,56 @@ class RoutesTests(_DbCase):
         self.assertEqual(caught.exception.status_code, 404)
 
 
+class FixedSenderRoutesTests(_DbCase):
+    """The Sales Register always goes from the system email, whatever a request says."""
+    KEY = "rdc-sales-register-report"
+
+    def setUp(self):
+        super().setUp()
+        from app import security
+        from app.models import SystemEmailSettings
+        self.db.add(SystemEmailSettings(id=1, sender_email="no-reply@rdc.in", is_deleted=False,
+                                        app_password_encrypted=security.encrypt("sys-pass")))
+        self.db.commit()
+        router = report_mail_routes.make_report_mail_router(self.KEY, lambda *a: None, sender_choice=True)
+        self.endpoints = {(r.path, tuple(sorted(r.methods))): r.endpoint for r in router.routes}
+        patcher = patch.object(report_mail_routes.mailer_shared, "get_prefill_recipients",
+                               lambda db, key: {"to": ["a@rdc.in"], "cc": []})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def ep(self, path, method):
+        return self.endpoints[(path, (method,))]
+
+    def test_the_defaults_offer_no_choice_just_the_system_email(self):
+        result = self.ep("/mail/defaults", "GET")(self.db, USER)
+        self.assertTrue(result["sender_fixed"])
+        self.assertNotIn("sender_options", result)
+        self.assertEqual((result["sender_email"], result["sender_configured"]), ("no-reply@rdc.in", True))
+
+    def test_a_request_naming_another_sender_still_goes_from_the_system_email(self):
+        body = report_mail_routes.PreviewBody(to=["a@rdc.in"], subject="S", intro="Hi", sender="me")
+        with patch.object(report_mail_routes, "submit_job", return_value="job-1") as submit:
+            self.ep("/mail/preview", "POST")(body, USER, self.db)
+        self.assertEqual(submit.call_args.kwargs["sender"], "system")
+
+    def test_confirming_uses_the_system_email_even_if_the_preview_named_someone_else(self):
+        path = Path(tempfile.mkdtemp()) / "r.xlsx"
+        path.write_bytes(b"x")
+        result = {"status": "preview", "sender": "me", "to": ["a@rdc.in"], "cc": [],
+                  "messages": [{"subject": "S", "html_body": "<p>x</p>",
+                                "attachments": [{"path": str(path), "name": "r.xlsx", "bytes": 1}]}],
+                  "downloads": [], "detail": {}}
+        send = MagicMock()
+        with patch.object(report_mail_routes, "get_job", return_value={"status": "done", "result": result}), \
+                patch.object(report_mail_routes, "claim_job_action", return_value=("claimed", None)), \
+                patch.object(report_mail_routes, "finish_job_action", MagicMock()), \
+                patch.object(report_mail_routes.mailer_shared, "remember_recipients", lambda *args: None), \
+                patch.object(report_mail_routes.mailer_shared, "send_mail", send):
+            self.ep("/mail/confirm-send", "POST")(report_mail_routes.ConfirmBody(job_id="j"), USER, self.db)
+        kwargs = send.call_args.kwargs
+        self.assertEqual((kwargs["from_email"], kwargs["app_password"]), ("no-reply@rdc.in", "sys-pass"))
+
+
 if __name__ == "__main__":
     unittest.main()

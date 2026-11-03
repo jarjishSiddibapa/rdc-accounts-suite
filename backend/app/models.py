@@ -423,6 +423,13 @@ class ScheduledReportMail(Base):
     send_mode = Column(String(10), default="weekly", nullable=False, server_default="weekly")
     send_month_days = Column(String(100), nullable=True)
     send_times = Column(String(100), nullable=True)
+    # a second, independent schedule that can run alongside the days / times above: a mail every
+    # send_every_hours hours (2-23), day and night, the first at send_every_start. send_times_enabled
+    # switches the days / times schedule off for a report that is only sent every few hours.
+    send_times_enabled = Column(Boolean, default=True, nullable=False, server_default="1")
+    send_every_hours = Column(Integer, nullable=True)
+    send_every_start = Column(String(5), nullable=True)
+    last_every_slot = Column(String(16), nullable=True)  # "YYYY-MM-DD HH:MM" of the last every-few-hours slot started
 
     last_attempt_date = Column(Date, nullable=True)
     last_attempt_slot = Column(String(16), nullable=True)  # "YYYY-MM-DD HH:MM" of the last slot started

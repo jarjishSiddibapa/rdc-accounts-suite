@@ -19,6 +19,16 @@ interface LastRun {
 interface AutoMailSettings {
   enabled: boolean
   mode: 'weekly' | 'monthly'
+  /** The days / times schedule is on (it can be off for a report sent only every few hours). */
+  times_enabled: boolean
+  /** A second schedule that runs alongside the days / times: a mail every this many hours (2-23), day and night. */
+  every_hours: number | null
+  /** The time of day of the first every-few-hours mail. */
+  every_start: string | null
+  /** Whether "every few hours" is offered for this report. */
+  allow_hourly?: boolean
+  /** The sender is fixed to the system email and cannot be changed. */
+  sender_fixed?: boolean
   days: number[]
   month_days: number[]
   time: string
@@ -131,6 +141,10 @@ const EVERY_DAY = [0, 1, 2, 3, 4, 5, 6]
 
 type Repeat = 'daily' | 'weekly' | 'monthly'
 
+const MIN_EVERY_HOURS = 2
+const MAX_EVERY_HOURS = 23
+const EVERY_HOURS_CHOICES = Array.from({ length: MAX_EVERY_HOURS - MIN_EVERY_HOURS + 1 }, (_, index) => index + MIN_EVERY_HOURS)
+
 function repeatOf(settings: Pick<AutoMailSettings, 'mode' | 'days'>): Repeat {
   if (settings.mode === 'monthly') return 'monthly'
   return settings.days.length === EVERY_DAY.length ? 'daily' : 'weekly'
@@ -147,7 +161,29 @@ function listOf(items: string[]): string {
 }
 
 /** The schedule in a sentence, so what will happen is plain without reading the controls. */
+function describeEvery(settings: AutoMailSettings): string {
+  const start = settings.every_start
+  const hours = settings.every_hours
+  if (!start) return 'Choose the time of the first mail.'
+  if (!hours) return 'Choose how many hours apart the mails go out.'
+  const [hour, minute] = start.split(':').map(Number)
+  const shown = Math.min(Math.ceil(24 / hours), 6)
+  const clock = Array.from({ length: shown }, (_, index) => {
+    const total = hour * 60 + minute + index * hours * 60
+    const at = total % (24 * 60)
+    return clockTime(`${Math.floor(at / 60)}:${String(at % 60).padStart(2, '0')}`)
+  })
+  return `Every ${hours} hours, day and night, every day: ${clock.join(', ')}${shown < Math.ceil(24 / hours) ? ' and so on' : ''} (IST), starting at ${clockTime(start)}.`
+}
+
 function describeSchedule(settings: AutoMailSettings, repeat: Repeat): string {
+  const parts: string[] = []
+  if (settings.times_enabled || settings.every_hours === null) parts.push(describeTimes(settings, repeat))
+  if (settings.every_hours !== null) parts.push(describeEvery(settings))
+  return parts.join(' Also: ')
+}
+
+function describeTimes(settings: AutoMailSettings, repeat: Repeat): string {
   const times = [...settings.times].filter(Boolean).sort().map(clockTime)
   if (times.length === 0) return 'Choose at least one send time.'
   const at = `at ${listOf(times)} IST`
@@ -235,7 +271,7 @@ export function AutoMailCard({
   )
   const dirty = useMemo(() => {
     if (!saved || !current) return false
-    const keys = ['enabled', 'mode', 'days', 'month_days', 'times', 'to', 'cc', 'subject_template', 'intro_template', 'signature', 'send_when_unmapped', 'sender_user_id'] as const
+    const keys = ['enabled', 'mode', 'times_enabled', 'every_hours', 'every_start', 'days', 'month_days', 'times', 'to', 'cc', 'subject_template', 'intro_template', 'signature', 'send_when_unmapped', 'sender_user_id'] as const
     return keys.some((key) => JSON.stringify(saved[key]) !== JSON.stringify(current[key]))
   }, [saved, current])
 
@@ -275,6 +311,9 @@ export function AutoMailCard({
       const next = await put<AutoMailSettings>(`${baseUrl}/auto-mail`, {
         enabled: current.enabled,
         mode: current.mode,
+        times_enabled: current.times_enabled,
+        every_hours: current.every_hours,
+        every_start: current.every_hours === null ? null : (current.every_start ?? current.times[0] ?? current.time),
         days: current.days,
         month_days: current.month_days,
         time: [...current.times].sort()[0] ?? current.time,
@@ -326,6 +365,18 @@ export function AutoMailCard({
         </div>
       )}
 
+      {saved.sender_fixed ? (
+        <div className="flex flex-col gap-1.5 text-sm">
+          <span className="font-medium text-ink-dim">Sent from</span>
+          <span className="field-control cursor-not-allowed opacity-80" aria-readonly="true">
+            System email{saved.sender_email ? ` (${saved.sender_email})` : ' (not set up)'}
+          </span>
+          <span className="text-xs text-ink-faint">
+            This report always goes out from the system email. It cannot be changed here; an administrator
+            sets the account under Email administration.
+          </span>
+        </div>
+      ) : (
       <label className="flex flex-col gap-1.5 text-sm">
         <span className="font-medium text-ink-dim">Send the automatic mail from</span>
         <select
@@ -355,6 +406,7 @@ export function AutoMailCard({
           Email administration; the people listed have set up their own email under Settings.
         </span>
       </label>
+      )}
 
       <label className="flex items-center gap-3 text-sm font-medium text-ink">
         <input
@@ -366,6 +418,20 @@ export function AutoMailCard({
         Send this email automatically
       </label>
 
+      {saved.allow_hourly && (
+        <label className="flex items-center gap-3 text-sm font-medium text-ink">
+          <input
+            type="checkbox"
+            className="h-4 w-4 accent-accent"
+            checked={current.times_enabled}
+            onChange={(event) => update({ times_enabled: event.target.checked })}
+          />
+          Send at set times (daily, weekly or monthly)
+        </label>
+      )}
+
+      {current.times_enabled && (
+        <>
       <div className="flex flex-col gap-2">
         <span className="text-sm font-medium text-ink-dim">Repeat</span>
         <div className="segmented-control self-start">
@@ -508,6 +574,54 @@ export function AutoMailCard({
           )}
         </div>
       </div>
+
+        </>
+      )}
+
+      {saved.allow_hourly && (
+        <div className="flex flex-col gap-3">
+          <label className="flex items-center gap-3 text-sm font-medium text-ink">
+            <input
+              type="checkbox"
+              className="h-4 w-4 accent-accent"
+              checked={current.every_hours !== null}
+              onChange={(event) => update(event.target.checked
+                ? { every_hours: current.every_hours ?? 4, every_start: current.every_start ?? current.times[0] ?? current.time }
+                : { every_hours: null, every_start: null })}
+            />
+            Also send every few hours
+          </label>
+          {current.every_hours !== null && (
+            <div className="flex flex-wrap items-end gap-4">
+              <label className="flex flex-col gap-1.5 text-sm">
+                <span className="font-medium text-ink-dim">Send every</span>
+                <select
+                  className="field-control w-36"
+                  value={current.every_hours}
+                  onChange={(event) => update({ every_hours: Number(event.target.value) })}
+                >
+                  {EVERY_HOURS_CHOICES.map((hours) => (
+                    <option key={hours} value={hours}>{hours} hours</option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex flex-col gap-1.5 text-sm">
+                <span className="font-medium text-ink-dim">First mail at (IST)</span>
+                <input
+                  type="time"
+                  className="field-control w-36"
+                  value={current.every_start ?? ''}
+                  onChange={(event) => update({ every_start: event.target.value })}
+                />
+              </label>
+            </div>
+          )}
+          <p className="text-xs text-ink-faint">
+            Goes out every day, day and night, counting on from the first mail. It runs on its own, alongside
+            the set times above when those are on.
+          </p>
+        </div>
+      )}
 
       <p className="rounded-xl border border-stroke/60 bg-surface/50 px-3.5 py-2.5 text-sm text-ink">
         <span className="font-semibold">{current.enabled ? 'Schedule: ' : 'Schedule (automatic mail is off): '}</span>

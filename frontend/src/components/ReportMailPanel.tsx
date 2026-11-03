@@ -22,6 +22,9 @@ interface Defaults {
   /** Only where the application lets the person choose whom the mail goes from. */
   sender_options?: SenderOption[]
   sender?: string
+  /** The report always goes from the system email: no choice is offered. */
+  sender_fixed?: boolean
+  sender_problem?: string | null
 }
 
 interface SenderOption {
@@ -402,7 +405,20 @@ export function ReportMailPanel({
         )}
       </div>
 
-      {!defaults.sender_configured && !defaults.sender_options && (
+      {defaults.sender_fixed && (
+        <div className="flex flex-col gap-1.5 text-sm sm:max-w-md">
+          <span className="font-medium text-ink-dim">Send from</span>
+          <span className="field-control cursor-not-allowed opacity-80" aria-readonly="true">
+            System email{defaults.sender_email ? ` (${defaults.sender_email})` : ' (not set up)'}
+          </span>
+          <span className="text-xs text-ink-faint">
+            This report always goes out from the system email; it cannot be changed.
+            {!defaults.sender_configured && ` ${defaults.sender_problem ?? 'The system email is not set up yet.'}`}
+          </span>
+        </div>
+      )}
+
+      {!defaults.sender_configured && !defaults.sender_options && !defaults.sender_fixed && (
         <div className="flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
           <div className="flex flex-col gap-2 text-sm">
@@ -455,7 +471,7 @@ export function ReportMailPanel({
       </label>
 
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-end">
-        {defaults.sender_configured && !defaults.sender_options && (
+        {defaults.sender_configured && !defaults.sender_options && !defaults.sender_fixed && (
           <span className="text-xs text-ink-faint sm:mr-auto">Sends from {defaults.sender_email}</span>
         )}
         <Button

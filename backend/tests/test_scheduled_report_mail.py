@@ -182,6 +182,32 @@ class ScheduleTests(_DbCase):
         self.assertEqual(submit.call_args.kwargs["owner_id"], 0)
         self.assertEqual(self.row().last_attempt_date, dt.date(2026, 10, 19))
 
+    def test_an_every_few_hours_slot_and_a_daily_slot_due_together_make_one_mail_and_both_count(self):
+        row = self._enabled()
+        row.send_every_hours, row.send_every_start, row.last_every_slot = 4, "08:30", "2026-10-19 04:30"
+        self.db.commit()
+        with patch("app.services.scheduled_report_mail.now_ist", return_value=self.at(2026, 10, 19, 8, 31)), \
+                patch("app.jobs.submit_job", return_value="job-1") as submit:
+            self.assertEqual(mail.enqueue_due_checks(), [APP])
+            self.assertEqual(mail.enqueue_due_checks(), [])
+        self.assertEqual(submit.call_count, 1)
+        row = self.row()
+        self.assertEqual((row.last_attempt_slot, row.last_every_slot), ("2026-10-19 08:30", "2026-10-19 08:30"))
+
+    def test_the_every_few_hours_schedule_alone_starts_the_report_on_its_own_grid(self):
+        row = self._enabled()
+        row.send_times_enabled, row.send_every_hours = False, 4
+        row.send_every_start, row.last_every_slot = "09:00", "2026-10-19 09:00"
+        self.db.commit()
+        with patch("app.services.scheduled_report_mail.now_ist", return_value=self.at(2026, 10, 19, 12, 0)), \
+                patch("app.jobs.submit_job", return_value="job-1") as submit:
+            self.assertEqual(mail.enqueue_due_checks(), [])          # the daily slot is off, 13:00 is not yet
+        with patch("app.services.scheduled_report_mail.now_ist", return_value=self.at(2026, 10, 19, 13, 2)), \
+                patch("app.jobs.submit_job", return_value="job-2") as submit:
+            self.assertEqual(mail.enqueue_due_checks(), [APP])
+            self.assertEqual(mail.enqueue_due_checks(), [])
+        self.assertEqual(self.row().last_every_slot, "2026-10-19 13:00")
+
 
 class SendLogTests(_DbCase):
     """Every run leaves a log entry: when, who asked, to whom, what was sent."""

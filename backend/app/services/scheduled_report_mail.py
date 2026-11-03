@@ -71,6 +71,8 @@ class MailSpec:
     default_intro: str
     placeholders: tuple[str, ...]
     scheduled: bool = True      # False: only ever mailed by hand (preview, then confirm)
+    allow_hourly: bool = False  # offers "every N hours" as a repeat option
+    fixed_sender: bool = False  # always sent from the system email; nobody can choose another sender
 
 
 SPECS: dict[str, MailSpec] = {
@@ -121,6 +123,8 @@ SPECS: dict[str, MailSpec] = {
             "{rows} rows."
         ),
         placeholders=("date", "report", "period", "from_date", "to_date", "rows"),
+        allow_hourly=True,
+        fixed_sender=True,
     ),
     "ultrafine-cashflow": MailSpec(
         app_key="ultrafine-cashflow",
@@ -213,6 +217,51 @@ def _attempted_through(row) -> str:
     return ""
 
 
+MIN_EVERY_HOURS = 2
+MAX_EVERY_HOURS = 23
+_SLOT_FORMAT = "%Y-%m-%d %H:%M"
+
+
+def every_hours(row) -> int | None:
+    """The hours between the mails of the every-few-hours schedule (day and night, every day), or None
+    when that schedule is off. It runs alongside the days / times schedule, not instead of it."""
+    hours = getattr(row, "send_every_hours", None)
+    ok = isinstance(hours, int) and not isinstance(hours, bool) and MIN_EVERY_HOURS <= hours <= MAX_EVERY_HOURS
+    return hours if ok else None
+
+
+def times_enabled(row) -> bool:
+    """Whether the days / times schedule is on (it is off for a report that goes out only every few hours)."""
+    return getattr(row, "send_times_enabled", True) is not False
+
+
+def _every_start(row) -> str:
+    start = getattr(row, "send_every_start", None)
+    return start if start and _TIME_RE.fullmatch(start) else row.send_time
+
+
+def hourly_anchor(start_time: str, hours: int, now: datetime) -> str:
+    """The slot an every-few-hours schedule counts from when it is saved: the latest slot (the start time of
+    today, then every ``hours`` hours) not after ``now``. If today's start time is still to come it is the slot
+    before that, so the first mail is at the start time. Nothing goes out for it: it counts as done."""
+    now = now.replace(tzinfo=None)
+    hour, minute = (int(part) for part in start_time.split(":"))
+    start = datetime.combine(now.date(), dtime(hour, minute))
+    step = timedelta(hours=hours)
+    slot = start - step if start > now else start + ((now - start) // step) * step
+    return slot.strftime(_SLOT_FORMAT)
+
+
+def _hourly_slots(row, hours: int, now: datetime) -> tuple[datetime, datetime, datetime]:
+    """(the last slot started, the latest slot due at ``now`` or earlier, the first slot after that), counting
+    in steps of ``hours`` from the last slot started. The row must have one (saving the schedule sets it)."""
+    now = now.replace(tzinfo=None)
+    last = datetime.strptime(row.last_every_slot, _SLOT_FORMAT)
+    step = timedelta(hours=hours)
+    latest = last + max((now - last) // step, 0) * step
+    return last, latest, latest + step
+
+
 def validate_template(template: str, allowed: tuple[str, ...]) -> None:
     try:
         fields = {
@@ -285,6 +334,9 @@ def get_or_create_settings(db: Session, app_key: str) -> ScheduledReportMail:
         row.is_deleted = False
         db.commit()
     _retire_superseded_intro(db, row)
+    if spec.fixed_sender and row.sender_user_id is not None:
+        row.sender_user_id = None        # a sender chosen before it was fixed
+        db.commit()
     return row
 
 
@@ -297,11 +349,33 @@ def _utcnow() -> datetime:
 
 
 def next_run(row: ScheduledReportMail, now: datetime | None = None) -> datetime | None:
-    """When the next automatic mail is due (IST), or None when switched off."""
-    times = parse_times(row)
-    if not row.enabled or not times:
+    """When the next automatic mail is due (IST) - the sooner of the days / times schedule and the
+    every-few-hours one - or None when switched off."""
+    if not row.enabled:
         return None
     now = now or now_ist()
+    upcoming = [
+        run for run in (_next_clock_run(row, now) if times_enabled(row) else None, _next_every_run(row, now))
+        if run is not None
+    ]
+    return min(upcoming) if upcoming else None
+
+
+def _next_every_run(row, now: datetime) -> datetime | None:
+    hours = every_hours(row)
+    if not hours:
+        return None
+    if not row.last_every_slot:
+        return now                          # never anchored (saved before this schedule existed): due right away
+    last, latest, after = _hourly_slots(row, hours, now)
+    due = latest if latest > last else after
+    return max(due.replace(tzinfo=now.tzinfo), now)
+
+
+def _next_clock_run(row, now: datetime) -> datetime | None:
+    times = parse_times(row)
+    if not times:
+        return None
     done = _attempted_through(row)
     for offset in range(0, 100):
         day = now.date() + timedelta(days=offset)
@@ -463,6 +537,10 @@ def settings_view(db: Session, app_key: str) -> dict:
     return {
         "enabled": bool(row.enabled),
         "mode": row.send_mode or "weekly",
+        "allow_hourly": spec.allow_hourly,
+        "times_enabled": times_enabled(row),
+        "every_hours": every_hours(row),
+        "every_start": _every_start(row) if every_hours(row) else None,
         "days": parse_days(row.send_days),
         "month_days": parse_month_days(row.send_month_days),
         "time": row.send_time,
@@ -476,8 +554,9 @@ def settings_view(db: Session, app_key: str) -> dict:
         "placeholders": list(spec.placeholders),
         "default_subject": spec.default_subject,
         "default_intro": spec.default_intro,
+        "sender_fixed": spec.fixed_sender,
         "sender_user_id": row.sender_user_id,
-        "sender_options": sender_options(db),
+        "sender_options": [] if spec.fixed_sender else sender_options(db),
         "sender_email": sender["email"],
         "sender_configured": sender["configured"],
         "sender_problem": sender["problem"],
@@ -502,6 +581,18 @@ def save_settings(db: Session, app_key: str, data: dict) -> dict:
     mode = str(data.get("mode") or "weekly")
     if mode not in ("weekly", "monthly"):
         raise ValueError("Choose whether the mail goes out weekly or monthly")
+    # the days / times schedule and the every-few-hours one are independent: either, or both
+    on_times = data.get("times_enabled", True) is not False
+    hours = data.get("every_hours")
+    every_start = None
+    if hours is not None:
+        if not spec.allow_hourly:
+            raise ValueError("This report cannot be sent every few hours")
+        if isinstance(hours, bool) or not isinstance(hours, int) or not MIN_EVERY_HOURS <= hours <= MAX_EVERY_HOURS:
+            raise ValueError(f"Choose how often: every {MIN_EVERY_HOURS} to {MAX_EVERY_HOURS} hours")
+        every_start = str(data.get("every_start") or "").strip()
+        if not _TIME_RE.fullmatch(every_start):
+            raise ValueError("Enter the time of the first mail as HH:MM, for example 08:30")
     days = sorted({int(day) for day in data.get("days", []) if isinstance(day, int) and 0 <= day <= 6})
     month_days = sorted({
         int(day) for day in data.get("month_days") or []
@@ -515,9 +606,11 @@ def save_settings(db: Session, app_key: str, data: dict) -> dict:
         raise ValueError(f"At most {MAX_TIMES} send times a day")
     send_time = times[0]
     enabled = bool(data.get("enabled"))
-    if enabled and mode == "weekly" and not days:
+    if enabled and not on_times and hours is None:
+        raise ValueError("Turn on the days and times, or every few hours, or switch automatic mail off")
+    if enabled and on_times and mode == "weekly" and not days:
         raise ValueError("Pick at least one day of the week, or switch automatic mail off")
-    if enabled and mode == "monthly" and not month_days:
+    if enabled and on_times and mode == "monthly" and not month_days:
         raise ValueError("Pick at least one day of the month, or switch automatic mail off")
 
     subject = str(data.get("subject_template", "")).strip()
@@ -538,7 +631,8 @@ def save_settings(db: Session, app_key: str, data: dict) -> dict:
     if enabled and not to_list:
         raise ValueError("Add at least one To recipient, or switch automatic mail off")
 
-    raw_sender = data.get("sender_user_id")
+    # a report with a fixed sender always goes from the system email: whatever is sent here is ignored
+    raw_sender = None if spec.fixed_sender else data.get("sender_user_id")
     sender_user_id = None
     if raw_sender not in (None, ""):
         if isinstance(raw_sender, bool) or not isinstance(raw_sender, int):
@@ -562,6 +656,9 @@ def save_settings(db: Session, app_key: str, data: dict) -> dict:
     row.send_month_days = ",".join(str(day) for day in month_days) or None
     row.send_time = send_time
     row.send_times = ",".join(times) if len(times) > 1 else None
+    row.send_times_enabled = on_times
+    row.send_every_hours = hours
+    row.send_every_start = every_start
     row.subject_template = subject
     row.intro_template = intro
     row.signature = str(data.get("signature", "")).strip()
@@ -573,11 +670,13 @@ def save_settings(db: Session, app_key: str, data: dict) -> dict:
     if enabled and passed:
         row.last_attempt_date = now.date()
         row.last_attempt_slot = _slot_key(now.date(), max(passed))
+    if enabled and hours:
+        row.last_every_slot = hourly_anchor(every_start, hours, now)
     row.updated_at = datetime.utcnow()
     db.commit()
     audit_middleware.log_event("scheduled_mail.settings_saved", details={
         "app_key": app_key, "enabled": enabled, "mode": mode, "days": days, "month_days": month_days,
-        "times": times,
+        "times": times, "times_enabled": on_times, "every_hours": hours,
     })
     return settings_view(db, app_key)
 
@@ -616,7 +715,7 @@ def _claim_run(app_key: str, trigger: str, requested_by: str | None) -> dict | N
             "intro_template": row.intro_template,
             "signature": row.signature or "",
             "send_when_unmapped": bool(row.send_when_unmapped),
-            "sender_user_id": row.sender_user_id,
+            "sender_user_id": None if SPECS[app_key].fixed_sender else row.sender_user_id,
             "log_id": entry.id,
         }
     finally:
@@ -887,9 +986,9 @@ def _job_for(app_key: str):
 
 
 def due_slot(row: ScheduledReportMail, now: datetime) -> str | None:
-    """The latest slot of today that is due and not yet started, or None. If the
-    scheduler was down across several slots, the mail goes out once."""
-    if not row.enabled or row.is_deleted or not runs_on(row, now.date()):
+    """The latest slot of the days / times schedule due today and not yet started,
+    or None. If the scheduler was down across several slots, the mail goes out once."""
+    if not row.enabled or row.is_deleted or not times_enabled(row) or not runs_on(row, now.date()):
         return None
     done = _attempted_through(row)
     now_key = now.strftime("%Y-%m-%d %H:%M")
@@ -900,8 +999,20 @@ def due_slot(row: ScheduledReportMail, now: datetime) -> str | None:
     return max(due) if due else None
 
 
+def due_every_slot(row: ScheduledReportMail, now: datetime) -> str | None:
+    """The latest slot of the every-few-hours schedule that is due and not yet started, or None. It has no
+    days: it counts in steps of its hours from the last slot started, day and night."""
+    hours = every_hours(row)
+    if not row.enabled or row.is_deleted or not hours:
+        return None
+    if not row.last_every_slot:
+        return hourly_anchor(_every_start(row), hours, now)
+    last, latest, _ = _hourly_slots(row, hours, now)
+    return latest.strftime(_SLOT_FORMAT) if latest > last else None
+
+
 def due_now(row: ScheduledReportMail, now: datetime) -> bool:
-    return due_slot(row, now) is not None
+    return due_slot(row, now) is not None or due_every_slot(row, now) is not None
 
 
 def enqueue_due_checks() -> list[str]:
@@ -922,11 +1033,18 @@ def enqueue_due_checks() -> list[str]:
                 .first()
             )
             now = now_ist()
-            slot = due_slot(row, now) if row is not None else None
-            if slot is None:
+            if row is None:
                 continue
-            row.last_attempt_date = now.date()
-            row.last_attempt_slot = slot
+            slot = due_slot(row, now)
+            every_slot = due_every_slot(row, now)
+            if slot is None and every_slot is None:
+                continue
+            # both schedules can be due at once: one mail, and both count as started
+            if slot is not None:
+                row.last_attempt_date = now.date()
+                row.last_attempt_slot = slot
+            if every_slot is not None:
+                row.last_every_slot = every_slot
             db.commit()
         finally:
             db.close()

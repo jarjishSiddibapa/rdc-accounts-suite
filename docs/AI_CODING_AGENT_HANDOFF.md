@@ -929,7 +929,7 @@ value exactly as the ERP returns it, nothing converted. The columns, headings an
 order are those of the ERP report's RDC Sales Invoice Details RTF template
 (`report.TEMPLATE_COLUMNS`, 50 columns; the query columns the template does not
 use are left out, and Cust PAN Number is empty because the query returns no PAN). The
-period is month-to-date through yesterday; on days 2-5 of a month
+period is month-to-date through yesterday; on days 2-8 of a month
 (`report.PREVIOUS_MONTH_THROUGH_DAY`) the whole previous month is reported too, and
 ONE FILE PER MONTH: `get_report_periods` returns one period per calendar month (the
 previous month, then the month so far; only the previous month on the 1st), each is its own
@@ -937,7 +937,20 @@ query and its own file (a further sheet of the same file past Excel's row limit)
 never two months in one file. The month files go in one mail while together under
 `MAX_ATTACHMENT_BYTES`, else one mail each. Size ladder per file
 (`auto_mail.fit_in_one_file`): as is, compacted, `.xlsb`, then it stops with a
-message; a month is never split. The ERP connection is the
+message; a month is never split. SENDER IS FIXED: `MailSpec.fixed_sender` is True, so
+the report always goes from the system email (account 1, no-reply@rdc.in): saving
+ignores any `sender_user_id`, a stored one is cleared (`get_or_create_settings`) and
+ignored at run time, and `report_mail_routes` forces `sender="system"` for the manual
+preview and confirm; the page shows it read-only (`sender_fixed`). SCHEDULE: the
+usual days / times schedule (`send_mode` weekly or monthly) PLUS a second,
+independent every-few-hours schedule (`MailSpec.allow_hourly`; `send_every_hours` 2-23,
+`send_every_start`, `last_every_slot`, `send_times_enabled`, all added at startup):
+round the clock, every day, in steps of N hours from the last slot started
+(`hourly_anchor` sets it on save, so saving never fires a mail and the first mail is
+at `send_every_start`). Either, or both, can be on (`send_times_enabled` switches the
+days / times one off); `due_slot` and `due_every_slot` are checked separately, and
+if both are due at once `enqueue_due_checks` starts ONE job; `next_run` is the
+sooner of the two. Column headings: "IRN" (not "IRN Number"). The ERP connection is the
 shared `ORACLE_*` settings, no credentials in the code. The mail text and subject
 are configurable; no tables in the body.
 

@@ -27,6 +27,9 @@ from app.services import scheduled_report_mail as mail
 class AutoMailBody(BaseModel):
     enabled: bool
     mode: str = "weekly"                                   # "weekly" (days) or "monthly" (month_days)
+    times_enabled: bool = True                             # the days / times schedule is on
+    every_hours: int | None = None                         # a second schedule: a mail every this many hours (2-23)
+    every_start: str | None = None                         # ... the first one at this time of day
     days: list[int] = Field(default_factory=list)          # weekdays, 0 = Monday
     month_days: list[int] = Field(default_factory=list)    # days of the month, 0 = the last day
     time: str

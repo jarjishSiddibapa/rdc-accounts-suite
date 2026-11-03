@@ -34,7 +34,7 @@ export default function RdcSalesRegisterReport() {
               <p className="mt-1 text-sm leading-6 text-ink-dim">
                 The Accounts Sales Register straight from the ERP, laid out as the ERP&apos;s RDC Sales Invoice
                 Details report (same columns, headings and order), with every value exactly as the ERP holds it,
-                in Excel. It covers the first of the month through yesterday. On the first five days of a month
+                in Excel. It covers the first of the month through yesterday. Through the first eight days of a month
                 the whole previous month is included as well, each month as a file of its own (never two months
                 in one file). If a file is too large for an email it is written more compactly and, if needed,
                 as .xlsb; a month is never split into several files.
@@ -47,12 +47,12 @@ export default function RdcSalesRegisterReport() {
           baseUrl={BASE}
           reportName={REPORT_NAME}
           title="Mail this report now"
-          description="Fetches the register from the ERP and shows you the exact mail before anything is sent. Choose whom it goes from: your own email, the system email or another person."
+          description="Fetches the register from the ERP and shows you the exact mail before anything is sent. It always goes from the system email."
         />
 
         <SendNowCard
           baseUrl={BASE}
-          description="Runs the scheduled mail right away: it fetches the register and sends it to the saved recipients, from the sender chosen in the automatic mail settings, with the saved subject and text. It is recorded in the send log below like any scheduled mail. To review the mail first, or to choose a different sender, use Mail this report now above."
+          description="Runs the scheduled mail right away: it fetches the register and sends it to the saved recipients, from the system email, with the saved subject and text. It is recorded in the send log below like any scheduled mail. To review the mail first, use Mail this report now above."
           onFinished={() => setRefreshKey((key) => key + 1)}
         />
 

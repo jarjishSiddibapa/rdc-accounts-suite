@@ -27,8 +27,8 @@ class PeriodTests(unittest.TestCase):
     def test_a_normal_day_reports_the_month_so_far_through_yesterday(self):
         self.assertEqual(report.get_report_periods(date(2026, 10, 30)),
                          [("Current Month MTD", date(2026, 10, 1), date(2026, 10, 29))])
-        self.assertEqual(report.get_report_periods(date(2026, 10, 6)),
-                         [("Current Month MTD", date(2026, 10, 1), date(2026, 10, 5))])
+        self.assertEqual(report.get_report_periods(date(2026, 10, 9)),
+                         [("Current Month MTD", date(2026, 10, 1), date(2026, 10, 8))])
 
     def test_the_first_of_a_month_reports_the_whole_previous_month_and_nothing_else(self):
         self.assertEqual(report.get_report_periods(date(2026, 10, 1)),
@@ -38,7 +38,11 @@ class PeriodTests(unittest.TestCase):
         self.assertEqual(report.get_report_periods(date(2028, 3, 1)),
                          [("Previous Month", date(2028, 2, 1), date(2028, 2, 29))])
 
-    def test_through_the_fifth_the_previous_month_and_the_month_so_far_are_separate_periods(self):
+    def test_through_the_eighth_the_previous_month_and_the_month_so_far_are_separate_periods(self):
+        self.assertEqual(report.get_report_periods(date(2026, 10, 8)),
+                         [("Previous Month", date(2026, 9, 1), date(2026, 9, 30)),
+                          ("Current Month MTD", date(2026, 10, 1), date(2026, 10, 7))])
+        self.assertEqual(len(report.get_report_periods(date(2026, 10, 9))), 1)
         self.assertEqual(report.get_report_periods(date(2026, 11, 2)),
                          [("Previous Month", date(2026, 10, 1), date(2026, 10, 31)),
                           ("Current Month MTD", date(2026, 11, 1), date(2026, 11, 1))])
@@ -57,7 +61,7 @@ class PeriodTests(unittest.TestCase):
             for _, start, end in periods:
                 self.assertLessEqual(start, end)
                 self.assertEqual((start.year, start.month), (end.year, end.month))
-            self.assertEqual(len(periods), 2 if 2 <= day.day <= 5 else 1)
+            self.assertEqual(len(periods), 2 if 2 <= day.day <= 8 else 1)
             day += timedelta(days=1)
 
     def test_the_query_is_the_supplied_one_with_its_binds(self):
@@ -324,8 +328,8 @@ class MonthFilesTests(unittest.TestCase):
         self.assertIn("attached the RDC Sales Register Report files for 01-Oct-2026 to 01-Nov-2026", text)
 
     def test_later_in_the_month_it_is_one_file(self):
-        payload, built = self._build(date(2026, 11, 6))
-        self.assertEqual(built, [(date(2026, 11, 1), date(2026, 11, 5))])
+        payload, built = self._build(date(2026, 11, 9))
+        self.assertEqual(built, [(date(2026, 11, 1), date(2026, 11, 8))])
         self.assertEqual([len(g) for g in payload.attachment_groups], [1])
         self.assertEqual(payload.detail["attachment"], "complete workbook")
         text = mail.render_text(mail.SPECS[auto_mail.APP_KEY].default_intro, payload.values)
@@ -425,15 +429,16 @@ class SenderChoiceTests(_Db):
         self.assertEqual(mail.resolve_sender(self.db, mail.NO_REPLY_SENDER)["email"], "no-reply@rdc.in")
         self.assertEqual(mail.resolve_sender(self.db, None)["email"], "boss@rdc.in")   # untouched
 
-    def test_the_automatic_mail_can_be_saved_to_go_from_the_no_reply_address(self):
+    def test_an_automatic_mail_with_a_choosable_sender_can_be_saved_to_go_from_the_no_reply_address(self):
+        key = "gst-invoice-adder"      # the Sales Register itself is fixed to the system email
         data = {"enabled": False, "days": [0], "time": "08:30", "to": [], "cc": [],
                 "subject_template": "S {date}", "intro_template": "Hi {date}"}
         with patch.object(mail, "set_report_recipient_defaults"),                 patch.object(mail, "get_report_recipient_defaults", lambda db, key: {"to": [], "cc": []}),                 patch.object(mail.audit_middleware, "log_event"):
             with self.assertRaises(ValueError) as refused:
-                mail.save_settings(self.db, auto_mail.APP_KEY, {**data, "sender_user_id": mail.NO_REPLY_SENDER})
+                mail.save_settings(self.db, key, {**data, "sender_user_id": mail.NO_REPLY_SENDER})
             self.assertIn("no-reply", str(refused.exception))
             self.no_reply()
-            view = mail.save_settings(self.db, auto_mail.APP_KEY, {**data, "sender_user_id": mail.NO_REPLY_SENDER})
+            view = mail.save_settings(self.db, key, {**data, "sender_user_id": mail.NO_REPLY_SENDER})
         self.assertEqual(view["sender_user_id"], mail.NO_REPLY_SENDER)
         self.assertEqual(view["sender_email"], "no-reply@rdc.in")
         self.assertTrue(view["sender_configured"])
@@ -525,6 +530,65 @@ class ScheduleTests(unittest.TestCase):
         self.assertFalse(mail.runs_on(row, date(2026, 11, 30)))
         self.assertEqual(mail.next_run(row, self.at("2026-11-02 09:00")), self.at("2026-12-31 08:30"))
 
+    def every(self, **kw):
+        """A report with an every-4-hours schedule (first mail 09:00) as well as its days / times."""
+        return self.row(send_every_hours=4, send_every_start="09:00", last_every_slot="2026-10-30 09:00",
+                        last_attempt_slot="2026-10-30 08:30", **kw)
+
+    def test_every_few_hours_goes_out_round_the_clock_including_across_midnight(self):
+        row = self.every()
+        self.assertIsNone(mail.due_every_slot(row, self.at("2026-10-30 12:59")))
+        self.assertEqual(mail.due_every_slot(row, self.at("2026-10-30 13:00")), "2026-10-30 13:00")
+        row.last_every_slot = "2026-10-30 21:00"
+        self.assertIsNone(mail.due_every_slot(row, self.at("2026-10-31 00:59")))
+        self.assertEqual(mail.due_every_slot(row, self.at("2026-10-31 01:00")), "2026-10-31 01:00")
+
+    def test_every_few_hours_ignores_the_days_so_a_sunday_runs_too(self):
+        row = self.every(send_days="0")                                           # the days say Monday only
+        row.last_every_slot = "2026-11-01 05:00"                                  # a Sunday
+        self.assertEqual(mail.due_every_slot(row, self.at("2026-11-01 09:00")), "2026-11-01 09:00")
+        self.assertIsNone(mail.due_slot(row, self.at("2026-11-01 08:30")))        # the days / times one does not
+
+    def test_every_few_hours_after_downtime_goes_out_once_on_the_grid(self):
+        row = self.every()
+        self.assertEqual(mail.due_every_slot(row, self.at("2026-10-30 23:30")), "2026-10-30 21:00")
+        row.last_every_slot = "2026-10-30 21:00"
+        self.assertIsNone(mail.due_every_slot(row, self.at("2026-10-30 23:35")))
+
+    def test_the_daily_schedule_and_the_every_few_hours_one_run_side_by_side(self):
+        row = self.every(send_days="0,1,2,3,4,5,6", send_time="08:30")
+        row.last_attempt_slot = "2026-10-30 08:30"
+        now = self.at("2026-10-31 08:30")                                         # the daily slot, not an hourly one
+        self.assertEqual(mail.due_slot(row, now), "2026-10-31 08:30")
+        self.assertIsNone(mail.due_every_slot(row, self.at("2026-10-30 12:00")))
+        # next_run is the sooner of the two: the every-4-hours slot at 13:00 beats tomorrow's 08:30
+        self.assertEqual(mail.next_run(row, self.at("2026-10-30 10:00")), self.at("2026-10-30 13:00"))
+        row.last_every_slot = "2026-10-30 21:00"                                  # now the daily one is sooner
+        self.assertEqual(mail.next_run(row, self.at("2026-10-30 22:00")), self.at("2026-10-31 01:00"))
+        row.send_every_hours = 23
+        self.assertEqual(mail.next_run(row, self.at("2026-10-30 22:00")), self.at("2026-10-31 08:30"))
+
+    def test_the_days_and_times_can_be_off_leaving_only_every_few_hours(self):
+        row = self.every(send_times_enabled=False, send_days="0,1,2,3,4,5,6")
+        self.assertIsNone(mail.due_slot(row, self.at("2026-10-31 08:30")))
+        self.assertEqual(mail.next_run(row, self.at("2026-10-30 10:00")), self.at("2026-10-30 13:00"))
+        self.assertTrue(mail.due_now(row, self.at("2026-10-30 13:00")))
+        self.assertFalse(mail.due_now(row, self.at("2026-10-30 12:00")))
+
+    def test_every_few_hours_is_off_when_switched_off_or_with_a_bad_number_of_hours(self):
+        self.assertIsNone(mail.due_every_slot(self.every(enabled=False), self.at("2026-10-31 09:00")))
+        row = self.every()
+        row.send_every_hours = 1
+        self.assertIsNone(mail.every_hours(row))
+        self.assertIsNone(mail.due_every_slot(row, self.at("2026-10-31 09:00")))
+
+    def test_the_every_few_hours_anchor_counts_from_the_start_time_without_firing_anything(self):
+        anchor = mail.hourly_anchor
+        self.assertEqual(anchor("09:00", 4, self.at("2026-10-30 07:00")), "2026-10-30 05:00")   # next: 09:00
+        self.assertEqual(anchor("09:00", 4, self.at("2026-10-30 09:00")), "2026-10-30 09:00")
+        self.assertEqual(anchor("09:00", 4, self.at("2026-10-30 14:30")), "2026-10-30 13:00")   # next: 17:00
+        self.assertEqual(anchor("09:00", 23, self.at("2026-10-30 23:59")), "2026-10-30 09:00")
+
     def test_switched_off_or_no_days_is_never_due(self):
         self.assertIsNone(mail.next_run(self.row(enabled=False)))
         self.assertFalse(mail.due_now(self.row(enabled=False), self.at("2026-10-30 09:00")))
@@ -566,6 +630,72 @@ class SaveScheduleTests(_Db):
             self.save(times=[f"0{i}:00" for i in range(7)])
         with self.assertRaises(ValueError):
             self.save(mode="yearly")
+
+    def save_sales_register(self, **changes):
+        with patch.object(mail, "set_report_recipient_defaults"), \
+                patch.object(mail, "get_report_recipient_defaults", lambda db, key: {"to": ["a@rdc.in"], "cc": []}), \
+                patch.object(mail.audit_middleware, "log_event"), \
+                patch.object(mail, "now_ist", lambda: datetime(2026, 10, 30, 7, 0, tzinfo=IST)):
+            return mail.save_settings(self.db, auto_mail.APP_KEY, {**self.DATA, **changes})
+
+    def test_every_few_hours_is_saved_next_to_the_daily_schedule_and_starts_at_its_time(self):
+        view = self.save_sales_register(every_hours=6, every_start="08:30")
+        self.assertEqual((view["every_hours"], view["every_start"], view["allow_hourly"], view["times_enabled"]),
+                         (6, "08:30", True, True))
+        self.assertEqual((view["mode"], view["days"], view["times"]), ("weekly", [0, 4], ["08:30", "14:00"]))
+        row = mail.get_or_create_settings(self.db, auto_mail.APP_KEY)
+        self.assertEqual(row.last_every_slot, "2026-10-30 02:30")                  # next: 08:30
+        self.assertEqual(mail.next_run(row, datetime(2026, 10, 30, 7, 0, tzinfo=IST)),
+                         datetime(2026, 10, 30, 8, 30, tzinfo=IST))
+        self.assertEqual(mail.due_every_slot(row, datetime(2026, 10, 30, 8, 30, tzinfo=IST)), "2026-10-30 08:30")
+
+    def test_every_few_hours_can_be_the_only_schedule(self):
+        view = self.save_sales_register(times_enabled=False, days=[], every_hours=3, every_start="09:00")
+        self.assertEqual((view["times_enabled"], view["every_hours"]), (False, 3))
+        with self.assertRaises(ValueError):                      # nothing left to send on
+            self.save_sales_register(times_enabled=False, every_hours=None)
+        self.assertFalse(self.save_sales_register(times_enabled=False, every_hours=None, enabled=False)["enabled"])
+
+    def test_every_n_hours_is_limited_to_2_through_23_and_needs_a_start_time(self):
+        for bad in (1, 0, 24, 5.5, "4", True):
+            with self.assertRaises(ValueError):
+                self.save_sales_register(every_hours=bad, every_start="09:00")
+        with self.assertRaises(ValueError):
+            self.save_sales_register(every_hours=4, every_start="")
+        with self.assertRaises(ValueError):
+            self.save_sales_register(every_hours=4, every_start="25:00")
+        for good in (2, 23):
+            self.assertEqual(self.save_sales_register(every_hours=good, every_start="09:00")["every_hours"], good)
+        view = self.save_sales_register(every_hours=None)
+        self.assertEqual((view["every_hours"], view["every_start"]), (None, None))
+
+    def test_the_sales_register_sender_is_always_the_system_email(self):
+        self.person("asha@rdc.in", "Asha", "asha@gmail.com", "pw")
+        self.db.add(SystemEmailSettings(id=2, sender_email="no-reply@rdc.in", is_deleted=False,
+                                        app_password_encrypted=security.encrypt("nr")))
+        self.db.commit()
+        for choice in (mail.NO_REPLY_SENDER, 1, None):
+            view = self.save_sales_register(sender_user_id=choice)
+            self.assertIsNone(view["sender_user_id"])
+            self.assertTrue(view["sender_fixed"])
+            self.assertEqual(view["sender_options"], [])
+        # one that was chosen before the sender was fixed is cleared, and a scheduled run ignores it
+        row = mail.get_or_create_settings(self.db, auto_mail.APP_KEY)
+        row.sender_user_id = mail.NO_REPLY_SENDER
+        self.db.commit()
+        with patch.object(mail, "get_report_recipient_defaults", lambda db, key: {"to": [], "cc": []}):
+            self.assertIsNone(mail.settings_view(self.db, auto_mail.APP_KEY)["sender_user_id"])
+
+    def test_other_reports_still_let_the_sender_be_chosen(self):
+        self.assertFalse(mail.SPECS["gst-invoice-adder"].fixed_sender)
+        self.assertFalse(self.save()["sender_fixed"])
+
+    def test_only_the_sales_register_offers_every_few_hours(self):
+        with self.assertRaises(ValueError):
+            self.save(every_hours=4, every_start="09:00")
+        self.assertFalse(self.save()["allow_hourly"])
+        with self.assertRaises(ValueError):
+            self.save(mode="hourly")
 
     def test_saving_after_a_slot_has_passed_does_not_fire_it_but_a_later_slot_still_will(self):
         with patch.object(mail, "set_report_recipient_defaults"), \

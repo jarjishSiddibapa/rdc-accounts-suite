@@ -236,6 +236,10 @@ def _apply_additive_schema_updates() -> None:
             ("send_month_days", "VARCHAR(100) NULL"),
             ("send_times", "VARCHAR(100) NULL"),
             ("last_attempt_slot", "VARCHAR(16) NULL"),
+            ("send_times_enabled", "BOOLEAN NOT NULL DEFAULT TRUE"),
+            ("send_every_hours", "INT NULL"),
+            ("send_every_start", "VARCHAR(5) NULL"),
+            ("last_every_slot", "VARCHAR(16) NULL"),
         ):
             if column not in report_mail_columns:
                 with engine.begin() as connection:

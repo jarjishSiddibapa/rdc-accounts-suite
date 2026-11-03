@@ -41,7 +41,7 @@ _UNWRITABLE = re.compile("[\ud800-\udfff￾￿]")
 
 
 # the previous month stays in the report through this day of the new month (inclusive)
-PREVIOUS_MONTH_THROUGH_DAY = 5
+PREVIOUS_MONTH_THROUGH_DAY = 8
 
 
 # The columns of the ERP report, as its RDC Sales Invoice Details template
@@ -61,7 +61,7 @@ TEMPLATE_COLUMNS = [
     ("TRANSACTION_NAME", "Transaction Name"),
     ("DOCUMENT_NUMBER", "Document Number"),
     ("REFERENCE", "Reference / SALES ORDER"),
-    ("IRN_NUMBER", "IRN Number"),
+    ("IRN_NUMBER", "IRN"),
     ("ACKN_NUMBER", "Acknowledgement Number"),
     ("ACKN_DATE", "Acknowledgement Date"),
     ("EWBILL", "E-Way BillNumber"),

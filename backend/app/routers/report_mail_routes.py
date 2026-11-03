@@ -80,6 +80,7 @@ def make_report_mail_router(app_key: str, preview_job, per_month: bool = False,
     person's); otherwise it always goes from their own."""
     router = APIRouter(prefix="/mail")
     spec = mail.SPECS[app_key]
+    fixed_sender = sender_choice and spec.fixed_sender      # always the system email, whatever the request says
 
     @router.get("/defaults")
     def get_defaults(db: Session = Depends(get_db), user=Depends(get_current_user)):
@@ -96,7 +97,14 @@ def make_report_mail_router(app_key: str, preview_job, per_month: bool = False,
             "sender_configured": sender["configured"],
             "sender_email": sender["email"],
         }
-        if sender_choice:
+        if fixed_sender:
+            # no choice: always the system email
+            system = mail.resolve_manual_sender(db, "system", user.id)
+            defaults.update({
+                "sender_fixed": True, "sender_configured": system["configured"],
+                "sender_email": system["email"], "sender_problem": system["problem"],
+            })
+        elif sender_choice:
             options = mail.manual_sender_options(db, user)
             usable = {option["value"] for option in options if option["configured"]}
             defaults["sender_options"] = options
@@ -106,6 +114,8 @@ def make_report_mail_router(app_key: str, preview_job, per_month: bool = False,
 
     @router.post("/preview")
     def start_preview(body: PreviewBody, user=Depends(get_current_user), db: Session = Depends(get_db)):
+        if fixed_sender:
+            body.sender = "system"
         if sender_choice:
             identity = mail.resolve_manual_sender(db, body.sender, user.id)
             if not identity["configured"]:
@@ -156,7 +166,7 @@ def make_report_mail_router(app_key: str, preview_job, per_month: bool = False,
         result = _finished_preview(body.job_id, user)
         if sender_choice:
             # the sender that was previewed (what the person saw as "From") is the one that sends
-            sender = mail.resolve_manual_sender(db, result.get("sender"), user.id)
+            sender = mail.resolve_manual_sender(db, "system" if fixed_sender else result.get("sender"), user.id)
             if not sender["configured"]:
                 raise HTTPException(status_code=400, detail=sender["problem"] or _NOT_CONFIGURED)
         else:
