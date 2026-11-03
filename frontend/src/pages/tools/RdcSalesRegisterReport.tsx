@@ -10,9 +10,10 @@ const BASE = '/tools/rdc-sales-register-report'
 const REPORT_NAME = 'RDC Sales Register Report'
 
 /**
- * Administrators only. The Accounts Sales Register is fetched from the ERP
- * exactly as it is, written to one Excel file and mailed: by hand (with a
- * preview and a choice of whom it goes from) or automatically on a schedule.
+ * The Accounts Sales Register is fetched from the ERP exactly as it is,
+ * written to one Excel file per month and mailed from the system email: by
+ * hand (with a preview) or automatically on a schedule. Anyone granted the
+ * application sets the schedule, frequency and recipients.
  */
 export default function RdcSalesRegisterReport() {
   // bumped when a send-now run finishes, so the settings card reloads its last run and send log

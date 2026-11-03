@@ -1,4 +1,4 @@
-"""Admin routes for an application's automatic report mail.
+"""Routes for an application's automatic report mail (administrators by default).
 
 ``make_auto_mail_router`` is included into each application's own router, so
 the routes live under that application (for example
@@ -9,8 +9,8 @@ the routes live under that application (for example
   GET  /auto-mail/log        - the send history, newest first (paged).
   POST /auto-mail/send-now   - only where the application passes ``run_job``.
 
-Administrators only: this controls mail that goes out on its own. Mailing a
-report by hand (preview first, then send) is in report_mail_routes.py.
+Administrators only unless the application passes ``access``: this controls
+mail that goes out on its own. Mailing a report by hand (preview first, then send) is in report_mail_routes.py.
 """
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -43,12 +43,16 @@ class AutoMailBody(BaseModel):
     sender_user_id: int | None = None   # whose own email sends it; None = the system email
 
 
-def make_auto_mail_router(app_key: str, run_job=None) -> APIRouter:
+def make_auto_mail_router(app_key: str, run_job=None, access=require_admin) -> APIRouter:
     """``run_job`` (optional): the application's automatic-mail job, which adds
     ``POST /auto-mail/send-now`` - the automatic mail run right now, with the
     saved settings, recipients and sender, logged like a
-    scheduled run."""
-    router = APIRouter(prefix="/auto-mail", dependencies=[Depends(require_admin)])
+    scheduled run.
+
+    ``access`` is who may use the routes: administrators, unless the
+    application passes its own permission (``require_app_access``) so everyone
+    granted that application can manage its automatic mail."""
+    router = APIRouter(prefix="/auto-mail", dependencies=[Depends(access)])
 
     @router.get("")
     def get_settings(db: Session = Depends(get_db)):
@@ -68,7 +72,7 @@ def make_auto_mail_router(app_key: str, run_job=None) -> APIRouter:
 
     if run_job is not None:
         @router.post("/send-now")
-        def send_now(user: User = Depends(require_admin)):
+        def send_now(user: User = Depends(access)):
             job_id = submit_job(run_job, "manual", user.email, owner_id=user.id, cancel_on_disconnect=False)
             return {"job_id": job_id}
 

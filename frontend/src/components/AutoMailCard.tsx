@@ -203,7 +203,8 @@ function splitEmails(value: string): string[] {
 }
 
 /**
- * Administrator-only controls for an application's automatic report mail:
+ * Controls for an application's automatic report mail (who may use them is
+ * decided by the application's routes):
  * the weekdays and time it goes out, who receives it, the wording, and an
  * send history. The server does the scheduling; this only edits the settings
  * and shows what happened. Mailing a report by hand, with a preview first, is
@@ -344,7 +345,7 @@ export function AutoMailCard({
           <Mail className="h-5 w-5" />
         </span>
         <div>
-          <p className="text-sm font-semibold text-accent">Administrator</p>
+          <p className="text-sm font-semibold text-accent">Schedule</p>
           <h2 className="mt-1.5 font-display text-xl font-semibold tracking-[-0.025em] text-ink">
             Automatic email
           </h2>

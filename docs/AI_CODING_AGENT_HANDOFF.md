@@ -919,9 +919,10 @@ send log (`scheduled_report_mail*`), a preview-then-send panel, and an admin
 resource allowance.
 
 **RDC Sales Register Report** (`rdc-sales-register-report`,
-`app/services/sales_register/`, `app/routers/rdc_sales_register.py`): ADMIN ONLY
-(`permissions.ADMIN_ONLY_APP_KEYS`: never granted to a regular user, not listed
-in the permissions picker, router behind `require_admin`). The Accounts Sales
+`app/services/sales_register/`, `app/routers/rdc_sales_register.py`): granted like any
+application (router behind `require_app_access`; everyone granted it also
+manages the schedule, frequency and recipients - `make_auto_mail_router(...,
+access=require_app_access(APP_KEY))`; other apps' auto-mail stays admin-only). The Accounts Sales
 Register query (`sql.py`, verbatim; org 102 fixed; the date predicate takes an
 exclusive midnight after the end date) is streamed from the ERP straight into
 one xlsxwriter workbook (`report.build_workbook`, run on the CPU pool): every

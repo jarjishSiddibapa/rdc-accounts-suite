@@ -77,10 +77,6 @@ REPORT_RECIPIENT_APP_KEYS = {
 }
 
 
-# Applications only an administrator may open: they are never granted to a regular user (not listed
-# for granting, and ignored if a stored list holds one).
-ADMIN_ONLY_APP_KEYS = {"rdc-sales-register-report"}
-
 
 def parse_allowed_apps(user: User) -> list[str]:
     """Return explicitly granted app keys, failing closed for invalid data."""
@@ -92,7 +88,7 @@ def parse_allowed_apps(user: User) -> list[str]:
         return []
     if not isinstance(value, list):
         return []
-    return [key for key in value if isinstance(key, str) and key in APP_KEYS and key not in ADMIN_ONLY_APP_KEYS]
+    return [key for key in value if isinstance(key, str) and key in APP_KEYS]
 
 
 def user_has_app_access(user: User, app_key: str) -> bool:

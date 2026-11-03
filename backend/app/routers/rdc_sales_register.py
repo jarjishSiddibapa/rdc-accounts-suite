@@ -1,21 +1,21 @@
-"""RDC Sales Register Report routes (administrators only).
+"""RDC Sales Register Report routes (administrators and the users granted the application).
 
 The Accounts Sales Register is fetched from the ERP as it is, written to one
 Excel file and mailed (see app.services.sales_register.auto_mail):
 
-  /auto-mail/...   - schedule (weekly or monthly, several times a day),
-                     recipients, who sends it, wording, the send log, "send now".
-  /mail/...        - preview the mail, then send it from the chosen sender
-                     (the signed-in person's own email, the system email or
-                     another person's).
+  /auto-mail/...   - schedule (weekly or monthly, several times a day, and every
+                     few hours), recipients, wording, the send log, "send now".
+  /mail/...        - preview the mail, then send it.
+  Everything goes from the system email; nobody can choose another sender.
   /jobs/{id}       - poll / cancel the background jobs above.
 """
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from app.auth import get_current_user, require_admin
+from app.auth import get_current_user
 from app.jobs import cancel_job, get_job
 from app.models import User
+from app.permissions import require_app_access
 from app.routers.auto_mail_routes import make_auto_mail_router
 from app.routers.report_mail_routes import make_report_mail_router
 from app.services.sales_register import auto_mail
@@ -24,10 +24,11 @@ APP_KEY = auto_mail.APP_KEY
 
 router = APIRouter(
     prefix=f"/api/tools/{APP_KEY}", tags=[APP_KEY],
-    dependencies=[Depends(require_admin)],
+    dependencies=[Depends(require_app_access(APP_KEY))],
 )
 
-router.include_router(make_auto_mail_router(APP_KEY, run_job=auto_mail.run_auto_mail_job))
+router.include_router(make_auto_mail_router(APP_KEY, run_job=auto_mail.run_auto_mail_job,
+                                            access=require_app_access(APP_KEY)))
 router.include_router(make_report_mail_router(APP_KEY, auto_mail.run_preview_job, sender_choice=True))
 
 

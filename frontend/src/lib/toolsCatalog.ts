@@ -204,7 +204,7 @@ export const TOOLS_CATALOG: ToolCatalogEntry[] = [
   {
     to: '/tools/rdc-sales-register-report',
     title: 'RDC Sales Register Report',
-    description: 'The Accounts Sales Register exactly as it is in the ERP, mailed as one Excel file by hand or on a schedule. Administrators only.',
+    description: 'The Accounts Sales Register exactly as it is in the ERP, mailed as an Excel file per month, by hand or on a schedule.',
     icon: ReceiptText,
     appKey: 'rdc-sales-register-report',
     category: 'Sales reporting',

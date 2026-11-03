@@ -1,6 +1,6 @@
 """RDC Sales Register Report: the reporting period, the workbook written exactly
-as the ERP returned the rows, one file per month, admin-only access, and the
-richer schedule and sender choice it comes with."""
+as the ERP returned the rows, one file per month, access by permission, and the
+richer schedule and fixed sender it comes with."""
 
 import tempfile
 import unittest
@@ -346,7 +346,7 @@ class MonthFilesTests(unittest.TestCase):
         self.assertEqual([len(g) for g in payload.attachment_groups], [1, 1])
 
 
-class AdminOnlyTests(unittest.TestCase):
+class AccessTests(unittest.TestCase):
     KEY = "rdc-sales-register-report"
 
     def test_it_is_a_registered_application_for_the_report_mail(self):
@@ -359,11 +359,51 @@ class AdminOnlyTests(unittest.TestCase):
         mail.validate_template(spec.default_intro, spec.placeholders)
         self.assertIs(mail._job_for(self.KEY), auto_mail.run_auto_mail_job)
 
-    def test_only_an_administrator_can_use_it_even_if_it_was_granted(self):
-        regular = SimpleNamespace(role="user", allowed_apps='["%s", "gst-invoice-adder"]' % self.KEY)
-        self.assertEqual(permissions.parse_allowed_apps(regular), ["gst-invoice-adder"])
-        self.assertFalse(permissions.user_has_app_access(regular, self.KEY))
+    def test_a_regular_user_can_use_it_when_granted_and_only_then(self):
+        granted = SimpleNamespace(role="user", allowed_apps='["%s", "gst-invoice-adder"]' % self.KEY)
+        self.assertEqual(permissions.parse_allowed_apps(granted), [self.KEY, "gst-invoice-adder"])
+        self.assertTrue(permissions.user_has_app_access(granted, self.KEY))
+        other = SimpleNamespace(role="user", allowed_apps='["gst-invoice-adder"]')
+        self.assertFalse(permissions.user_has_app_access(other, self.KEY))
         self.assertTrue(permissions.user_has_app_access(SimpleNamespace(role="admin", allowed_apps=None), self.KEY))
+
+    def test_everything_under_it_follows_its_permission_not_admin_only(self):
+        from fastapi import FastAPI
+        import asyncio
+        from app import auth
+        from app.routers import rdc_sales_register as routes
+        app = FastAPI()
+        app.include_router(routes.router)
+        base = f"/api/tools/{self.KEY}"
+        user = SimpleNamespace(role="user", allowed_apps='["%s"]' % self.KEY)
+        app.dependency_overrides[auth.get_current_user] = lambda: user
+
+        def status(method, path):
+            sent = []
+
+            async def receive():
+                return {"type": "http.request", "body": b"{}", "more_body": False}
+
+            async def send(message):
+                sent.append(message)
+
+            scope = {"type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1", "method": method,
+                     "path": base + path, "raw_path": (base + path).encode(), "query_string": b"",
+                     "headers": [(b"content-type", b"application/json")], "server": ("test", 80),
+                     "client": ("test", 1), "scheme": "http", "root_path": ""}
+            try:
+                asyncio.run(app(scope, receive, send))
+            except Exception:                    # past the permission check, the database is not there
+                return None
+            return next(m["status"] for m in sent if m["type"] == "http.response.start")
+
+        calls = (("GET", "/auto-mail"), ("GET", "/auto-mail/log"), ("PUT", "/auto-mail"),
+                 ("POST", "/auto-mail/send-now"), ("GET", "/mail/defaults"))
+        for method, path in calls:               # granted: not refused
+            self.assertNotEqual(status(method, path), 403, (method, path))
+        user.allowed_apps = '["gst-invoice-adder"]'                      # not granted: refused everywhere
+        for method, path in calls:
+            self.assertEqual(status(method, path), 403, (method, path))
 
     def test_its_jobs_are_allowed_and_share_the_oracle_allowance(self):
         from app import jobs
