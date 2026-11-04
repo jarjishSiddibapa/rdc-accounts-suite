@@ -108,7 +108,7 @@
     font-feature-settings: "kern" 1, "liga" 1, "calt" 1;
     font-variant: normal;
     font-synthesis: none;
-    overflow-x: hidden;
+    overflow-x: clip;
     transition:
       background-color 0.3s ease,
       color 0.3s ease;
@@ -245,6 +245,12 @@
     box-shadow:
       0 0 0 4px color-mix(in oklab, var(--color-accent) 12%, transparent),
       0 8px 24px -18px color-mix(in oklab, var(--color-accent) 48%, transparent);
+  }
+
+  /* The soft glow above is easy to miss; keyboard focus also gets a real outline. */
+  .field-control:focus-visible {
+    outline: 2px solid color-mix(in oklab, var(--color-accent) 70%, transparent);
+    outline-offset: 1px;
   }
 
   /* One size for every text control. Search boxes, date pickers and some
@@ -816,6 +822,11 @@
     box-shadow:
       inset 0 1px 0 rgba(255, 255, 255, 0.22),
       0 14px 26px -18px color-mix(in oklab, var(--color-accent) 72%, transparent);
+  }
+
+  /* The dark accent is a light lavender; the near-white glyph on it was 2.2:1. */
+  [data-theme="dark"] .tool-card--featured .tool-card-icon {
+    color: var(--color-bg);
   }
 
   .group:hover .tool-card--featured {

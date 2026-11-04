@@ -177,7 +177,7 @@ export function ProgressPanel<TResult = unknown>({
       <div className="h-2.5 w-full overflow-hidden rounded-full border border-border/70 bg-bg-soft shadow-inner">
         <div
           className={cn(
-            'h-full rounded-full transition-all duration-300',
+            'h-full rounded-full transition-[width,background-color] duration-300',
             job.status === 'error' || job.status === 'cancelled'
               ? 'bg-red-500'
               : 'progress-shimmer bg-accent',

@@ -1,5 +1,10 @@
 """Login / logout / current-user routes."""
 
+import functools
+import logging
+import socket
+from urllib.parse import urlsplit
+
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, field_validator
 from sqlalchemy.orm import Session
@@ -12,6 +17,35 @@ from app.rate_limit import auth_limiter
 from app.validation import MAX_PASSWORD_BYTES, normalize_email, validate_password
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
+logger = logging.getLogger(__name__)
+
+
+@functools.lru_cache(maxsize=1)
+def _own_host_names() -> frozenset[str]:
+    """The names and addresses this server answers to."""
+    names = {"localhost", "127.0.0.1", "::1"}
+    try:
+        host = socket.gethostname()
+        names.update({host.lower(), socket.getfqdn().lower()})
+        names.update(info[4][0].lower() for info in socket.getaddrinfo(host, None))
+    except OSError:
+        pass
+    return frozenset(names)
+
+
+def _reset_link_base(request: Request) -> str | None:
+    """Where a password-reset link points. APP_BASE_URL when it is set. Otherwise the address the request
+    came to, but only if it is one of this server's own: the Host header is sent by the client, and a link
+    built from a forged one would carry the reset token to a server of the sender's choosing."""
+    if config.APP_BASE_URL:
+        return config.APP_BASE_URL
+    try:
+        host = urlsplit("//" + request.headers.get("host", "")).hostname
+    except ValueError:
+        return None
+    if host is None or host.lower() not in _own_host_names():
+        return None
+    return str(request.base_url).rstrip("/")
 
 
 class LoginBody(BaseModel):
@@ -80,7 +114,10 @@ def login(body: LoginBody, request: Request, response: Response, db: Session = D
         .filter(User.email == body.email, User.is_deleted == False)  # noqa: E712
         .first()
     )
-    if user is None or not auth.verify_password(body.password, user.password_hash):
+    if user is None:
+        auth.spend_password_check_time(body.password)
+        raise HTTPException(status_code=401, detail="Invalid email or password")
+    if not auth.verify_password(body.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid email or password")
     if not user.is_active:
         raise HTTPException(
@@ -124,10 +161,15 @@ def forgot_password(body: ForgotPasswordBody, request: Request, db: Session = De
         .first()
     )
     if user is not None and user.is_active:
-        token = auth.create_reset_token(user)
-        base_url = config.APP_BASE_URL or str(request.base_url).rstrip("/")
-        reset_link = f"{base_url}/reset-password?token={token}"
-        system_mailer.send_password_reset_email(db, user.email, reset_link)
+        base_url = _reset_link_base(request)
+        if base_url is None:
+            logger.warning(
+                "Password reset email not sent: the request's Host header %r is not this server's own name or "
+                "address. Set APP_BASE_URL in .env to the address users open.", request.headers.get("host"),
+            )
+        else:
+            token = auth.create_reset_token(user)
+            system_mailer.send_password_reset_email(db, user.email, f"{base_url}/reset-password?token={token}")
     return {"message": "If that email has an account, a reset link has been sent."}
 
 

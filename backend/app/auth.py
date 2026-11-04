@@ -37,6 +37,15 @@ def verify_password(password: str, hashed: str) -> bool:
         return False
 
 
+# A hash no password matches, checked when the email is unknown so that a wrong email takes as long
+# to refuse as a wrong password and the response time does not reveal which addresses have accounts.
+_UNKNOWN_ACCOUNT_HASH = bcrypt.hashpw(b"no account has this password", bcrypt.gensalt()).decode("utf-8")
+
+
+def spend_password_check_time(password: str) -> None:
+    verify_password(password, _UNKNOWN_ACCOUNT_HASH)
+
+
 # Reuse the same persisted key file that security.py uses for Fernet
 # encryption as a stable, non-committed secret for signing session cookies
 # (and, with a different salt, password-reset tokens).
