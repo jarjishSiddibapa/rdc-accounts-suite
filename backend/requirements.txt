@@ -12,7 +12,7 @@ pandas
 lxml
 html5lib
 openpyxl
-xlsxwriter
+xlsxwriter==3.2.9
 xlrd
 pyxlsb
 oracledb
