@@ -368,14 +368,22 @@ class AccessTests(unittest.TestCase):
         self.assertTrue(permissions.user_has_app_access(SimpleNamespace(role="admin", allowed_apps=None), self.KEY))
 
     def test_everything_under_it_follows_its_permission_not_admin_only(self):
+        from app.routers import rdc_sales_register as routes
+        self.assert_follows_permission(self.KEY, routes)
+
+    def test_the_other_fixed_sender_mailers_follow_their_permission_too(self):
+        from app.routers import debtors_mailer, unidentified_entries
+        self.assert_follows_permission("debtors-reports-auto-mailer", debtors_mailer)
+        self.assert_follows_permission("unidentified-entries", unidentified_entries)
+
+    def assert_follows_permission(self, key, routes):
         from fastapi import FastAPI
         import asyncio
         from app import auth
-        from app.routers import rdc_sales_register as routes
         app = FastAPI()
         app.include_router(routes.router)
-        base = f"/api/tools/{self.KEY}"
-        user = SimpleNamespace(role="user", allowed_apps='["%s"]' % self.KEY)
+        base = f"/api/tools/{key}"
+        user = SimpleNamespace(role="user", allowed_apps='["%s"]' % key)
         app.dependency_overrides[auth.get_current_user] = lambda: user
 
         def status(method, path):

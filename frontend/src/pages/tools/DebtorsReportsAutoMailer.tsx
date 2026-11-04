@@ -8,7 +8,6 @@ import { LoadingNotice } from '@/components/LoadingNotice'
 import { AutoMailCard } from '@/components/AutoMailCard'
 import { SendNowCard } from '@/components/SendNowCard'
 import { ReportMailPanel, type MappingFix } from '@/components/ReportMailPanel'
-import { useAuth } from '@/lib/auth-context'
 import { ApiError, del, get, post, put } from '@/lib/api'
 import { segmentClass } from '@/utils/segment'
 
@@ -126,8 +125,6 @@ function MappingSection({ config }: { config: MappingConfig }) {
 // ── page ─────────────────────────────────────────────────────────────────
 
 export default function DebtorsReportsAutoMailer() {
-  const { user } = useAuth()
-  const isAdmin = user?.role === 'admin'
   const [activeMappingTab, setActiveMappingTab] = useState(0)
   // bumped when a send-now run finishes, so the settings card reloads its last run and send log
   const [refreshKey, setRefreshKey] = useState(0)
@@ -164,15 +161,13 @@ export default function DebtorsReportsAutoMailer() {
           mappingFixes={MAIL_MAPPING_FIXES}
         />
 
-        {isAdmin && (
-          <SendNowCard
-            baseUrl={BASE}
-            description="Runs the scheduled mail right away: it builds the three reports and sends them to the saved recipients, from the system email, with the saved subject and text. It is recorded in the send log below like any scheduled mail. To review the mail first, use Mail this report above."
-            onFinished={() => setRefreshKey((key) => key + 1)}
-          />
-        )}
+        <SendNowCard
+          baseUrl={BASE}
+          description="Runs the scheduled mail right away: it builds the three reports and sends them to the saved recipients, from the system email, with the saved subject and text. It is recorded in the send log below like any scheduled mail. To review the mail first, use Mail this report above."
+          onFinished={() => setRefreshKey((key) => key + 1)}
+        />
 
-        {isAdmin && <AutoMailCard key={refreshKey} baseUrl={BASE} reportName={REPORT_NAME} />}
+        <AutoMailCard key={refreshKey} baseUrl={BASE} reportName={REPORT_NAME} />
 
         <GlassCard padding="lg" className="flex flex-col gap-5">
           <div>

@@ -35,7 +35,8 @@ router = APIRouter(
     dependencies=[Depends(require_app_access(APP_KEY))],
 )
 
-router.include_router(make_auto_mail_router(APP_KEY, run_job=auto_mail.run_auto_mail_job))
+router.include_router(make_auto_mail_router(APP_KEY, run_job=auto_mail.run_auto_mail_job,
+                                            access=require_app_access(APP_KEY)))
 router.include_router(make_report_mail_router(APP_KEY, auto_mail.run_preview_job, sender_choice=True))
 
 

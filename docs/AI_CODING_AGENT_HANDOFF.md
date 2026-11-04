@@ -1040,8 +1040,10 @@ the every-few-hours schedule, recipients, wording, send log, "send now", "Mail t
 preview), `fixed_sender=True` (always the system email) and, like the Sales Register, is managed by
 whoever is granted the application (`make_auto_mail_router(..., access=require_app_access(KEY))`).
 Its jobs run on the `oracle-gst` resource allowance. The Debtors Reports Auto Mailer is a
-`fixed_sender` report too (manual and automatic mail both from the system email); its automatic-mail
-settings are still administrator-only.
+`fixed_sender` report too (manual and automatic mail both from the system email) and, like the Sales
+Register and Unidentified Entries, its automatic-mail settings (schedule, frequency, recipients, send now,
+log) are managed by whoever is granted the application. Only the Untagged Invoices, GST Invoice Number
+and Ultrafine mailers keep administrator-only settings, because their sender can be chosen.
 
 ## 8. Verification and evidence
 
