@@ -128,13 +128,13 @@ function OtherIssue({
     item.source === "split"
       ? "Fix the typed split under Review lines."
       : item.source === "ratio"
-        ? "Fix the sharing ratio's CF location under Mappings → Sharing ratios."
+        ? "Fix the sharing ratio’s CF location under Mappings → Sharing ratios."
         : "Fix it under Mappings.";
 
   return (
     <div className="flex flex-col gap-2">
       <p className="text-sm text-ink">
-        <strong>{item.name || item.sample}</strong> — {ISSUE_TEXT[item.issue] ?? item.issue} ({lines})
+        <strong>{item.name || item.sample}</strong>: {ISSUE_TEXT[item.issue] ?? item.issue} ({lines})
         {fixableHere ? "" : `. ${where}`}
       </p>
       {error && <ErrorBanner>{error}</ErrorBanner>}
@@ -790,8 +790,8 @@ export function UploadPanel({
                     className="status-banner border-amber-500/30 bg-amber-500/10 text-amber-600"
                   >
                     <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />{" "}
-                    {warning} The statement may be incomplete — compare it with
-                    the bank's copy.
+                    {warning} The statement may be incomplete. Compare it with
+                    the bank’s copy.
                   </p>
                 ))}
               </div>

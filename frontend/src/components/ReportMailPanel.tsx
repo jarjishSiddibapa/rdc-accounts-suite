@@ -422,7 +422,7 @@ export function ReportMailPanel({
         <div className="flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
           <div className="flex flex-col gap-2 text-sm">
-            <span className="text-ink-dim">You haven't set up your email sender yet, so nothing can be sent from your account.</span>
+            <span className="text-ink-dim">You haven’t set up your email sender yet, so nothing can be sent from your account.</span>
             <Link to="/settings" className="inline-flex w-fit items-center gap-1.5 text-sm font-medium text-accent transition hover:gap-2.5">
               Go to Settings <ArrowRight className="h-4 w-4" />
             </Link>
@@ -514,7 +514,7 @@ export function ReportMailPanel({
       {result?.status === 'email_not_configured' && (
         <div className="flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-ink-dim">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
-          {result.message ?? "You haven't set up your email sender yet. Go to Settings."}
+          {result.message ?? "You haven’t set up your email sender yet. Go to Settings."}
         </div>
       )}
 

@@ -273,7 +273,7 @@ function MappingSection({ config }: { config: MappingConfig }) {
                   sourceLabel: 'Region',
                   lookup: (region) => regionIncharge[region] || undefined,
                   fallbackHint:
-                    "This Region isn't in Region Incharge yet - add it there for automatic assignment, or enter an Accounts Incharge here for now.",
+                    "This Region isn’t in Region Incharge yet - add it there for automatic assignment, or enter an Accounts Incharge here for now.",
                 }
               : undefined
           }
@@ -463,7 +463,7 @@ export default function RdcPayables() {
                   this shorter field's whole block, pushing its label/picker
                   down relative to the filename field's label/input. */}
               <span aria-hidden="true" className="invisible text-xs leading-5">
-                Based on the selected month and today's date. You can edit it; .xlsx is added automatically.
+                Based on the selected month and today’s date. You can edit it; .xlsx is added automatically.
               </span>
             </label>
             <label className="flex min-w-0 flex-1 flex-col gap-1.5 text-sm sm:min-w-80">
@@ -480,7 +480,7 @@ export default function RdcPayables() {
                 aria-describedby="rdc-payables-filename-help"
               />
               <span id="rdc-payables-filename-help" className="text-xs leading-5 text-ink-faint">
-                Based on the selected month and today's date. You can edit it; .xlsx is added automatically.
+                Based on the selected month and today’s date. You can edit it; .xlsx is added automatically.
               </span>
             </label>
           </div>

@@ -944,7 +944,7 @@ export default function Users() {
 
       <Modal open={deleteTarget !== null} onClose={() => setDeleteTarget(null)} title="Archive account">
         <p className="mb-6 text-sm text-ink-dim">
-          Archive <strong>{deleteTarget ? getUserDisplayName(deleteTarget) : ''}</strong>? They'll no longer be able to sign in and
+          Archive <strong>{deleteTarget ? getUserDisplayName(deleteTarget) : ''}</strong>? They’ll no longer be able to sign in and
           will disappear from this list. Nothing is ever hard-deleted, so their account and
           history are preserved. If you just want to temporarily block sign-in, use the
           Deactivate toggle instead.

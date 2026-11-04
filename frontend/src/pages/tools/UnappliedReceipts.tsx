@@ -588,7 +588,7 @@ export default function UnappliedReceipts() {
                   The report below was generated, but Location, Sales Person context and the
                   Summary breakdown are blank for every row because Oracle ERP could not be
                   reached during this run. This is not an application problem. Check the ERP
-                  server / connection settings and reprocess once it's reachable.
+                  server / connection settings and reprocess once it’s reachable.
                 </p>
               </div>
             </div>

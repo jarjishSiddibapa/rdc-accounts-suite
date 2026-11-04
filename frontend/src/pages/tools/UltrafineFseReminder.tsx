@@ -236,7 +236,7 @@ function MissingEmailPanel({
         </h4>
       </div>
       <p className="text-sm text-ink-dim">
-        These FSEs have no saved email, so they'll be skipped from both their own reminder and the
+        These FSEs have no saved email, so they’ll be skipped from both their own reminder and the
         broadcast. Add an address below to save it, then regenerate the preview.
       </p>
       {error && <ErrorBanner>{error}</ErrorBanner>}
@@ -579,7 +579,7 @@ export default function UltrafineFseReminder() {
                 FSE collection reminder sender
               </h2>
               <p className="mt-1 text-sm leading-6 text-ink-dim">
-                Upload the "Coll vs Target" tracker workbook to build one reminder email per FSE, plus
+                Upload the “Coll vs Target” tracker workbook to build one reminder email per FSE, plus
                 one combined broadcast for management. Edit the wording once for each, then send from
                 below.
               </p>
@@ -601,7 +601,7 @@ export default function UltrafineFseReminder() {
             <FileDropzone
               accept={EXCEL_WORKBOOK_ACCEPT}
               label="Drag & drop the tracker workbook here, or click to browse"
-              hint="Must contain a 'Coll vs Target' sheet with FSE, Party's Name, Target, Received, and Short Fall columns"
+              hint="Must contain a “Coll vs Target” sheet with FSE, Party’s Name, Target, Received, and Short Fall columns"
               files={file ? [file] : []}
               onFilesSelected={(f) => setFile(f[0] ?? null)}
               onRemove={() => setFile(null)}
@@ -626,7 +626,7 @@ export default function UltrafineFseReminder() {
             <div className="flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
               <div className="flex flex-col gap-2 text-sm">
-                <span className="text-ink-dim">You haven't set up your email sender yet. Go to Settings.</span>
+                <span className="text-ink-dim">You haven’t set up your email sender yet. Go to Settings.</span>
                 <Link
                   to="/settings"
                   className="inline-flex w-fit items-center gap-1.5 text-sm font-medium text-accent transition hover:gap-2.5"
@@ -684,7 +684,7 @@ export default function UltrafineFseReminder() {
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <div>
                       <h4 className="font-display text-base font-semibold text-ink">
-                        Broadcast — all {previewResult.broadcast.fse_count} FSEs
+                        Broadcast: all {previewResult.broadcast.fse_count} FSEs
                       </h4>
                       <p className="text-xs text-ink-dim">
                         Target {lakh(previewResult.broadcast.total_target)} · Received{' '}
@@ -700,7 +700,7 @@ export default function UltrafineFseReminder() {
                   </div>
                   <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                     <label className="flex flex-col gap-1 text-sm">
-                      <span className="font-medium text-ink-dim">To (dynamic — every mapped FSE)</span>
+                      <span className="font-medium text-ink-dim">To (dynamic, every mapped FSE)</span>
                       <input
                         className="field-control"
                         value={editableBroadcast.to}
@@ -752,7 +752,7 @@ export default function UltrafineFseReminder() {
                     This sends 1 combined email to{' '}
                     {formatIndianNumber(splitAddrs(editableBroadcast.to).length)} recipient
                     {splitAddrs(editableBroadcast.to).length === 1 ? '' : 's'}; nothing goes out until you
-                    click "Send broadcast".
+                    click “Send broadcast”.
                   </p>
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <label className="flex items-center gap-2 text-sm text-ink-dim">
@@ -824,7 +824,7 @@ export default function UltrafineFseReminder() {
                       reminders.
                       {sendResult.failed > 0 && (
                         <span className="ml-1 font-semibold text-red-500">
-                          {formatIndianNumber(sendResult.failed)} failed — see below.
+                          {formatIndianNumber(sendResult.failed)} failed. See below.
                         </span>
                       )}
                     </p>
@@ -855,11 +855,11 @@ export default function UltrafineFseReminder() {
                 <div className="flex flex-col gap-4 rounded-xl border border-border p-4">
                   <div>
                     <h4 className="font-display text-sm font-semibold text-ink">
-                      Reminder wording — one mail, sent to every FSE
+                      Reminder wording: one mail, sent to every FSE
                     </h4>
                     <p className="mt-1 max-w-xl text-sm text-ink-dim">
                       Every FSE gets this exact subject and message, followed by their own collection
-                      table below it — only the table differs per person, so there's nothing to review
+                      table below it. Only the table differs per person, so there’s nothing to review
                       or edit per FSE. Edit here once, then send to everyone below.
                     </p>
                   </div>
@@ -872,15 +872,15 @@ export default function UltrafineFseReminder() {
                       onChange={(e) => updateSharedSubject(e.target.value)}
                     />
                     <span className="text-xs text-ink-dim">
-                      Each FSE's reminder is sent as "FSE: [name] - {sharedSubject || '…'}" — the "FSE:
-                      [name]" prefix is added automatically per reminder and can't be edited here.
+                      Each FSE’s reminder is sent as “FSE: [name] - {sharedSubject || '…'}”. The “FSE:
+                      [name]” prefix is added automatically per reminder and can’t be edited here.
                     </span>
                   </label>
 
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                     <label className="flex flex-col gap-1.5 text-sm">
                       <span className="font-medium text-ink-dim">
-                        Additional To (added to every FSE's own email)
+                        Additional To (added to every FSE’s own email)
                       </span>
                       <input
                         className="field-control"
@@ -889,7 +889,7 @@ export default function UltrafineFseReminder() {
                         onChange={(e) => updateSharedExtraTo(e.target.value)}
                       />
                       <span className="text-xs text-ink-faint">
-                        Each FSE's own email is always included and can't be removed here.
+                        Each FSE’s own email is always included and can’t be removed here.
                       </span>
                     </label>
                     <label className="flex flex-col gap-1.5 text-sm">
@@ -900,7 +900,7 @@ export default function UltrafineFseReminder() {
                         onChange={(e) => updateSharedCc(e.target.value)}
                       />
                       <span className="text-xs text-ink-faint">
-                        Add or remove addresses freely — this replaces the default Cc list for sending.
+                        Add or remove addresses freely. This replaces the default Cc list for sending.
                       </span>
                     </label>
                   </div>
@@ -912,7 +912,7 @@ export default function UltrafineFseReminder() {
 
                   <div className="flex flex-col items-center gap-1.5 rounded-xl border border-dashed border-border bg-bg-soft/60 px-4 py-6 text-center text-sm text-ink-faint">
                     <LayoutTemplate className="h-5 w-5" />
-                    [ This FSE's own Target / Received / Short Fall table goes here ]
+                    [ This FSE’s own Target / Received / Short Fall table goes here ]
                   </div>
 
                   <div className="flex justify-end">
@@ -1010,7 +1010,7 @@ export default function UltrafineFseReminder() {
             <div>
               <h2 className="font-display text-lg font-semibold text-ink">FSE → Email mapping</h2>
               <p className="text-sm text-ink-dim">
-                Saved here once, reused for every future upload — no need to re-enter an FSE's email
+                Saved here once, reused for every future upload, so there is no need to re-enter an FSE’s email
                 every month.
               </p>
             </div>

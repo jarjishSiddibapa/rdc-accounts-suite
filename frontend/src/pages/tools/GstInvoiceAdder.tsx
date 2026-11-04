@@ -100,7 +100,7 @@ export default function GstInvoiceAdder() {
               </h2>
               <p className="mt-1 text-sm leading-6 text-ink-dim">
                 Fetches the latest receivable ageing from the ERP, looks up every row in Oracle by
-                invoice number and date, and adds a "GST Invoice Number" column next to it.
+                invoice number and date, and adds a “GST Invoice Number” column next to it.
               </p>
             </div>
           </div>
@@ -108,7 +108,7 @@ export default function GstInvoiceAdder() {
           {error && <ErrorBanner className="whitespace-pre-wrap">{error}</ErrorBanner>}
 
           <p className="text-xs text-ink-faint sm:text-right">
-            Looks up each row's GST invoice number in Oracle before saving the enriched file.
+            Looks up each row’s GST invoice number in Oracle before saving the enriched file.
           </p>
 
           <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end">

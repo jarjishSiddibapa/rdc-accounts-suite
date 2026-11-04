@@ -195,7 +195,7 @@ export default function Dashboard() {
       {visibleTools.length === 0 && accessibleTools.length > 0 && (
         <div className="glass mt-8 rounded-2xl p-8 text-center">
           <h2 className="font-display text-lg font-semibold text-ink">No applications in this filter</h2>
-          <p className="mt-1 text-sm text-ink-dim">Try "All Applications", or pick a different company filter above.</p>
+          <p className="mt-1 text-sm text-ink-dim">Try “All Applications”, or pick a different company filter above.</p>
         </div>
       )}
       {accessibleTools.length === 0 && (

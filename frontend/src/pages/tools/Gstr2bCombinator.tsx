@@ -89,9 +89,9 @@ function UnresolvedStateCodesFix({
         </h4>
       </div>
       <p className="text-sm text-ink-dim">
-        These GST state codes aren't in the State Codes table. Enter the real state name for
+        These GST state codes aren’t in the State Codes table. Enter the real state name for
         each, then combine again. Missing some? Use Download anyway: the workbook is written now and
-        those files keep the placeholder "Unknown state" name.
+        those files keep the placeholder “Unknown state” name.
       </p>
       {error && <ErrorBanner>{error}</ErrorBanner>}
       <div className="flex flex-col gap-2">
@@ -400,7 +400,7 @@ export default function Gstr2bCombinator() {
         <GlassCard padding="lg" className="flex flex-col gap-5">
           <div>
             <h3 className="font-display text-lg font-semibold text-ink">State code mappings</h3>
-            <p className="mt-1 text-sm text-ink-dim">Add, edit, or archive the GST state codes used to resolve each filename's State Name during combine.</p>
+            <p className="mt-1 text-sm text-ink-dim">Add, edit, or archive the GST state codes used to resolve each filename’s State Name during combine.</p>
           </div>
           <StateCodeMappingSection />
         </GlassCard>

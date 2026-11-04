@@ -70,7 +70,7 @@ export function Modal({ open, onClose, title, children, className }: ModalProps)
       {open && (
         <div className="fixed inset-0 z-50 flex items-end justify-center sm:items-center sm:p-6">
           <motion.div
-            className="modal-backdrop absolute inset-0 bg-[#090b18]/55 backdrop-blur-md"
+            className="modal-backdrop absolute inset-0 bg-scrim/55 backdrop-blur-md"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -84,7 +84,7 @@ export function Modal({ open, onClose, title, children, className }: ModalProps)
             aria-label={title ? undefined : 'Dialog'}
             tabIndex={-1}
             className={cn(
-              'glass premium-card relative max-h-[calc(100dvh-0.75rem)] w-full max-w-lg overflow-y-auto rounded-t-[1.25rem] rounded-b-none border-border p-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-[0_40px_100px_-28px_rgba(5,6,18,0.72)] sm:max-h-[calc(100dvh-3rem)] sm:rounded-[1.25rem] sm:p-7',
+              'glass premium-card relative max-h-[calc(100dvh-0.75rem)] w-full max-w-lg overflow-y-auto rounded-t-[1.25rem] rounded-b-none border-border p-4 pb-[max(1rem,env(safe-area-inset-bottom))] shadow-modal sm:max-h-[calc(100dvh-3rem)] sm:rounded-[1.25rem] sm:p-7',
               className,
             )}
             initial={reduceMotion ? false : { opacity: 0, y: 22, scale: 0.965 }}

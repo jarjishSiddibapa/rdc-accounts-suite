@@ -24,11 +24,11 @@ export function IdleWarningModal({
   }, [open])
 
   return (
-    <Modal open={open} onClose={onStayLoggedIn} title="You're about to be signed out">
+    <Modal open={open} onClose={onStayLoggedIn} title="You’re about to be signed out">
       <div className="flex flex-col gap-4">
         <p className="flex items-center gap-2 text-sm text-ink-dim">
           <Clock className="h-4 w-4 shrink-0 text-accent" />
-          Due to inactivity, you&apos;ll be automatically logged out in{' '}
+          Due to inactivity, you’ll be automatically logged out in{' '}
           <span className="font-semibold text-ink">{secondsLeft}s</span>.
         </p>
         <p className="text-sm text-ink-dim">

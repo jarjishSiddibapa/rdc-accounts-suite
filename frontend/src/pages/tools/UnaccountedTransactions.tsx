@@ -1302,7 +1302,7 @@ function MailTab({
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-ink-dim">
-          Generates the selected reports and, once you've reviewed exactly what will go out, sends
+          Generates the selected reports and, once you’ve reviewed exactly what will go out, sends
           them from your own Settings sender identity.
         </p>
         <Button
@@ -1683,7 +1683,7 @@ function MailTab({
         <div className="flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
           <div className="flex flex-col gap-2 text-sm">
-            <span className="text-ink-dim">You haven't set up your email sender yet. Go to Settings.</span>
+            <span className="text-ink-dim">You haven’t set up your email sender yet. Go to Settings.</span>
             <Link
               to="/settings"
               className="inline-flex w-fit items-center gap-1.5 text-sm font-medium text-accent transition hover:gap-2.5"
@@ -1809,7 +1809,7 @@ function MailTab({
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
               <div className="flex flex-col gap-2 text-sm">
                 <span className="text-ink-dim">
-                  {jobResult.message ?? "You haven't set up your email sender yet. Go to Settings."}
+                  {jobResult.message ?? "You haven’t set up your email sender yet. Go to Settings."}
                 </span>
                 <Link
                   to="/settings"
@@ -2038,7 +2038,7 @@ function UnaccountedMappingSection({ config }: { config: UnaccountedMappingConfi
                   sourceLabel: 'Location',
                   lookup: (location) => locationIncharge[location] || undefined,
                   fallbackHint:
-                    "This Location isn't in Location → Incharge yet - add it there for automatic assignment, or enter an Accounts Incharge here for now.",
+                    "This Location isn’t in Location → Incharge yet - add it there for automatic assignment, or enter an Accounts Incharge here for now.",
                 }
               : undefined
           }

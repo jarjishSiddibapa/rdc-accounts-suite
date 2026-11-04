@@ -108,10 +108,10 @@ export function SetupPanel({
         <>
           <section className="flex flex-col gap-3">
             <h3 className="font-display text-base font-semibold text-ink">
-              Opening balances — {monthLabel(month)} (₹ lakhs)
+              Opening balances for {monthLabel(month)} (₹ lakhs)
             </h3>
             <p className="text-xs text-ink-faint">
-              Leave the opening balance empty to carry forward the previous month's closing balance. Type a
+              Leave the opening balance empty to carry forward the previous month’s closing balance. Type a
               value only for the first month, or to correct a balance by hand.
             </p>
             <div className="overflow-x-auto rounded-xl border border-border">

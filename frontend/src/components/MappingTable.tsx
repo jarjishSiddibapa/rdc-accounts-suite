@@ -382,7 +382,7 @@ export function MappingTable({
                     </div>
                     <span className="text-xs text-ink-faint">
                       Set automatically from {deriveColumn!.sourceLabel} → {c.label}. Change it there
-                      to update it everywhere it's used.
+                      to update it everywhere it’s used.
                     </span>
                   </>
                 ) : (

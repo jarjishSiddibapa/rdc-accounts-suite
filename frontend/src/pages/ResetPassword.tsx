@@ -30,7 +30,7 @@ export default function ResetPassword() {
       return
     }
     if (newPassword !== confirmPassword) {
-      setError("Passwords don't match.")
+      setError("Passwords don’t match.")
       return
     }
     if (!scorePasswordStrength(newPassword).isAcceptable) {

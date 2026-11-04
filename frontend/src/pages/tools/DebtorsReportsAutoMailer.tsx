@@ -146,7 +146,7 @@ export default function DebtorsReportsAutoMailer() {
                 One mail with all three debtors reports. The ageing is fetched from the ERP once and shared:
                 the receivable ageing with the GST invoice numbers added, the Unapplied Receipts report (its
                 summary in the mail) and the Untagged Invoices report (its summaries in the mail), each as an
-                attachment. Each customer&apos;s Location comes from its ERP region, with the mapping tables
+                attachment. Each customer’s Location comes from its ERP region, with the mapping tables
                 below as the fallback.
               </p>
             </div>

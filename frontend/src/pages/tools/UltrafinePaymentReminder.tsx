@@ -174,7 +174,7 @@ function MissingRecipientsPanel({
         </h4>
       </div>
       <p className="text-sm text-ink-dim">
-        These customers had no To/Cc in the upload and no saved mapping, so they'll be skipped. Add
+        These customers had no To/Cc in the upload and no saved mapping, so they’ll be skipped. Add
         an email below to save it as their mapping, then regenerate the preview.
       </p>
       {error && <ErrorBanner>{error}</ErrorBanner>}
@@ -667,7 +667,7 @@ export default function UltrafinePaymentReminder() {
             <div className="flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
               <div className="flex flex-col gap-2 text-sm">
-                <span className="text-ink-dim">You haven't set up your email sender yet. Go to Settings.</span>
+                <span className="text-ink-dim">You haven’t set up your email sender yet. Go to Settings.</span>
                 <Link
                   to="/settings"
                   className="inline-flex w-fit items-center gap-1.5 text-sm font-medium text-accent transition hover:gap-2.5"
@@ -765,7 +765,7 @@ export default function UltrafinePaymentReminder() {
                     {formatIndianNumber(sendResult.sent + sendResult.failed + sendResult.skipped)} reminders.{' '}
                     {sendResult.failed > 0 && (
                       <span className="font-medium text-red-500">
-                        {formatIndianNumber(sendResult.failed)} failed — see below.
+                        {formatIndianNumber(sendResult.failed)} failed. See below.
                       </span>
                     )}
                   </p>
@@ -805,7 +805,7 @@ export default function UltrafinePaymentReminder() {
             <div>
               <h2 className="font-display text-lg font-semibold text-ink">Customer → Email mapping</h2>
               <p className="text-sm text-ink-dim">
-                Recipients saved here are used whenever a customer's To/Cc is blank in the
+                Recipients saved here are used whenever a customer’s To/Cc is blank in the
                 uploaded emails file (or no emails file is uploaded at all).
               </p>
             </div>

@@ -36,6 +36,11 @@
   --color-accent-2: #3731a5;
   --color-accent-3: #746ce2;
   --color-warm: #d97706;
+  /* readable text on an accent fill (light accent is deep indigo, so white) */
+  --color-accent-ink: #fbfbff;
+  /* overlay scrim behind modals and the mobile navigation, and the modal shadow */
+  --color-scrim: #090b18;
+  --shadow-modal: 0 40px 100px -28px rgba(5, 6, 18, 0.72);
 
   /* the small-control radius, shared by compact fields, pagination, badges and small buttons */
   --radius-lg: 0.625rem;
@@ -49,6 +54,12 @@
   --ease-enter: cubic-bezier(0.16, 1, 0.3, 1);
   --radius-control: 0.75rem;
   --radius-panel: 1rem;
+  /* light edge and sweep drawn over accent fills (icon tiles, shiny buttons) */
+  --accent-edge-highlight: rgba(255, 255, 255, 0.22);
+  --accent-sweep: rgba(255, 255, 255, 0.26);
+  /* sign-in hero panel */
+  --color-auth-ground: #0d0f1f;
+  --color-auth-ink: #f4f5fb;
 }
 
 :root[data-theme="dark"] {
@@ -65,6 +76,10 @@
   --color-accent-2: #5a52c5;
   --color-accent-3: #8178e4;
   --color-warm: #f0b429;
+  /* the dark accent is a light lavender, so text on it is the page ground */
+  --color-accent-ink: #0d1020;
+
+  --color-auth-ground: #161b36;
 
   --shadow-rgb: 0, 0, 0;
   --shadow-strength: 2.4;
@@ -239,18 +254,16 @@
     opacity: 1;
   }
 
-  .field-control:focus {
-    border-color: color-mix(in oklab, var(--color-accent) 72%, var(--color-border));
+  /* Focus is an outline ring (mouse and keyboard alike); the border colour stays
+     put so the ring is the single, unmistakable indicator. */
+  .field-control:focus,
+  .field-control:focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
     background: var(--color-surface);
     box-shadow:
       0 0 0 4px color-mix(in oklab, var(--color-accent) 12%, transparent),
       0 8px 24px -18px color-mix(in oklab, var(--color-accent) 48%, transparent);
-  }
-
-  /* The soft glow above is easy to miss; keyboard focus also gets a real outline. */
-  .field-control:focus-visible {
-    outline: 2px solid color-mix(in oklab, var(--color-accent) 70%, transparent);
-    outline-offset: 1px;
   }
 
   /* One size for every text control. Search boxes, date pickers and some
@@ -421,7 +434,7 @@
     border: 1px solid color-mix(in oklab, var(--color-accent) 84%, white);
     background: var(--color-accent);
     box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.22),
+      inset 0 1px 0 var(--accent-edge-highlight),
       0 12px 24px -16px color-mix(in oklab, var(--color-accent) 68%, transparent);
   }
 
@@ -559,17 +572,12 @@
   /* Sign-in: a flat, full-bleed dark panel beside a plain form. The ground is one
      colour; the oversized mark is only a slightly lighter step of it. */
   .auth-hero {
-    --auth-ground: #0d0f1f;
     position: relative;
     overflow: hidden;
     flex-direction: column;
     padding: 2.5rem clamp(2.5rem, 5vw, 5rem) clamp(2.5rem, 6vh, 4.5rem);
-    background: var(--auth-ground);
-    color: #f4f5fb;
-  }
-
-  [data-theme='dark'] .auth-hero {
-    --auth-ground: #161b36;
+    background: var(--color-auth-ground);
+    color: var(--color-auth-ink);
   }
 
   .auth-form-zone {
@@ -586,28 +594,25 @@
     transition:
       background-color 0.2s ease,
       border-color 0.2s ease,
-      transform 0.25s var(--ease-enter),
-      box-shadow 0.25s ease;
+      transform 0.25s var(--ease-enter);
   }
 
-  .auth-form .field-control:focus {
-    border-color: var(--color-accent);
+  .auth-form .field-control:focus,
+  .auth-form .field-control:focus-visible {
     background: var(--color-surface);
     box-shadow: 0 10px 26px -18px color-mix(in oklab, var(--color-accent) 70%, transparent);
     transform: translateY(-1px);
   }
 
+  /* Always visible (it simply has no text until there is something to say);
+     the hint only eases into place when it switches on. */
   .auth-hint {
     min-height: 1rem;
-    opacity: 0;
     transform: translateY(-3px);
-    transition:
-      opacity 0.2s ease,
-      transform 0.25s var(--ease-enter);
+    transition: transform 0.25s var(--ease-enter);
   }
 
   .auth-hint--on {
-    opacity: 1;
     transform: none;
   }
 
@@ -616,6 +621,7 @@
     border: 1px solid color-mix(in oklab, var(--color-border) 86%, transparent);
     border-radius: var(--radius-panel);
     background: color-mix(in oklab, var(--color-surface) 94%, transparent);
+    color: var(--color-ink);
     padding: clamp(1.5rem, 4vw, 2.5rem);
     box-shadow:
       inset 0 1px 0 var(--surface-highlight),
@@ -772,7 +778,7 @@
     inset: 0;
     content: '';
     pointer-events: none;
-    background: linear-gradient(105deg, transparent 38%, rgba(255, 255, 255, 0.26) 50%, transparent 62%);
+    background: linear-gradient(105deg, transparent 38%, var(--accent-sweep) 50%, transparent 62%);
     transform: translateX(-130%);
   }
 
@@ -818,15 +824,10 @@
   .tool-card--featured .tool-card-icon {
     border: 1px solid color-mix(in oklab, var(--color-accent) 78%, var(--color-border));
     background: var(--color-accent);
-    color: #f7f9fc;
+    color: var(--color-accent-ink);
     box-shadow:
-      inset 0 1px 0 rgba(255, 255, 255, 0.22),
+      inset 0 1px 0 var(--accent-edge-highlight),
       0 14px 26px -18px color-mix(in oklab, var(--color-accent) 72%, transparent);
-  }
-
-  /* The dark accent is a light lavender; the near-white glyph on it was 2.2:1. */
-  [data-theme="dark"] .tool-card--featured .tool-card-icon {
-    color: var(--color-bg);
   }
 
   .group:hover .tool-card--featured {
@@ -842,11 +843,10 @@
 }
 
 @layer utilities {
+  /* Emphasis in solid accent ink at a heavier weight (no gradient text). */
   .text-gradient {
-    background: linear-gradient(100deg, var(--color-ink) 20%, var(--color-accent) 88%);
-    background-clip: text;
-    -webkit-background-clip: text;
-    color: transparent;
+    color: var(--color-accent);
+    font-weight: 700;
   }
 
   .glass {
@@ -1006,6 +1006,7 @@
 
   .auth-card {
     background: var(--color-surface);
+    color: var(--color-ink);
   }
 
   .modal-backdrop,
@@ -1024,6 +1025,10 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .progress-shimmer {
+    animation: none;
+  }
+
   *,
   *::before,
   *::after {

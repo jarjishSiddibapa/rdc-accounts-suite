@@ -91,7 +91,7 @@ export function ShellLayout() {
           type="button"
           aria-label="Close navigation"
           onClick={() => setNavigationOpen(false)}
-          className={`app-shell-backdrop fixed inset-0 z-30 bg-[#090b18]/55 backdrop-blur-md transition-opacity xl:hidden ${
+          className={`app-shell-backdrop fixed inset-0 z-30 bg-scrim/55 backdrop-blur-md transition-opacity xl:hidden ${
             navigationOpen ? 'opacity-100' : 'pointer-events-none opacity-0'
           }`}
         />

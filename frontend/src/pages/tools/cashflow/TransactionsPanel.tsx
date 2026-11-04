@@ -164,7 +164,7 @@ function OverrideModal({
             value={party}
             options={options.parties}
             onChange={setParty}
-            placeholder="Leave empty to use the description's mapping"
+            placeholder="Leave empty to use the description’s mapping"
             suggestionLabel="Existing names"
           />
           <span className="text-xs text-ink-faint">
@@ -231,7 +231,7 @@ function OverrideModal({
           </div>
           {splits.length === 0 && (
             <p className="text-xs text-ink-faint">
-              No split typed — the name's location (or its sharing ratio) is used. A typed split replaces
+              No split typed: the name’s location (or its sharing ratio) is used. A typed split replaces
               it completely.
             </p>
           )}

@@ -277,7 +277,7 @@ function RatioSetEditor({
         </div>
         <p className="text-xs text-ink-faint">
           Like the Working sheet: a particular and its percentage. A particular that is itself a CF location
-          (Main Operation) needs no CF location; "Main" or "Aggregate" does. These ratios are used for the
+          (Main Operation) needs no CF location; “Main” or “Aggregate” does. These ratios are used for the
           month chosen and for every later month until you add a newer set, so earlier months keep theirs.
         </p>
 
@@ -336,7 +336,7 @@ function RatioSetEditor({
               </Button>
             )}
             <span className={cn('ml-auto text-sm', totalOk ? 'text-emerald-500' : 'text-amber-600')}>
-              Total {Number(total.toFixed(8))}% {totalOk ? '' : '— must be 100%'}
+              Total {Number(total.toFixed(8))}% {totalOk ? '' : '(must be 100%)'}
             </span>
           </div>
         </div>

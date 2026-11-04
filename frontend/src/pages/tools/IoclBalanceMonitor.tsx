@@ -292,7 +292,7 @@ export default function IoclBalanceMonitor() {
         subject_template: mailType === 'daily' ? settings.daily_subject_template : settings.alert_subject_template,
         body_template: mailType === 'daily' ? settings.daily_body_template : settings.alert_body_template,
       })
-      setMessage({ ok: true, text: `Test mail sent to ${result.sent_to} — check your inbox.` })
+      setMessage({ ok: true, text: `Test mail sent to ${result.sent_to}. Check your inbox.` })
     } catch (error) {
       setMessage({ ok: false, text: visibleIssue(error, 'Could not send the test mail.', isAdmin) })
     } finally {
@@ -386,7 +386,7 @@ export default function IoclBalanceMonitor() {
           </div>
         )}
         {message && (message.ok ? <p role="alert" className="rounded-xl border px-4 py-3 text-sm border-emerald-500/30 bg-emerald-500/10 text-emerald-600">{message.text}</p> : <ErrorBanner>{message.text}</ErrorBanner>)}
-        {status.last_error && <ErrorBanner className="whitespace-pre-wrap break-words">{isAdmin ? 'Last check — technical details: ' : ''}{status.last_error}</ErrorBanner>}
+        {status.last_error && <ErrorBanner className="whitespace-pre-wrap break-words">{isAdmin ? 'Last check (technical details): ' : ''}{status.last_error}</ErrorBanner>}
 
         {jobId && (
           <ProgressPanel<CheckResult>
@@ -411,11 +411,11 @@ export default function IoclBalanceMonitor() {
           <div className="grid gap-4 lg:grid-cols-2">
             <Field label="Login URL"><input className="field-control" value={settings.login_url} onChange={(event) => setSettings({ ...settings, login_url: event.target.value })} /></Field>
             <Field label="IOCL username"><input className="field-control" autoComplete="username" value={settings.username} onChange={(event) => setSettings({ ...settings, username: event.target.value })} /></Field>
-            <Field label="IOCL password" hint={settings.password_configured ? 'Click the eye to view the saved password. Leave blank to keep it.' : 'Required before monitoring can start.'}><PasswordInput autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} onReveal={() => revealSaved('password')} placeholder={settings.password_configured ? 'Saved — click the eye to view, or type to replace' : 'Enter IOCL password'} /></Field>
+            <Field label="IOCL password" hint={settings.password_configured ? 'Click the eye to view the saved password. Leave blank to keep it.' : 'Required before monitoring can start.'}><PasswordInput autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} onReveal={() => revealSaved('password')} placeholder={settings.password_configured ? 'Saved. Click the eye to view, or type to replace' : 'Enter IOCL password'} /></Field>
             <Field label="Login timeout (seconds)" hint="Give the portal more time if it loads slowly. 15–300 seconds."><input type="number" min={15} max={300} className="field-control" value={settings.login_timeout_seconds} onChange={(event) => setSettings({ ...settings, login_timeout_seconds: Number(event.target.value) })} /></Field>
           </div>
           <div className="subpanel flex flex-col justify-between gap-3 p-4 sm:flex-row sm:items-center">
-            <div><p className="text-sm font-semibold text-ink">Saved browser session: {settings.session_configured ? 'Available' : 'Not imported yet'}</p><p className="mt-1 text-xs leading-5 text-ink-faint">Optional — helps skip a CAPTCHA. Import a working Playwright xtrapower_session.json to use it.</p></div>
+            <div><p className="text-sm font-semibold text-ink">Saved browser session: {settings.session_configured ? 'Available' : 'Not imported yet'}</p><p className="mt-1 text-xs leading-5 text-ink-faint">Optional: helps skip a CAPTCHA. Import a working Playwright xtrapower_session.json to use it.</p></div>
             <label className="inline-flex min-h-11 cursor-pointer items-center justify-center gap-2 rounded-xl border border-border bg-surface px-4 text-sm font-semibold text-ink transition hover:border-accent/40 hover:text-accent"><Upload className="h-4 w-4" />{sessionUploading ? 'Importing…' : 'Import session'}<input type="file" accept=".json,application/json" className="sr-only" disabled={sessionUploading} onChange={(event) => { const file = event.target.files?.[0]; if (file) void uploadSession(file); event.currentTarget.value = '' }} /></label>
           </div>
           <div className="flex justify-end"><Button icon={<Save className="h-4 w-4" />} loading={savingPanel === 'portal'} disabled={anyActionRunning && savingPanel !== 'portal'} onClick={() => void saveSettings('portal', 'Portal login saved.')}>Save login details</Button></div>
@@ -425,7 +425,7 @@ export default function IoclBalanceMonitor() {
           <div className="flex items-center gap-4"><span className="icon-tile grid h-11 w-11 place-items-center rounded-xl"><Mail className="h-5 w-5" /></span><div><h2 className="font-display text-xl font-semibold text-ink">Dedicated mail sender</h2><p className="text-sm text-ink-dim">The single account used by every scheduled morning mail and balance alert.</p></div></div>
           <div className="grid gap-4 lg:grid-cols-2">
             <Field label="Sender email" hint="Use an authorized Gmail or Google Workspace account."><input type="email" autoComplete="username" className="field-control" value={settings.sender_email} onChange={(event) => setSettings({ ...settings, sender_email: event.target.value })} /></Field>
-            <Field label="Sender app password" hint={settings.sender_app_password_configured ? 'Click the eye to view the saved app password. Leave blank to keep it.' : 'Required before email automation can start.'}><PasswordInput autoComplete="new-password" value={senderAppPassword} onChange={(event) => setSenderAppPassword(event.target.value)} onReveal={() => revealSaved('sender_app_password')} placeholder={settings.sender_app_password_configured ? 'Saved — click the eye to view, or type to replace' : 'Enter the 16-character app password'} /></Field>
+            <Field label="Sender app password" hint={settings.sender_app_password_configured ? 'Click the eye to view the saved app password. Leave blank to keep it.' : 'Required before email automation can start.'}><PasswordInput autoComplete="new-password" value={senderAppPassword} onChange={(event) => setSenderAppPassword(event.target.value)} onReveal={() => revealSaved('sender_app_password')} placeholder={settings.sender_app_password_configured ? 'Saved. Click the eye to view, or type to replace' : 'Enter the 16-character app password'} /></Field>
           </div>
           <div className="subpanel flex flex-col justify-between gap-3 p-4 sm:flex-row sm:items-center">
             <div><p className="text-sm font-semibold text-ink">Sender status: {settings.mail_configured ? 'Ready' : 'Setup required'}</p><p className="mt-1 text-xs leading-5 text-ink-faint">Credentials are encrypted in MySQL and are never returned to the browser, job queue, history, or logs.</p></div>

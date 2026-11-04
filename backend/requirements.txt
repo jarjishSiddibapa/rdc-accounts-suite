@@ -6,7 +6,7 @@ python-dotenv
 bcrypt
 itsdangerous
 cryptography
-filelock
+filelock>=4.2.7
 python-multipart
 pandas
 lxml
@@ -17,5 +17,5 @@ xlrd
 pyxlsb
 oracledb
 email-validator
-dnspython
+dnspython>=2.9.2
 playwright==1.62.0

@@ -262,7 +262,7 @@ function MissingRecipientsPanel({
         </h4>
       </div>
       <p className="text-sm text-ink-dim">
-        These customers had no To/Cc in the upload and no saved mapping, so they'll be skipped. Add
+        These customers had no To/Cc in the upload and no saved mapping, so they’ll be skipped. Add
         an email below to save it as their mapping, then regenerate the preview.
       </p>
       {error && <ErrorBanner>{error}</ErrorBanner>}
@@ -766,7 +766,7 @@ export default function UltrafineBalanceConfirmation() {
             <div className="flex items-start gap-3 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
               <div className="flex flex-col gap-2 text-sm">
-                <span className="text-ink-dim">You haven't set up your email sender yet. Go to Settings.</span>
+                <span className="text-ink-dim">You haven’t set up your email sender yet. Go to Settings.</span>
                 <Link
                   to="/settings"
                   className="inline-flex w-fit items-center gap-1.5 text-sm font-medium text-accent transition hover:gap-2.5"
@@ -851,7 +851,7 @@ export default function UltrafineBalanceConfirmation() {
                     Sent {formatIndianNumber(sendResult.sent)} of{' '}
                     {formatIndianNumber(sendResult.sent + sendResult.failed + sendResult.skipped)} emails.
                     {sendResult.failed > 0 && (
-                      <span className="text-red-500"> {formatIndianNumber(sendResult.failed)} failed — see below.</span>
+                      <span className="text-red-500"> {formatIndianNumber(sendResult.failed)} failed. See below.</span>
                     )}
                   </p>
                   <div className="grid gap-3 sm:grid-cols-3">
@@ -885,7 +885,7 @@ export default function UltrafineBalanceConfirmation() {
               <div>
                 <h2 className="font-display text-lg font-semibold text-ink">Customer -&gt; Email mapping</h2>
                 <p className="text-sm text-ink-dim">
-                  Saved recipients used whenever the upload doesn't include To/CC for a customer.
+                  Saved recipients used whenever the upload doesn’t include To/CC for a customer.
                 </p>
               </div>
             </div>

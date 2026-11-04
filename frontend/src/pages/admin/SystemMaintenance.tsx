@@ -218,7 +218,7 @@ export default function SystemMaintenance() {
                   className="field-control"
                 />
                 <span className="text-xs text-ink-faint">
-                  5 minutes to 43,200 minutes (30 days). For example, use 30 minutes to match the app's own auto-logout
+                  5 minutes to 43,200 minutes (30 days). For example, use 30 minutes to match the app’s own auto-logout
                   time. Checked every 5 minutes.
                 </span>
               </label>

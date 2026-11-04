@@ -533,7 +533,7 @@ export function AutoMailCard({
           </div>
           <p className="text-xs text-ink-faint">
             A day a month does not have (the 31st in a 30-day month) is skipped; choose Last day to always
-            send on the month&apos;s final day.
+            send on the month’s final day.
           </p>
         </div>
       )}

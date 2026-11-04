@@ -118,7 +118,7 @@ export default function Settings() {
   async function handlePasswordChange() {
     setPasswordMessage(null)
     if (newPassword !== confirmNewPassword) {
-      setPasswordMessage({ ok: false, text: "The new passwords don't match." })
+      setPasswordMessage({ ok: false, text: "The new passwords don’t match." })
       return
     }
     setPasswordSaving(true)
@@ -335,7 +335,7 @@ export default function Settings() {
         <p className="text-sm font-semibold text-accent">Report delivery</p>
         <h2 className="mt-1.5 font-display text-xl font-semibold tracking-[-0.025em] text-ink">Email sender identity</h2>
         <p className="mt-1 text-sm text-ink-dim">
-          Used as the "from" address when you personally send a generated report by email. Who
+          Used as the “from” address when you personally send a generated report by email. Who
           reports get sent to (To/Cc) is set application-wide by an admin, not here.
         </p>
 

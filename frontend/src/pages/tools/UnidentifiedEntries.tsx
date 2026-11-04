@@ -34,7 +34,7 @@ export default function UnidentifiedEntries() {
                 Unidentified Entries
               </h2>
               <p className="mt-1 text-sm leading-6 text-ink-dim">
-                The receipts the ERP holds against &quot;***** Unidentified&quot;, straight from the Unapplied Receipts
+                The receipts the ERP holds against “***** Unidentified”, straight from the Unapplied Receipts
                 Register, each with its Bank Description, in Excel. It is the same list as the Unidentified Customers
                 sheet of the Unapplied Receipts report, which keeps its own sheet; here it is mailed on its own.
               </p>

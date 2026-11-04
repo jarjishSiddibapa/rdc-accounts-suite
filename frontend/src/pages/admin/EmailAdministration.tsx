@@ -17,7 +17,7 @@ export default function EmailAdministration() {
                 Email defaults and platform delivery
               </h2>
               <p className="mt-2 text-sm leading-6 text-ink-dim">
-                Manage business recipients and the application&apos;s sender identity here. These
+                Manage business recipients and the application’s sender identity here. These
                 settings are intentionally separate from user accounts and personal report senders.
               </p>
             </div>
