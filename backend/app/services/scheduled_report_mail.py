@@ -30,6 +30,7 @@ from datetime import UTC, date, datetime, time as dtime, timedelta
 from pathlib import Path
 from string import Formatter
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app import audit_middleware, security
@@ -340,8 +341,15 @@ def get_or_create_settings(db: Session, app_key: str) -> ScheduledReportMail:
             send_when_unmapped=True,
         )
         db.add(row)
-        db.commit()
-        db.refresh(row)
+        try:
+            db.commit()
+        except IntegrityError:
+            # Another API worker created the row between our look-up and our insert (the first time an
+            # app's settings are opened, two requests arrive together): use the row it made.
+            db.rollback()
+            row = db.query(ScheduledReportMail).filter(ScheduledReportMail.app_key == app_key).one()
+        else:
+            db.refresh(row)
     elif row.is_deleted:
         row.is_deleted = False
         db.commit()

@@ -89,6 +89,21 @@ class SaveSettingsTests(_DbCase):
         self.assertEqual(view["days"], [0, 1, 2, 3, 4, 5])
         self.assertIsNone(view["next_run"])
 
+    def test_two_requests_creating_the_first_row_together_both_succeed(self):
+        other = self.factory()
+        self.addCleanup(other.close)
+        real_commit = self.db.commit
+
+        def commit_after_the_other_worker_inserted():
+            self.db.commit = real_commit
+            mail.get_or_create_settings(other, APP)        # the other API worker wins the insert
+            return real_commit()
+
+        self.db.commit = commit_after_the_other_worker_inserted
+        row = mail.get_or_create_settings(self.db, APP)    # used to fail with a duplicate-key error
+        self.assertEqual(row.app_key, APP)
+        self.assertEqual(self.db.query(ScheduledReportMail).filter_by(app_key=APP).count(), 1)
+
     def test_refuses_bad_input_with_a_plain_message(self):
         cases = [
             ({"days": []}, "at least one day"),
