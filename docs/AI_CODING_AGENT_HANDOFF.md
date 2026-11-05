@@ -909,7 +909,11 @@ schedule id (~20 s -> ~8 s; same rows). The register query carries a
 the GST-numbered ageing, the Unapplied Receipts report and the Untagged Invoices
 report, from ONE ageing fetch (`_SharedAgeing`), one region fetch and one
 register fetch; the three reports are built side by side (threads, each writing
-on the CPU pool). The mail shows the GST counts, the Unapplied summary and the
+on the CPU pool). The default subject names the four reports in the order of the
+mail body, then the date in brackets ("... Below 1k Invoices as on (05-Nov-2026)");
+a saved row still holding the earlier default ("Debtors Reports as on {date}", see
+`SUPERSEDED_SUBJECTS`) moves to it, an edited subject is left alone.
+The mail shows the GST counts, the Unapplied summary and the
 two Untagged summaries; the workbooks are attachments, fitted into one mail by
 compacting, then `.xlsb` for the largest, and only then several mails. It has its
 own mapping tables (`debtors_mailer_location_map` / `_incharge_map`, seeded once

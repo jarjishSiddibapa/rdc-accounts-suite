@@ -52,6 +52,33 @@ class MailLayoutTests(unittest.TestCase):
         db.commit()
         self.assertEqual(mail.get_or_create_settings(db, key).intro_template, "Hello, my own words {date}")
 
+    def test_the_subject_lists_the_reports_in_order_then_the_date_in_brackets(self):
+        spec = mail.SPECS[auto_mail.APP_KEY]
+        subject = mail.render_text(spec.default_subject, {"date": "05-Nov-2026"})
+        self.assertEqual(
+            subject,
+            "Ageing with GST Invoice Numbers, Unapplied Receipts, Untagged Invoices and Below 1k Invoices "
+            "as on (05-Nov-2026)",
+        )
+        order = [subject.index(name) for name in
+                 ("Ageing with GST", "Unapplied Receipts", "Untagged Invoices", "Below 1k Invoices")]
+        self.assertEqual(order, sorted(order))
+
+    def test_a_saved_old_default_subject_moves_to_the_new_one_but_an_edited_subject_stays(self):
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(engine, tables=[mail.ScheduledReportMail.__table__])
+        db = sessionmaker(bind=engine)()
+        self.addCleanup(db.close)
+        key = auto_mail.APP_KEY
+        row = mail.get_or_create_settings(db, key)
+        row.subject_template = mail.SUPERSEDED_SUBJECTS[key][0]
+        db.commit()
+        row = mail.get_or_create_settings(db, key)
+        self.assertEqual(row.subject_template, mail.SPECS[key].default_subject)
+        row.subject_template = "Debtors, my wording {date}"
+        db.commit()
+        self.assertEqual(mail.get_or_create_settings(db, key).subject_template, "Debtors, my wording {date}")
+
     def test_a_sheets_title_row_can_be_left_out_of_the_mail_table(self):
         from openpyxl import Workbook
         from app.services.mailer_shared import sheet_to_html

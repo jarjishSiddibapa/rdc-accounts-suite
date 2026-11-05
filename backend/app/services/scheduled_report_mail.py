@@ -101,7 +101,10 @@ SPECS: dict[str, MailSpec] = {
     "debtors-reports-auto-mailer": MailSpec(
         app_key="debtors-reports-auto-mailer",
         label="Debtors Reports",
-        default_subject="Debtors Reports as on {date}",
+        default_subject=(
+            "Ageing with GST Invoice Numbers, Unapplied Receipts, Untagged Invoices and Below 1k Invoices "
+            "as on ({date})"
+        ),
         default_intro=(
             "Dear Team,\n\n"
             "Please find below:\n\n"
@@ -319,10 +322,22 @@ SUPERSEDED_INTROS: dict[str, tuple[str, ...]] = {
 }
 
 
+# The same for subjects: a row that still holds an earlier default subject exactly never had it edited.
+SUPERSEDED_SUBJECTS: dict[str, tuple[str, ...]] = {
+    "debtors-reports-auto-mailer": ("Debtors Reports as on {date}",),
+}
+
+
 def _retire_superseded_intro(db: Session, row: ScheduledReportMail) -> None:
-    old_texts = SUPERSEDED_INTROS.get(row.app_key, ())
-    if (row.intro_template or "").replace("\r\n", "\n").strip() in old_texts:
-        row.intro_template = SPECS[row.app_key].default_intro
+    spec = SPECS[row.app_key]
+    changed = False
+    if (row.intro_template or "").replace("\r\n", "\n").strip() in SUPERSEDED_INTROS.get(row.app_key, ()):
+        row.intro_template = spec.default_intro
+        changed = True
+    if (row.subject_template or "").strip() in SUPERSEDED_SUBJECTS.get(row.app_key, ()):
+        row.subject_template = spec.default_subject
+        changed = True
+    if changed:
         db.commit()
 
 
