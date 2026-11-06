@@ -27,6 +27,7 @@ import { Pagination } from '@/components/Pagination'
 import { PasswordInput } from '@/components/PasswordInput'
 import { ProgressPanel, type JobState } from '@/components/ProgressPanel'
 import { ApiError, del, get, post, postForm, put } from '@/lib/api'
+import { MailNowCard } from '@/components/MailNowCard'
 import { useAuth } from '@/lib/auth-context'
 import { PUBLIC_ISSUE_MESSAGE } from '@/lib/error-visibility'
 import { formatIndianDateTime, formatIndianNumber } from '@/lib/regional'
@@ -347,6 +348,14 @@ export default function InvoiceBookingTracker() {
         <Flash message={message} />
         {status.last_error && <ErrorBanner className="whitespace-pre-wrap break-words">{isAdmin ? 'Last check (technical details): ' : ''}{status.last_error}</ErrorBanner>}
         {jobId && <ProgressPanel<CheckResult> jobId={jobId} cancelOnTabClose={false} poller={(id) => get<JobState<CheckResult>>(`${BASE}/jobs/${id}`)} onCancel={() => post(`${BASE}/jobs/${jobId}/cancel`)} onDone={(result) => { setJobId(null); setBusy(null); setMessage({ ok: true, text: result?.skipped ? result.message ?? 'A tracker check is already running. Please wait a few minutes for it to finish, then try again.' : `Checked ${formatIndianNumber(result?.total_pages_scanned ?? 0)} pages and found ${formatIndianNumber(result?.total_pending ?? 0)} pending invoices.` }); void Promise.all([loadSummary(), loadChecks(), loadNotifications()]) }} onError={(error) => { setJobId(null); setBusy(null); setMessage({ ok: false, text: isAdmin || error === ACCOUNT_IN_USE_MESSAGE ? error : PUBLIC_ISSUE_MESSAGE }); void Promise.all([loadSummary(), loadChecks(), loadNotifications()]) }} />}
+
+        <MailNowCard
+          baseUrl={BASE}
+          title="Send the tracker mail now"
+          description="Send the latest tracker to anyone, any time. The people the scheduled mail goes to are filled in; change them to send it to someone else."
+          refreshKey={status.last_checked_at}
+          onSent={() => void loadNotifications()}
+        />
 
         <GlassCard padding="lg">
           <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-end">

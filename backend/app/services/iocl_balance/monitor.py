@@ -802,6 +802,80 @@ def _deliver_notification(notification_id: int) -> dict:
         db.close()
 
 
+MANUAL_SUBJECT_MAX = 300
+
+
+def _latest_successful_check(db: Session) -> IoclBalanceCheck | None:
+    return (
+        db.query(IoclBalanceCheck)
+        .filter(
+            IoclBalanceCheck.status == "success",
+            IoclBalanceCheck.balance.isnot(None),
+            IoclBalanceCheck.is_deleted.is_(False),
+        )
+        .order_by(IoclBalanceCheck.checked_at.desc(), IoclBalanceCheck.id.desc())
+        .first()
+    )
+
+
+def manual_mail_defaults(db: Session) -> dict:
+    """What 'send the balance mail now' starts from: the morning mail's saved recipients and wording,
+    filled in with the latest balance that was actually read from the portal."""
+    from app.regional import to_ist_iso
+
+    settings = get_or_create_settings(db)
+    base = {
+        "sender_email": settings.sender_email or "",
+        "sender_configured": bool(settings.sender_email and settings.sender_app_password_encrypted),
+        "to": parse_recipients(settings.daily_to),
+        "cc": parse_recipients(settings.daily_cc),
+    }
+    check = _latest_successful_check(db)
+    if check is None:
+        return {**base, "available": False,
+                "message": "No balance has been read from the portal yet. Use Check balance now first."}
+    balance = Decimal(str(check.balance))
+    return {
+        **base,
+        "available": True,
+        "balance": float(balance),
+        "checked_at": to_ist_iso(check.checked_at),
+        "subject": _render(settings.daily_subject_template, balance),
+        "html_body": _render_html_body(settings.daily_body_template, balance).replace("\n", "<br>"),
+    }
+
+
+def send_manual_mail(db: Session, to: list[str], cc: list[str], subject: str) -> dict:
+    """Send the balance mail now to the given people (not only the saved list). Recorded in the notification
+    history like the scheduled mails, but it never counts as the day's morning mail."""
+    subject = (subject or "").strip()
+    if not to:
+        raise ValueError("Add at least one recipient in To")
+    if not subject or len(subject) > MANUAL_SUBJECT_MAX or "\n" in subject or "\r" in subject:
+        raise ValueError("The subject must be one line of 1 to 300 characters")
+    settings = get_or_create_settings(db)
+    if not (settings.sender_email and settings.sender_app_password_encrypted):
+        raise ValueError("The IOCL sender email and app password are not configured")
+    check = _latest_successful_check(db)
+    if check is None:
+        raise ValueError("No balance has been read from the portal yet. Use Check balance now first.")
+    balance = Decimal(str(check.balance))
+    row = IoclBalanceNotification(
+        notification_key=f"manual:{uuid.uuid4().hex}",
+        check_id=check.id,
+        notification_type="manual",
+        balance=balance,
+        subject=subject,
+        body=_render_html_body(settings.daily_body_template, balance),
+        to_recipients=json.dumps(to),
+        cc_recipients=json.dumps(cc),
+        status="pending",
+    )
+    db.add(row)
+    db.commit()
+    return _deliver_notification(row.id)
+
+
 def _release_check_lock(token: str) -> None:
     db = SessionLocal()
     try:

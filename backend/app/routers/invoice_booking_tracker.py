@@ -25,6 +25,7 @@ from app.models import (
 )
 from app.permissions import require_app_access
 from app.public_messages import PUBLIC_ISSUE_MESSAGE
+from app.rate_limit import auth_limiter
 from app.regional import to_ist_iso
 from app.secret_reveal import reveal_secret
 from app.services.invoice_booking_tracker import monitor
@@ -364,6 +365,62 @@ def test_mail(body: TestMailBody, db: Session = Depends(get_db), user: User = De
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(502, f"Could not send the test mail: {exc}") from exc
     return {"ok": True, "sent_to": user.email}
+
+
+@router.get("/mail/defaults")
+def mail_defaults(db: Session = Depends(get_db)):
+    """The tracker mail as it would go out now (from the newest complete check), with the saved scheduled-mail
+    recipients to start from."""
+    settings = monitor.get_or_create_settings(db)
+    base = {
+        "sender_email": settings.sender_email or "",
+        "sender_configured": bool(settings.sender_email and settings.sender_app_password_encrypted),
+        "to": monitor.parse_recipients(settings.mail_to),
+        "cc": monitor.parse_recipients(settings.mail_cc),
+    }
+    check, rows = _latest_complete_check(db)
+    if check is None or rows is None:
+        return {**base, "available": False,
+                "message": "No complete tracker check exists yet. Use Check tracker now first."}
+    subject, html_body = monitor.render_manual_mail(db, settings, check, rows)
+    return {
+        **base,
+        "available": True,
+        "checked_at": to_ist_iso(check.checked_at),
+        "total_pending": check.total_pending,
+        "subject": subject,
+        "html_body": html_body,
+    }
+
+
+class SendMailBody(BaseModel):
+    to: list[EmailStr] = Field(min_length=1, max_length=50)
+    cc: list[EmailStr] = Field(default_factory=list, max_length=50)
+    subject: str = Field(min_length=1, max_length=monitor.MANUAL_SUBJECT_MAX)
+
+    @field_validator("to", "cc")
+    @classmethod
+    def deduplicate(cls, value: list[EmailStr]) -> list[EmailStr]:
+        return list(dict.fromkeys(str(item).lower() for item in value))
+
+
+@router.post("/mail/send")
+def send_mail_now(body: SendMailBody, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Send the newest tracker to the people given (the saved scheduled-mail list is only the starting point),
+    from the tracker's sender. Open to everyone with this application, like Check tracker now."""
+    auth_limiter.enforce(f"tracker-mail:{user.id}", limit=20, window_seconds=10 * 60)
+    check, rows = _latest_complete_check(db)
+    if check is None or rows is None:
+        raise HTTPException(status_code=400, detail="No complete tracker check exists yet. Use Check tracker now first.")
+    try:
+        result = monitor.send_manual_mail(
+            db, check, rows, list(body.to), [c for c in body.cc if c not in body.to], body.subject,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if result.get("status") != "sent":
+        raise HTTPException(status_code=502, detail=f"Could not send the mail: {result.get('message', 'unknown error')}")
+    return {"ok": True, "to": list(body.to), "cc": body.cc}
 
 
 @router.post("/check-now")

@@ -688,8 +688,10 @@ def _deliver_notification(notification_id: int) -> dict[str, Any]:
         notification = db.query(InvoiceBookingTrackerNotification).filter_by(id=notification_id).one()
         notification.status = "sent"
         notification.sent_at = _utcnow()
-        settings = get_or_create_settings(db)
-        settings.last_scheduled_sent_date = now_ist().date()
+        if notification.notification_key.startswith("scheduled:"):
+            # only the day's scheduled mail counts as "sent today"; a mail sent by hand does not
+            settings = get_or_create_settings(db)
+            settings.last_scheduled_sent_date = now_ist().date()
         db.commit()
         audit_middleware.log_event("invoice_booking_tracker.notification.sent", details={"notification_id": notification_id})
         return {"id": notification_id, "status": "sent"}
@@ -704,6 +706,53 @@ def _deliver_notification(notification_id: int) -> dict[str, Any]:
         return {"id": notification_id, "status": "failed", "message": str(exc)}
     finally:
         db.close()
+
+
+MANUAL_SUBJECT_MAX = 300
+
+
+def render_manual_mail(db: Session, settings: InvoiceBookingTrackerSettings, check: InvoiceBookingTrackerCheck,
+                       rows: list[dict[str, Any]]) -> tuple[str, str]:
+    """The tracker mail for a stored check, dated the day that check was made."""
+    from app.regional import to_ist
+
+    on_date = to_ist(check.checked_at).date()
+    return render_templates(
+        settings.subject_template, settings.body_template, rows, on_date, settings.signature,
+        previous_pending(db, on_date),
+    )
+
+
+def send_manual_mail(db: Session, check: InvoiceBookingTrackerCheck, rows: list[dict[str, Any]],
+                     to: list[str], cc: list[str], subject: str) -> dict[str, Any]:
+    """Send the tracker mail for a stored check to the given people. Recorded in the notification history like
+    the scheduled mail, but it never counts as the day's scheduled mail."""
+    subject = (subject or "").strip()
+    if not to:
+        raise ValueError("Add at least one recipient in To")
+    if not subject or len(subject) > MANUAL_SUBJECT_MAX or "\n" in subject or "\r" in subject:
+        raise ValueError("The subject must be one line of 1 to 300 characters")
+    settings = get_or_create_settings(db)
+    if not (settings.sender_email and settings.sender_app_password_encrypted):
+        raise ValueError("The dedicated tracker sender email and app password are not configured")
+    _, body = render_manual_mail(db, settings, check, rows)
+    from app.regional import to_ist
+
+    on_date = to_ist(check.checked_at)
+    row =InvoiceBookingTrackerNotification(
+        notification_key=f"manual:{uuid.uuid4().hex}",
+        check_id=check.id,
+        subject=subject,
+        body=body,
+        to_recipients=json.dumps(to),
+        cc_recipients=json.dumps(cc),
+        result_json=json.dumps(rows, ensure_ascii=False),
+        attachment_filename=f"Ultrafine Pending Invoice Booking Tracker as on {on_date.strftime('%d.%m.%Y')}.xlsx",
+        status="pending",
+    )
+    db.add(row)
+    db.commit()
+    return _deliver_notification(row.id)
 
 
 _LOCK_HEARTBEAT_WINDOW_SECONDS = 240

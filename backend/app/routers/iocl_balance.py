@@ -20,6 +20,7 @@ from app.jobs import cancel_job, get_job, submit_job
 from app.models import IoclBalanceCheck, IoclBalanceNotification, IoclBalanceSettings, User
 from app.permissions import require_app_access
 from app.public_messages import PUBLIC_ISSUE_MESSAGE
+from app.rate_limit import auth_limiter
 from app.regional import to_ist_iso
 from app.secret_reveal import reveal_secret
 from app.services.iocl_balance import monitor
@@ -306,6 +307,37 @@ def send_test_mail(
     return {"ok": True, "sent_to": current_user.email}
 
 
+@router.get("/mail/defaults")
+def mail_defaults(db: Session = Depends(get_db)):
+    """The balance mail as it would go out now, with the saved morning-mail recipients to start from."""
+    return monitor.manual_mail_defaults(db)
+
+
+class SendMailBody(BaseModel):
+    to: list[EmailStr] = Field(min_length=1, max_length=50)
+    cc: list[EmailStr] = Field(default_factory=list, max_length=50)
+    subject: str = Field(min_length=1, max_length=monitor.MANUAL_SUBJECT_MAX)
+
+    @field_validator("to", "cc")
+    @classmethod
+    def deduplicate(cls, value: list[EmailStr]) -> list[EmailStr]:
+        return list(dict.fromkeys(str(item).lower() for item in value))
+
+
+@router.post("/mail/send")
+def send_mail_now(body: SendMailBody, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Send the latest balance to the people given (the saved morning-mail list is only the starting point),
+    from the IOCL sender. Open to everyone with this application, like Check balance now."""
+    auth_limiter.enforce(f"iocl-mail:{user.id}", limit=20, window_seconds=10 * 60)
+    try:
+        result = monitor.send_manual_mail(db, list(body.to), [c for c in body.cc if c not in body.to], body.subject)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if result.get("status") != "sent":
+        raise HTTPException(status_code=502, detail=f"Could not send the mail: {result.get('message', 'unknown error')}")
+    return {"ok": True, "to": list(body.to), "cc": body.cc}
+
+
 @router.post("/session", dependencies=[Depends(require_admin)])
 async def import_session(
     file: UploadFile = File(...),
@@ -417,7 +449,7 @@ def get_notifications(
     limit = max(1, min(limit, 100))
     offset = max(0, offset)
     query = db.query(IoclBalanceNotification).filter(IoclBalanceNotification.is_deleted.is_(False))
-    if notification_type in {"daily", "threshold"}:
+    if notification_type in {"daily", "threshold", "manual"}:
         query = query.filter(IoclBalanceNotification.notification_type == notification_type)
     if status in {"pending", "sending", "sent", "failed"}:
         query = query.filter(IoclBalanceNotification.status == status)
