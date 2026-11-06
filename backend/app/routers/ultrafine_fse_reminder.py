@@ -17,12 +17,13 @@ re-reading a stored job result.
 
 import io
 import uuid
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Optional
 
 import openpyxl
 import pandas as pd
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -32,7 +33,7 @@ from app.config import SCRATCH_DIR
 from app.database import get_db
 from app.jobs import JobUserError, cancel_job, get_job, run_cpu_phase, submit_job
 from app.permissions import require_app_access
-from app.services import mailer_shared
+from app.services import mailer_shared, send_history
 from app.services.ultrafine_fse_reminder import mapping_store, processor
 from app.uploads import save_upload
 
@@ -242,6 +243,7 @@ def _job_send_rows(user_id: int, rows: list[dict], progress_cb=None) -> dict:
     if not settings.get("configured"):
         raise JobUserError("Your email sender is no longer configured. Update Settings and try again.")
 
+    started = send_history.utcnow()
     report = []
     total = len(rows) or 1
     for index, row in enumerate(rows, start=1):
@@ -265,6 +267,7 @@ def _job_send_rows(user_id: int, rows: list[dict], progress_cb=None) -> dict:
         if progress_cb:
             progress_cb(min(0.99, index / total), f"Sent {index} of {len(rows)}")
 
+    send_history.record_bulk("ultrafine-fse-reminder", user_id, started, report, {"sent_from": settings["email"]})
     return {
         "status": "sent",
         "report": report,
@@ -297,6 +300,13 @@ class TableRowIn(BaseModel):
     target: float
     received: float
     shortfall: float
+
+
+@router.get("/mail/log")
+def mail_log(limit: int = Query(10, ge=1, le=100), offset: int = Query(0, ge=0),
+             db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """Who sent which FSE reminders, when, and how many went."""
+    return send_history.view(db, "ultrafine-fse-reminder", limit, offset)
 
 
 class SendBroadcastBody(BaseModel):
@@ -340,11 +350,19 @@ def _job_send_broadcast(
 
     if progress_cb:
         progress_cb(0.5, "Sending broadcast mail...")
+    started = send_history.utcnow()
+    detail = {"sent_from": settings["email"], "broadcast": True}
     try:
         mailer_shared.send_mail(settings["email"], settings["app_password"], to, cc, subject, body_html, attachments=attachments)
+    except Exception as exc:
+        send_history.record("ultrafine-fse-reminder", user_id, started, "failed", str(exc)[:1900],
+                            to=to, cc=cc, detail=detail)
+        raise
     finally:
         if tmp_path is not None:
             tmp_path.unlink(missing_ok=True)
+    send_history.record("ultrafine-fse-reminder", user_id, started, "sent", to=to, cc=cc,
+                        messages=[{"subject": subject, "sent_at": datetime.now(UTC).isoformat()}], detail=detail)
     if progress_cb:
         progress_cb(0.99, "Sent")
     return {"status": "sent", "to": to, "cc": cc}

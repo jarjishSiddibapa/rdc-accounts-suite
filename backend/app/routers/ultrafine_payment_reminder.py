@@ -26,7 +26,7 @@ from pathlib import Path
 from typing import Optional
 
 import openpyxl
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Response, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -43,7 +43,7 @@ from app.jobs import (
     submit_job,
 )
 from app.permissions import require_app_access
-from app.services import mailer_shared
+from app.services import mailer_shared, send_history
 from app.services.ultrafine_payment_reminder import mapping_store, processing
 from app.uploads import save_upload
 
@@ -145,10 +145,18 @@ def _job_send(user_id: int, customers: list, progress_cb=None) -> dict:
     settings = mailer_shared.get_email_settings(user_id)
     if not settings.get("configured"):
         raise JobUserError("Your email sender is no longer configured. Update Settings and try again.")
+    started = send_history.utcnow()
     try:
-        report = processing.send_bulk_mails(
-            settings["email"], settings["app_password"], customers, progress_cb=progress_cb
-        )
+        try:
+            report = processing.send_bulk_mails(
+                settings["email"], settings["app_password"], customers, progress_cb=progress_cb
+            )
+        except Exception as exc:
+            send_history.record("ultrafine-payment-reminder", user_id, started, "failed", str(exc)[:1900],
+                                detail={"sent_from": settings["email"]})
+            raise
+        send_history.record_bulk("ultrafine-payment-reminder", user_id, started, report,
+                                 {"sent_from": settings["email"]})
         return {
             "status": "sent",
             "report": report,
@@ -221,6 +229,13 @@ async def preview(
         owner_id=user.id,
     )
     return {"job_id": job_id}
+
+
+@router.get("/mail/log")
+def mail_log(limit: int = Query(10, ge=1, le=100), offset: int = Query(0, ge=0),
+             db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """Who sent which batch of payment reminders, when, and how many went."""
+    return send_history.view(db, "ultrafine-payment-reminder", limit, offset)
 
 
 class ConfirmSendBody(BaseModel):

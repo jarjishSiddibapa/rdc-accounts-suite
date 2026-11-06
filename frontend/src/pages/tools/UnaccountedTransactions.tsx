@@ -29,6 +29,7 @@ import { ProgressPanel, type JobState, type JobStatus } from '@/components/Progr
 import { MappingTable, type MappingColumn, type MappingRow } from '@/components/MappingTable'
 import { CreatableCombobox } from '@/components/CreatableCombobox'
 import { SearchBox } from '@/components/SearchBox'
+import { SendHistoryCard } from '@/components/SendHistoryCard'
 import { Pagination } from '@/components/Pagination'
 import { DatePicker, MonthYearPicker } from '@/components/TemporalPicker'
 import { usePagination } from '@/hooks/usePagination'
@@ -1002,9 +1003,11 @@ function MailUnmappedGroup({
 function MailTab({
   knownLocations,
   onManageMappings,
+  onSent,
 }: {
   knownLocations: string[]
   onManageMappings: () => void
+  onSent?: () => void
 }) {
   const [includeUa, setIncludeUa] = useState(true)
   const [includeMrn, setIncludeMrn] = useState(true)
@@ -1243,6 +1246,7 @@ function MailTab({
       setSentResult({ subject: res.subject, to: res.to, cc: res.cc })
       setJobResult(null)
       setJobId(null)
+      onSent?.()
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Could not send the email.')
     } finally {
@@ -2649,6 +2653,7 @@ const TOP_TABS = [
 export default function UnaccountedTransactions() {
   const [tab, setTab] = useState<(typeof TOP_TABS)[number]['key']>('unaccounted')
   const [knownLocations, setKnownLocations] = useState<string[]>([])
+  const [historyKey, setHistoryKey] = useState(0)
 
   useEffect(() => {
     void get<string[]>(`${BASE}/mappings/known-locations`)
@@ -2694,10 +2699,16 @@ export default function UnaccountedTransactions() {
           {tab === 'mrn' && <MrnTab knownLocations={knownLocations} />}
           {tab === 'po' && <PoTab knownLocations={knownLocations} />}
           {tab === 'mail' && (
-            <MailTab knownLocations={knownLocations} onManageMappings={() => setTab('mappings')} />
+            <MailTab
+              knownLocations={knownLocations}
+              onManageMappings={() => setTab('mappings')}
+              onSent={() => setHistoryKey((k) => k + 1)}
+            />
           )}
           {tab === 'mappings' && <MappingsTab />}
         </GlassCard>
+
+        <SendHistoryCard baseUrl={BASE} refreshKey={historyKey} />
       </div>
     </AppShell>
   )

@@ -698,6 +698,33 @@ Receipts, Working), latest version per month.
 Default recipients and other system mail configuration are managed centrally
 through the admin UI and database. They remain editable at compose time.
 
+**Mail standard for every application.** Whatever an application produces, it
+can be mailed by hand, to people chosen at that moment, and every send is
+recorded in the application:
+
+- Report generators with a downloadable workbook (ERP to Excel, Loans/IOCL/TDS,
+  Trial Balance, GSTR 2B, Unapplied Receipts, Closing Period, Creditors Ageing,
+  Trial Balance Formatter): `routers/finished_report_mail.py`
+  (`make_finished_report_mail_router`, `/email/defaults|send|log`) and the
+  `EmailReportCard` component beside the Download button. The finished report
+  of the person's own job is attached under its download name and sent from
+  their own email identity (Settings). A per-click `request_id` makes a double
+  click idempotent. Default To/Cc come from the last mail, else the admin
+  defaults (these apps are in `REPORT_RECIPIENT_APP_KEYS`).
+- Monitors (IOCL Balance Monitor, Invoice Booking Tracker): `GET /mail/defaults`
+  and `POST /mail/send`, `MailNowCard`. The latest stored check is mailed, in
+  the saved wording, to the To/Cc given (the scheduled recipients are only the
+  starting point), from the monitor's own sender. Recorded in the
+  notification history as `manual`; a manual mail never counts as the day's
+  scheduled mail (`last_daily_sent_date` / `last_scheduled_sent_date`).
+- Apps built on `scheduled_report_mail` (Untagged Invoices, GST Invoice Number,
+  Debtors, Sales Register, Unidentified Entries, Cashflow): preview then send,
+  plus the schedule, recipients and send log where the app has a schedule.
+- Unaccounted Transactions and the three bulk senders (Balance Confirmation,
+  Payment Reminder, FSE Reminder): `services/send_history.py` records each send
+  in the shared `scheduled_report_mail_log` (`GET /mail/log`, `SendHistoryCard`).
+  Recording is best effort and can never fail a send.
+
 For Unaccounted mail composition:
 
 - all three reports are selected by default;

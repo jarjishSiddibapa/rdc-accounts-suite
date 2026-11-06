@@ -22,6 +22,7 @@ import { LoadingNotice } from '@/components/LoadingNotice'
 import { MappingTable, type MappingColumn, type MappingRow } from '@/components/MappingTable'
 import { CreatableCombobox } from '@/components/CreatableCombobox'
 import { Pagination } from '@/components/Pagination'
+import { SendHistoryCard } from '@/components/SendHistoryCard'
 import { DatePicker } from '@/components/TemporalPicker'
 import { usePagination } from '@/hooks/usePagination'
 import { ApiError, apiUrl, del, get, post, postForm, put } from '@/lib/api'
@@ -497,6 +498,7 @@ export default function UltrafinePaymentReminder() {
   const [sendJobId, setSendJobId] = useState<string | null>(null)
   const [sendResult, setSendResult] = useState<SendResult | null>(null)
   const [sendError, setSendError] = useState<string | null>(null)
+  const [historyKey, setHistoryKey] = useState(0)
   const [recipientSuggestions, setRecipientSuggestions] = useState({ to: [] as string[], cc: [] as string[] })
 
   useEffect(() => {
@@ -750,10 +752,12 @@ export default function UltrafinePaymentReminder() {
                   onDone={(r) => {
                     setSendResult(r ?? null)
                     setConfirmSending(false)
+                    setHistoryKey((k) => k + 1)
                   }}
                   onError={(e) => {
                     setSendError(e)
                     setConfirmSending(false)
+                    setHistoryKey((k) => k + 1)
                   }}
                 />
               )}
@@ -812,6 +816,8 @@ export default function UltrafinePaymentReminder() {
           </div>
           <MappingSection />
         </GlassCard>
+
+        <SendHistoryCard baseUrl={BASE} refreshKey={historyKey} />
       </div>
     </AppShell>
   )

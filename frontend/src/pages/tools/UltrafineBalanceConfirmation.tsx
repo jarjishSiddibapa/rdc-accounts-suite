@@ -27,6 +27,7 @@ import { LoadingNotice } from '@/components/LoadingNotice'
 import { MappingTable, type MappingRow } from '@/components/MappingTable'
 import { CreatableCombobox } from '@/components/CreatableCombobox'
 import { Pagination } from '@/components/Pagination'
+import { SendHistoryCard } from '@/components/SendHistoryCard'
 import { DatePicker } from '@/components/TemporalPicker'
 import { usePagination } from '@/hooks/usePagination'
 import { ApiError, apiUrl, get, post, postForm, put, del } from '@/lib/api'
@@ -617,6 +618,7 @@ export default function UltrafineBalanceConfirmation() {
   const [sendError, setSendError] = useState<string | null>(null)
 
   const [mappingOpen, setMappingOpen] = useState(false)
+  const [historyKey, setHistoryKey] = useState(0)
   const [recipientSuggestions, setRecipientSuggestions] = useState({ to: [] as string[], cc: [] as string[] })
 
   useEffect(() => {
@@ -837,10 +839,12 @@ export default function UltrafineBalanceConfirmation() {
                   onDone={(res) => {
                     setSendResult(res ?? null)
                     setSendSubmitting(false)
+                    setHistoryKey((k) => k + 1)
                   }}
                   onError={(err) => {
                     setSendError(err)
                     setSendSubmitting(false)
+                    setHistoryKey((k) => k + 1)
                   }}
                 />
               )}
@@ -897,6 +901,8 @@ export default function UltrafineBalanceConfirmation() {
           </button>
           {mappingOpen && <MappingSection />}
         </GlassCard>
+
+        <SendHistoryCard baseUrl={BASE} refreshKey={historyKey} />
       </div>
     </AppShell>
   )

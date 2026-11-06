@@ -22,6 +22,7 @@ import { LoadingNotice } from '@/components/LoadingNotice'
 import { MappingTable, type MappingColumn, type MappingRow } from '@/components/MappingTable'
 import { RichTextEditor } from '@/components/RichTextEditor'
 import { Pagination } from '@/components/Pagination'
+import { SendHistoryCard } from '@/components/SendHistoryCard'
 import { DatePicker } from '@/components/TemporalPicker'
 import { usePagination } from '@/hooks/usePagination'
 import { ApiError, apiUrl, del, get, post, postForm, put } from '@/lib/api'
@@ -416,6 +417,7 @@ export default function UltrafineFseReminder() {
   const [broadcastError, setBroadcastError] = useState<string | null>(null)
   const [broadcastSending, setBroadcastSending] = useState(false)
   const [attachExcel, setAttachExcel] = useState(true)
+  const [historyKey, setHistoryKey] = useState(0)
 
   const pagination = usePagination(previewResult?.individual ?? [], 20)
 
@@ -741,10 +743,12 @@ export default function UltrafineFseReminder() {
                       onDone={(r) => {
                         setBroadcastResult(r ?? null)
                         setBroadcastSending(false)
+                        setHistoryKey((k) => k + 1)
                       }}
                       onError={(e) => {
                         setBroadcastError(e)
                         setBroadcastSending(false)
+                        setHistoryKey((k) => k + 1)
                       }}
                     />
                   )}
@@ -807,11 +811,13 @@ export default function UltrafineFseReminder() {
                       setSendResult(r ?? null)
                       setSendingAll(false)
                       setSendingKey(null)
+                      setHistoryKey((k) => k + 1)
                     }}
                     onError={(e) => {
                       setSendError(e)
                       setSendingAll(false)
                       setSendingKey(null)
+                      setHistoryKey((k) => k + 1)
                     }}
                   />
                 )}
@@ -1017,6 +1023,8 @@ export default function UltrafineFseReminder() {
           </div>
           <MappingSection />
         </GlassCard>
+
+        <SendHistoryCard baseUrl={BASE} refreshKey={historyKey} />
       </div>
     </AppShell>
   )

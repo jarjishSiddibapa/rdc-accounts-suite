@@ -12,10 +12,11 @@ MailPanel).
 
 import uuid
 from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -34,7 +35,7 @@ from app.jobs import (
 )
 from app.permissions import require_app_access
 from app.regional import now_ist
-from app.services import mailer_shared
+from app.services import mailer_shared, send_history
 from app.services.unaccounted import excel_writers, mappings, processing
 from app.uploads import save_upload
 
@@ -808,6 +809,13 @@ def remove_excluded_po(po_number: str, user=Depends(get_current_user), db: Sessi
 
 # ── Combined "generate all 3 reports & email" workflow (mirrors MailPanel) ────
 
+@router.get("/mail/log")
+def mail_log(limit: int = Query(10, ge=1, le=100), offset: int = Query(0, ge=0),
+             db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """Who sent the Unaccounted / MRN / PO mail, when, to whom, and whether it went."""
+    return send_history.view(db, "unaccounted", limit, offset)
+
+
 @router.get("/mail/defaults")
 def get_mail_defaults(db: Session = Depends(get_db)):
     """Return the desktop mailer's original editable starting values.
@@ -1058,6 +1066,8 @@ def mail_confirm_send(
         }.get(claim_state, "Job not found.")
         raise HTTPException(status_code=404 if claim_state == "missing" else 409, detail=detail)
 
+    started = send_history.utcnow()
+    history = dict(to=result["to"], cc=result["cc"], detail={"sent_from": settings["email"]})
     try:
         mailer_shared.send_mail(
             from_email=settings["email"],
@@ -1075,20 +1085,26 @@ def mail_confirm_send(
             action="confirm-send",
             succeeded=False,
         )
+        send_history.record("unaccounted", user.id, started, "failed", str(exc)[:1900], **history)
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    except Exception:
+    except Exception as exc:
         finish_job_action(
             body.job_id,
             owner_id=user.id,
             action="confirm-send",
             succeeded=False,
         )
+        send_history.record("unaccounted", user.id, started, "failed", str(exc)[:1900], **history)
         raise
     finish_job_action(
         body.job_id,
         owner_id=user.id,
         action="confirm-send",
         succeeded=True,
+    )
+    send_history.record(
+        "unaccounted", user.id, started, "sent", **history,
+        messages=[{"subject": result["subject"], "sent_at": datetime.now(UTC).isoformat()}],
     )
     # the next mail starts from the To / Cc that was just used
     mailer_shared.remember_recipients("unaccounted", result["to"], result["cc"])
