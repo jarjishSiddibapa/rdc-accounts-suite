@@ -817,6 +817,18 @@ chunks referenced by no current `index.html`.
 
 ## 7. Database and production deployment
 
+**A paused console must not stop the suite (6 Nov 2026 incident).** The suite
+runs in the `start_all.bat` console window. On Windows a click inside that
+window starts "Select" (QuickEdit) mode and pauses every process that next
+writes to the console, so the API stopped answering and the job workers stopped
+taking jobs, with nothing in the logs, while the scheduler (which writes nothing
+while idle) kept queuing jobs; they all ran at once on the next restart. Two
+guards: `supervisor._disable_console_quick_edit()` turns the mode off when the
+suite starts, and `app/console_logging.py` makes every console log handler
+(API, uvicorn, workers, scheduler) write on a background thread through a
+bounded queue, so a stuck console can only drop console lines, never block a
+process (file logs stay complete). Tested in `tests/test_console_logging.py`.
+
 Real credentials belong only in `backend/.env`; never commit them. Runtime data,
 scratch files, backups, audit files, and the Fernet key live under
 `backend/data/` and are excluded from Git. Oracle Instant Client binaries are

@@ -119,6 +119,30 @@ def _enable_kill_on_close() -> None:
     globals()["_KILL_ON_CLOSE_JOB_HANDLE"] = job
 
 
+def _disable_console_quick_edit() -> bool:
+    """Turn off the console window's click-to-select ("QuickEdit") mode.
+
+    With it on, a single click inside this window starts "Select" mode, and Windows then pauses every process
+    that writes to the console until a key is pressed: the API stops answering and the job workers stop taking
+    work, with nothing in the logs. Returns True when the mode was switched off."""
+    if os.name != "nt":
+        return False
+    try:
+        import ctypes
+
+        kernel32 = ctypes.windll.kernel32
+        ENABLE_QUICK_EDIT_MODE = 0x0040
+        ENABLE_EXTENDED_FLAGS = 0x0080          # needed for the QuickEdit bit to be honoured
+        STD_INPUT_HANDLE = -10
+        handle = kernel32.GetStdHandle(STD_INPUT_HANDLE)
+        mode = ctypes.c_uint32()
+        if not kernel32.GetConsoleMode(handle, ctypes.byref(mode)):
+            return False                         # no console (started by a service or a scheduled task)
+        return bool(kernel32.SetConsoleMode(handle, (mode.value & ~ENABLE_QUICK_EDIT_MODE) | ENABLE_EXTENDED_FLAGS))
+    except Exception:  # noqa: BLE001 - never stop the suite from starting over a console setting
+        return False
+
+
 def _count(name: str, default: int) -> int:
     return max(1, int(os.environ.get(name, str(default))))
 
@@ -138,6 +162,7 @@ def _spawn(name: str, command: list[str], role: str) -> subprocess.Popen:
 
 def main() -> int:
     _enable_kill_on_close()
+    _disable_console_quick_edit()
     lock = FileLock(str(DATA_DIR / "suite-supervisor.lock"), timeout=0)
     try:
         lock.acquire()

@@ -5,6 +5,7 @@ import os
 from logging.handlers import RotatingFileHandler
 
 from app import config
+from app.console_logging import non_blocking
 
 
 def configure_runtime_logging(role: str) -> None:
@@ -16,9 +17,12 @@ def configure_runtime_logging(role: str) -> None:
         encoding="utf-8",
     )
     handler.setFormatter(logging.Formatter(log_format))
+    console = logging.StreamHandler()
+    console.setFormatter(logging.Formatter(log_format))
     logging.basicConfig(
         level=logging.INFO,
         format=log_format,
-        handlers=[logging.StreamHandler(), handler],
+        # the console copy is written by a background thread, so a paused console window cannot stall this process
+        handlers=[non_blocking(console), handler],
         force=True,
     )

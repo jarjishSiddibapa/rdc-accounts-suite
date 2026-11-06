@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from app import audit_middleware, client_context, config, database, http_middleware
+from app import audit_middleware, client_context, config, console_logging, database, http_middleware
 from app.public_messages import PUBLIC_ISSUE_MESSAGE
 from app.routers import (
     admin_routes,
@@ -56,7 +56,13 @@ _file_handler = RotatingFileHandler(
 )
 _file_handler.setFormatter(logging.Formatter(_LOG_FORMAT))
 
-logging.basicConfig(level=logging.INFO, format=_LOG_FORMAT, handlers=[logging.StreamHandler(), _file_handler])
+_console_handler = logging.StreamHandler()
+_console_handler.setFormatter(logging.Formatter(_LOG_FORMAT))
+# The console copy is written by a background thread (see app/console_logging.py): a paused console window must
+# never be able to freeze the API.
+logging.basicConfig(
+    level=logging.INFO, format=_LOG_FORMAT, handlers=[console_logging.non_blocking(_console_handler), _file_handler],
+)
 logger = logging.getLogger(__name__)
 
 
@@ -71,6 +77,8 @@ def _attach_file_logging_to_uvicorn() -> None:
         target_logger = logging.getLogger(name)
         if _file_handler not in target_logger.handlers:
             target_logger.addHandler(_file_handler)
+    # uvicorn writes its startup and access lines to the console itself; make those non-blocking too
+    console_logging.make_loggers_non_blocking("uvicorn", "uvicorn.error", "uvicorn.access")
 
 
 @asynccontextmanager
