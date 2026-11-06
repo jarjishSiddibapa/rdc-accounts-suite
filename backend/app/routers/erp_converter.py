@@ -13,6 +13,7 @@ from app import auth, config, jobs
 from app.jobs import JobUserError
 from app.models import User
 from app.permissions import require_app_access
+from app.routers.finished_report_mail import make_finished_report_mail_router
 from app.services.erp_converter import converter
 from app.services.erp_converter.errors import ConversionError
 from app.uploads import save_upload
@@ -21,6 +22,8 @@ router = APIRouter(
     prefix="/api/tools/erp-to-excel", tags=["erp-to-excel"],
     dependencies=[Depends(require_app_access("erp-to-excel"))],
 )
+
+router.include_router(make_finished_report_mail_router("erp-to-excel", "ERP to Excel converted file"))
 
 
 def _job_convert(

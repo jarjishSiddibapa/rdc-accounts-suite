@@ -8,6 +8,7 @@ import { ProgressPanel, type JobState, type JobStatus } from '@/components/Progr
 import { MappingTable, type MappingColumn, type MappingRow } from '@/components/MappingTable'
 import { CreatableCombobox } from '@/components/CreatableCombobox'
 import { ErrorBanner } from '@/components/ErrorBanner'
+import { EmailReportCard } from '@/components/EmailReportCard'
 import { LoadingNotice } from '@/components/LoadingNotice'
 import { ApiError, apiUrl, del, get, post, postForm, put } from '@/lib/api'
 import { formatIndianNumber } from '@/lib/regional'
@@ -395,6 +396,10 @@ export default function Gstr2bCombinator() {
 
             {error && <ErrorBanner>{error}</ErrorBanner>}
           </GlassCard>
+        )}
+
+        {jobId && result && !result.needs_mapping_fix && (
+          <EmailReportCard baseUrl={BASE} jobId={jobId} reportName="GSTR 2B Combined File" />
         )}
 
         <GlassCard padding="lg" className="flex flex-col gap-5">

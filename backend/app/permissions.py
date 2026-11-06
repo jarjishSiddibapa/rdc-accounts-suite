@@ -66,16 +66,19 @@ _ULTRAFINE_APP_KEYS = {
 
 # Apps that actually send mail using an admin-managed, application-wide
 # default To/Cc (see ApplicationEmailRecipient / mailer_shared's
-# get_report_recipient_defaults). Everything else either has no email
-# feature at all (erp-to-excel, rdc-payables, trial-balance,
-# gstr2b-combinator, unapplied-receipts) or is a bulk per-customer sender
-# whose To/Cc always comes from that customer's own saved mapping/upload,
-# not a shared default (ultrafine-balance-confirmation,
-# ultrafine-payment-reminder) - so the admin "default recipients" concept
-# doesn't apply to them and they must NOT be offered in that picker.
+# get_report_recipient_defaults). That includes the report generators that
+# can email a finished report (routers/finished_report_mail.py). The rest are
+# bulk per-customer senders whose To/Cc always comes from that customer's own
+# saved mapping/upload, not a shared default (ultrafine-balance-confirmation,
+# ultrafine-payment-reminder, ultrafine-fse-reminder), or monitors with their
+# own saved recipient lists (iocl-balance-monitor, invoice-booking-tracker) -
+# so the admin "default recipients" concept doesn't apply to them and they
+# must NOT be offered in that picker.
 REPORT_RECIPIENT_APP_KEYS = {
     "unaccounted", "untagged-invoices-report", "gst-invoice-adder", "ultrafine-cashflow",
     "debtors-reports-auto-mailer", "rdc-sales-register-report", "unidentified-entries",
+    "erp-to-excel", "rdc-payables", "trial-balance", "gstr2b-combinator", "unapplied-receipts",
+    "closing-period-report", "creditors-ageing-report", "trial-balance-formatter",
 }
 
 

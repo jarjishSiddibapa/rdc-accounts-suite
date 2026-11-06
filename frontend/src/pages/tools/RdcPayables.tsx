@@ -12,6 +12,7 @@ import { AppShell } from '@/components/AppShell'
 import { GlassCard } from '@/components/GlassCard'
 import { Button } from '@/components/Button'
 import { ErrorBanner } from '@/components/ErrorBanner'
+import { EmailReportCard } from '@/components/EmailReportCard'
 import { FileDropzone } from '@/components/FileDropzone'
 import { ProgressPanel, type JobState, type JobStatus } from '@/components/ProgressPanel'
 import { MappingTable, type MappingColumn, type MappingRow } from '@/components/MappingTable'
@@ -692,6 +693,10 @@ export default function RdcPayables() {
             </div>
           )}
         </GlassCard>
+
+        {jobId && result && !result.needs_mapping_fix && (
+          <EmailReportCard baseUrl={BASE} jobId={jobId} reportName="Loans & Advance, IOCL, TDS Report" />
+        )}
 
         {/* ── Mapping tables ─────────────────────────────────────────── */}
         <GlassCard padding="lg" className="flex flex-col gap-5">

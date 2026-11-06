@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import { AppShell } from '@/components/AppShell'
 import { Button } from '@/components/Button'
+import { EmailReportCard } from '@/components/EmailReportCard'
 import { ErrorBanner } from '@/components/ErrorBanner'
 import { FileDropzone } from '@/components/FileDropzone'
 import { GlassCard } from '@/components/GlassCard'
@@ -507,6 +508,10 @@ export default function TrialBalanceFormatter() {
                   </>
                 )}
               </GlassCard>
+            )}
+
+            {jobId && result && !result.needs_mapping_fix && (
+              <EmailReportCard baseUrl={BASE} jobId={jobId} reportName="Trial Balance" />
             )}
           </>
         ) : (

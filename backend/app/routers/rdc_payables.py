@@ -35,6 +35,7 @@ from app.database import SessionLocal, get_db
 from app.jobs import cancel_job, get_job, submit_job
 from app.models import User
 from app.permissions import require_app_access
+from app.routers.finished_report_mail import make_finished_report_mail_router
 from app.regional import format_indian_number, now_ist
 from app.services.rdc_payables import mapping_store, processor
 from app.uploads import save_upload
@@ -43,6 +44,8 @@ router = APIRouter(
     prefix="/api/tools/rdc-payables", tags=["rdc-payables"],
     dependencies=[Depends(require_app_access("rdc-payables"))],
 )
+
+router.include_router(make_finished_report_mail_router("rdc-payables", "Loans & Advance, IOCL, TDS Report"))
 
 _XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 _REPORT_FILENAME_PREFIX = "Loans and Advance, IOCL, TDS, Other"

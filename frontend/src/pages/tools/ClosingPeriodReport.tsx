@@ -4,6 +4,7 @@ import { AppShell } from '@/components/AppShell'
 import { GlassCard } from '@/components/GlassCard'
 import { Button } from '@/components/Button'
 import { ErrorBanner } from '@/components/ErrorBanner'
+import { EmailReportCard } from '@/components/EmailReportCard'
 import { FileDropzone } from '@/components/FileDropzone'
 import { ProgressPanel, type JobState, type JobStatus } from '@/components/ProgressPanel'
 import { ApiError, apiUrl, get, post, postForm } from '@/lib/api'
@@ -198,6 +199,8 @@ export default function ClosingPeriodReport() {
             {error && <ErrorBanner>{error}</ErrorBanner>}
           </GlassCard>
         )}
+
+        {jobId && result && <EmailReportCard baseUrl={BASE} jobId={jobId} reportName="Closing Period Report" />}
       </div>
     </AppShell>
   )

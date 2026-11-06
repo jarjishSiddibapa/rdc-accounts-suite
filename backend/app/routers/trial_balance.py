@@ -56,6 +56,7 @@ from app import jobs
 from app.jobs import cancel_job, get_job, loads_value, run_cpu_phase, submit_job, dumps_value
 from app.models import TrialBalanceUploadToken, User
 from app.permissions import require_app_access
+from app.routers.finished_report_mail import make_finished_report_mail_router
 from app.regional import format_indian_number, now_ist
 from app.services.trial_balance import mapping_store, processor
 from app.uploads import save_upload
@@ -64,6 +65,8 @@ router = APIRouter(
     prefix="/api/tools/trial-balance", tags=["trial-balance"],
     dependencies=[Depends(require_app_access("trial-balance"))],
 )
+
+router.include_router(make_finished_report_mail_router("trial-balance", "Trial Balance Location Wise Report"))
 
 _XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 

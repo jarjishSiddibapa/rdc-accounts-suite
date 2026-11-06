@@ -15,6 +15,7 @@ import { AppShell } from '@/components/AppShell'
 import { GlassCard } from '@/components/GlassCard'
 import { Button } from '@/components/Button'
 import { ErrorBanner } from '@/components/ErrorBanner'
+import { EmailReportCard } from '@/components/EmailReportCard'
 import { FileDropzone } from '@/components/FileDropzone'
 import { ProgressPanel, type JobState, type JobStatus } from '@/components/ProgressPanel'
 import { Pagination } from '@/components/Pagination'
@@ -275,6 +276,9 @@ export default function ErpConverter() {
                       onStatusChange={(next) => handleStatusChange(job, next)}
                       onError={(message) => setError(message)}
                     />
+                    {state?.status === 'done' && (
+                      <EmailReportCard baseUrl="/tools/erp-to-excel" jobId={job.job_id} reportName="ERP to Excel converted file" />
+                    )}
                   </div>
                 )
               })}

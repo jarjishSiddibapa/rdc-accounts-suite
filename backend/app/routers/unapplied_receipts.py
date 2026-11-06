@@ -49,6 +49,7 @@ from app.database import SessionLocal, get_db
 from app.jobs import cancel_job, get_job, run_cpu_phase, submit_job
 from app.models import User
 from app.permissions import require_app_access
+from app.routers.finished_report_mail import make_finished_report_mail_router
 from app.services import customer_region
 from app.services.erp_ageing import TYPE_COL, EitherEvent, fetch_ageing_from_erp
 from app.services.unapplied_receipts.erp_register import fetch_register_from_erp
@@ -59,6 +60,8 @@ router = APIRouter(
     prefix="/api/tools/unapplied-receipts", tags=["unapplied-receipts"],
     dependencies=[Depends(require_app_access("unapplied-receipts"))],
 )
+
+router.include_router(make_finished_report_mail_router("unapplied-receipts", "Unapplied Receipts Report"))
 
 _XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 

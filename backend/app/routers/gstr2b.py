@@ -32,6 +32,7 @@ from app.database import SessionLocal, get_db
 from app.jobs import cancel_job, get_job, submit_job
 from app.models import User
 from app.permissions import require_app_access
+from app.routers.finished_report_mail import make_finished_report_mail_router
 from app.services.gstr2b import combiner, state_codes_store
 from app.uploads import save_upload
 
@@ -39,6 +40,8 @@ router = APIRouter(
     prefix="/api/tools/gstr2b", tags=["gstr2b"],
     dependencies=[Depends(require_app_access("gstr2b-combinator"))],
 )
+
+router.include_router(make_finished_report_mail_router("gstr2b-combinator", "GSTR 2B Combined File"))
 
 _XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 _DOWNLOAD_FILENAME = "combined_gstr_2b_file.xlsx"
