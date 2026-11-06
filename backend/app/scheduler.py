@@ -18,7 +18,7 @@ from app import audit_middleware, backup
 from app import jobs
 from app.config import DATA_DIR, SCRATCH_DIR
 from app.database import SessionLocal
-from app.models import BackupSettings, RateLimitBucket, TrialBalanceUploadToken
+from app.models import BackgroundJob, BackupSettings, RateLimitBucket, TrialBalanceUploadToken
 from app.regional import now_ist
 from app.services.iocl_balance import monitor as iocl_monitor
 from app.services.invoice_booking_tracker import monitor as invoice_booking_monitor
@@ -179,8 +179,51 @@ def _sweep_database_runtime_state() -> None:
     jobs.prune_expired_jobs()
 
 
+# The scheduler and the workers log nothing while they are idle, so a night when no scheduled mail was
+# produced left no trace of why. One line every 10 minutes says the scheduler is looping and what the job
+# queue holds; if the lines stop, the loop is stuck, and if they continue the queue shows what is waiting.
+_HEARTBEAT_INTERVAL_SECONDS = 10 * 60
+_last_heartbeat = float("-inf")     # the first line is logged on the first pass of the loop
+
+
+def _queue_summary() -> str:
+    now = _utcnow()
+    db = SessionLocal()
+    try:
+        live = db.query(BackgroundJob).filter(BackgroundJob.is_deleted.is_(False))
+        queued = live.filter(BackgroundJob.status == "queued").order_by(BackgroundJob.created_at.asc()).all()
+        running = live.filter(BackgroundJob.status == "running").order_by(BackgroundJob.started_at.asc()).all()
+        parts = [f"{len(queued)} queued, {len(running)} running"]
+        for job in queued[:3]:
+            parts.append(
+                f"queued {job.task_name.rsplit('.', 1)[-1]} waiting {int((now - job.created_at).total_seconds())}s "
+                f"({job.phase})"
+            )
+        for job in running[:5]:
+            lease = int((job.lease_expires_at - now).total_seconds()) if job.lease_expires_at else None
+            parts.append(
+                f"running {job.task_name.rsplit('.', 1)[-1]} on {job.lease_owner} for "
+                f"{int((now - (job.started_at or now)).total_seconds())}s (lease {lease}s)"
+            )
+        return "; ".join(parts)
+    finally:
+        db.close()
+
+
+def _log_heartbeat() -> None:
+    global _last_heartbeat
+    if time.monotonic() - _last_heartbeat < _HEARTBEAT_INTERVAL_SECONDS:
+        return
+    _last_heartbeat = time.monotonic()
+    logger.info("[scheduler] alive; jobs: %s", _queue_summary())
+
+
 def _loop() -> None:
     while True:
+        try:
+            _log_heartbeat()
+        except Exception:  # noqa: BLE001 - a diagnostic line must never stop the scheduling
+            logger.exception("[scheduler] heartbeat failed")
         try:
             _tick()
         except Exception:  # noqa: BLE001 - one bad tick must not kill the thread
@@ -194,15 +237,21 @@ def _loop() -> None:
         except Exception:  # noqa: BLE001 - one bad sweep must not stop scheduling
             logger.exception("[scheduler] runtime-state sweep failed")
         try:
-            iocl_monitor.enqueue_due_check()
+            job_id = iocl_monitor.enqueue_due_check()
+            if job_id:
+                logger.info("[scheduler] queued the IOCL balance check %s", job_id)
         except Exception:  # noqa: BLE001 - portal scheduling must not stop other duties
             logger.exception("[scheduler] IOCL balance scheduling failed")
         try:
-            invoice_booking_monitor.enqueue_due_check()
+            job_id = invoice_booking_monitor.enqueue_due_check()
+            if job_id:
+                logger.info("[scheduler] queued the invoice booking tracker check %s", job_id)
         except Exception:  # noqa: BLE001 - tracker scheduling must not stop other duties
             logger.exception("[scheduler] invoice booking tracker scheduling failed")
         try:
-            scheduled_report_mail.enqueue_due_checks()
+            started = scheduled_report_mail.enqueue_due_checks()
+            if started:
+                logger.info("[scheduler] queued the automatic report mail for %s", ", ".join(started))
         except Exception:  # noqa: BLE001 - report mail scheduling must not stop other duties
             logger.exception("[scheduler] automatic report mail scheduling failed")
         time.sleep(_POLL_SECONDS)

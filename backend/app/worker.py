@@ -16,6 +16,8 @@ from app.runtime_logging import configure_runtime_logging  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
+_IDLE_HEARTBEAT_SECONDS = 10 * 60
+
 
 def run(worker_name: str) -> None:
     configure_runtime_logging(worker_name)
@@ -31,14 +33,22 @@ def run(worker_name: str) -> None:
             signal.signal(getattr(signal, signal_name), request_stop)
 
     logger.info("Job worker %s started", worker_id)
+    # An idle worker logs nothing, so a worker that had stopped looking for work looked the same as one with
+    # nothing to do. One line every 10 minutes while idle tells them apart.
+    last_heartbeat = time.monotonic()
     while not stopping.is_set():
         try:
             job_id = jobs.claim_next_job(worker_id)
             if job_id is None:
+                if time.monotonic() - last_heartbeat >= _IDLE_HEARTBEAT_SECONDS:
+                    last_heartbeat = time.monotonic()
+                    logger.info("Job worker %s is polling; no queued job is ready for it", worker_id)
                 stopping.wait(config.JOB_POLL_SECONDS)
                 continue
             logger.info("Claimed job %s", job_id)
             jobs.execute_job(job_id, worker_id)
+            logger.info("Finished job %s", job_id)
+            last_heartbeat = time.monotonic()
         except Exception:  # noqa: BLE001 - supervisor should not lose a worker to one poll
             logger.exception("Worker loop failed")
             stopping.wait(min(5.0, config.JOB_POLL_SECONDS * 4))
