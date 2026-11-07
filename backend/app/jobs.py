@@ -34,7 +34,7 @@ from typing import Any, Callable
 from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError, OperationalError
 
-from app import config
+from app import config, memory
 from app.client_context import current_tab_id, normalize_tab_id
 from app.database import SessionLocal
 from app.models import BackgroundJob, BackgroundJobAction, BackgroundResourceSlot
@@ -158,12 +158,26 @@ _CPU_PER_WORKER_RAM_MB = 250
 
 def _default_cpu_pool_workers() -> int:
     cpu_cap = max(1, (os.cpu_count() or 1) - 1)
+    # the memory free right now on this server (other programs included); the documented 8 GB host's figure when it
+    # cannot be read
+    free_mb = memory.available_mb()
     ram_cap = max(
         1,
-        (_CPU_MIN_AVAILABLE_RAM_MB - _CPU_RESERVED_FOR_MAIN_AND_RDC_MB)
+        ((free_mb if free_mb is not None else _CPU_MIN_AVAILABLE_RAM_MB) - _CPU_RESERVED_FOR_MAIN_AND_RDC_MB)
         // _CPU_PER_WORKER_RAM_MB,
     )
     return max(1, min(cpu_cap, ram_cap, 2))
+
+
+def memory_wait(created_at: datetime, now: datetime, free_mb: int | None) -> bool:
+    """Whether a queued job should keep waiting for the server to have more free memory before it starts.
+
+    It waits only while memory is genuinely short, and never longer than ``JOB_MEMORY_WAIT_MAX_SECONDS``: a
+    job that is allowed to start late is better than one that never starts because another program holds
+    the memory. An unreadable figure never makes a job wait."""
+    if free_mb is None or free_mb >= config.JOB_MIN_FREE_MEMORY_MB:
+        return False
+    return (now - created_at).total_seconds() < config.JOB_MEMORY_WAIT_MAX_SECONDS
 
 
 _CPU_POOL_WORKERS = int(
@@ -786,6 +800,15 @@ def _claim_next_job_once(worker_id: str) -> str | None:
             .first()
         )
         if job is None:
+            db.commit()
+            return None
+
+        # Other programs share this server: when little memory is free, the job stays queued (and says why)
+        # instead of starting and being squeezed out. It starts as soon as memory frees up, or after a while anyway.
+        if memory_wait(job.created_at, now, memory.available_mb()):
+            job.phase = "Waiting for server memory"
+            job.not_before = now + timedelta(seconds=5)
+            job.updated_at = now
             db.commit()
             return None
 

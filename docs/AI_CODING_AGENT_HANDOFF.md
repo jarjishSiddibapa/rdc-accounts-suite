@@ -835,6 +835,19 @@ chunks referenced by no current `index.html`.
 
 ## 7. Database and production deployment
 
+**Memory is read from the server, not assumed (`app/memory.py`).** The default
+number of Excel-writing helper processes per job worker is sized from the memory
+free at start-up (it used to assume the documented 8 GB host; still capped by the
+CPUs and at 2, and `CPU_JOB_POOL_WORKERS` in `.env` overrides it). Before a worker
+starts a queued job (`jobs._claim_next_job_once`, `jobs.memory_wait`) it checks the
+memory free right now, other programs included: below `JOB_MIN_FREE_MEMORY_MB`
+(default 1024; 0 = off) the job stays queued with the phase "Waiting for server
+memory", and starts as soon as memory frees up or after
+`JOB_MEMORY_WAIT_MAX_SECONDS` (default 600) regardless, so it can never wait
+forever. The figures come from the OS (Windows API via ctypes, `/proc/meminfo`),
+no extra library; an unreadable figure never delays a job. Worker and CPU counts
+are otherwise unchanged and still fixed settings.
+
 **A paused console must not stop the suite (6 Nov 2026 incident).** The suite
 runs in the `start_all.bat` console window. On Windows a click inside that
 window starts "Select" (QuickEdit) mode and pauses every process that next

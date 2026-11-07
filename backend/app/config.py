@@ -102,6 +102,10 @@ JOB_CLIENT_HEARTBEAT_TIMEOUT_SECONDS = max(
     30, int(os.environ.get("JOB_CLIENT_HEARTBEAT_TIMEOUT_SECONDS", "120"))
 )
 ORACLE_GST_JOB_CONCURRENCY = max(1, int(os.environ.get("ORACLE_GST_JOB_CONCURRENCY", "1")))
+# A queued job waits to start while the server has less than this much free memory (other programs share it),
+# but never longer than the wait limit. 0 switches the check off.
+JOB_MIN_FREE_MEMORY_MB = max(0, int(os.environ.get("JOB_MIN_FREE_MEMORY_MB", "1024")))
+JOB_MEMORY_WAIT_MAX_SECONDS = max(0, int(os.environ.get("JOB_MEMORY_WAIT_MAX_SECONDS", "600")))
 # How many slices the open-ageing query is split into, each on its own ERP
 # connection (see app/services/erp_ageing.py). 1 runs it as a single query.
 ORACLE_FETCH_PARALLELISM = max(1, min(8, int(os.environ.get("ORACLE_FETCH_PARALLELISM", "4"))))
