@@ -882,11 +882,6 @@ def compose_messages(snapshot: dict, payload: MailPayload) -> list[dict]:
         if len(groups) > 1:
             subject = f"{subject} (Part {index} of {len(groups)})"
         notes = list(payload.notes)
-        if len(groups) > 1:
-            notes.append(
-                f"The report is too large for a single email, so it is sent in {len(groups)} parts. "
-                f"This is part {index}."
-            )
         body = _wrap_html(
             render_text(snapshot["intro_template"], payload.values),
             payload.sections if index == 1 else [],

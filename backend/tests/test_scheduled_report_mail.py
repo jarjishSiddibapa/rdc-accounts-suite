@@ -269,6 +269,16 @@ class SendLogTests(_DbCase):
         self.assertEqual(entry["detail"]["rows"], 7)
         self.assertIsNone(entry["error"])
 
+    def test_a_mail_sent_in_parts_does_not_explain_the_split_in_its_text(self):
+        snapshot = {"subject_template": "Report as on {date}", "intro_template": "Dear Team,", "signature": ""}
+        messages = mail.compose_messages(
+            snapshot, mail.MailPayload(values={"date": "d"}, attachment_groups=[["a.xlsx"], ["b.xlsx"]]),
+        )
+        self.assertEqual([m["subject"] for m in messages], ["Report as on d (Part 1 of 2)", "Report as on d (Part 2 of 2)"])
+        for message in messages:
+            self.assertNotIn("too large", message["html_body"])
+            self.assertNotIn("This is part", message["html_body"])
+
     def test_a_scheduled_run_has_no_requester(self):
         mail.run_mail_job(APP, "scheduled", lambda *x: mail.MailPayload(values={"date": "d"}))
         entry = self.log()["items"][0]

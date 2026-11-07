@@ -20,7 +20,7 @@ from pathlib import Path
 from app.config import SCRATCH_DIR
 from app.database import SessionLocal
 from app.jobs import JobCancelled, run_cpu_phase
-from app.services import customer_region, erp_ageing, report_mail_preview
+from app.services import attachment_fit, customer_region, erp_ageing, report_mail_preview
 from app.services import scheduled_report_mail as mail
 from app.services import xlsb_convert, xlsx_compact
 from app.services.debtors_mailer import mapping_store
@@ -119,51 +119,8 @@ def _fit_attachments(paths: list[Path], progress_cb=None) -> tuple[list[list[str
     note on what had to be done. Nothing is ever left out: first the same
     workbooks written more compactly, then the largest as .xlsb (Excel opens it
     as it opens .xlsx), and only if that is still too much, several mails."""
-    limit = mail.MAX_ATTACHMENT_BYTES
-
-    def total(items):
-        return sum(Path(p).stat().st_size for p in items)
-
-    if total(paths) <= limit:
-        return [[str(p) for p in paths]], "complete workbooks"
-
-    if progress_cb:
-        progress_cb(0.91, "Compacting the workbooks to fit one email...")
-    for path in sorted(paths, key=lambda p: p.stat().st_size, reverse=True):
-        if total(paths) <= limit:
-            break
-        if path.suffix == ".xlsx" and path.stat().st_size > 1_000_000:
-            xlsx_compact.compact_xlsx_in_place(path)
-    if total(paths) <= limit:
-        return [[str(p) for p in paths]], "complete workbooks (compacted to fit the email limit)"
-
-    current = list(paths)
-    for path in sorted(paths, key=lambda p: p.stat().st_size, reverse=True):
-        if total(current) <= limit:
-            break
-        if progress_cb:
-            progress_cb(0.93, f"Converting {path.name} to .xlsb to fit one email...")
-        binary = path.with_suffix(".xlsb")
-        if xlsb_convert.convert_to_xlsb(path, binary) and binary.stat().st_size < path.stat().st_size:
-            current[current.index(path)] = binary
-        else:
-            binary.unlink(missing_ok=True)
-    if total(current) <= limit:
-        return [[str(p) for p in current]], "complete workbooks (the largest as .xlsb to fit the email limit)"
-
-    groups: list[list[Path]] = []
-    for path in sorted(current, key=lambda p: p.stat().st_size, reverse=True):
-        for group in groups:
-            if total(group) + path.stat().st_size <= limit:
-                group.append(path)
-                break
-        else:
-            groups.append([path])
-    order = {p: i for i, p in enumerate(current)}
-    return (
-        [[str(p) for p in sorted(g, key=order.get)] for g in groups],
-        f"complete workbooks in {len(groups)} mails (size limit)",
-    )
+    groups, how, _ = attachment_fit.fit_together(paths, progress_cb)
+    return groups, how
 
 
 def build(snapshot: dict, progress_cb=None, cancel_event=None) -> mail.MailPayload:

@@ -6,8 +6,10 @@ app.services.sales_register.report). If a month's file is over the email size
 limit it is first written more compactly, then converted to .xlsb (Excel opens
 it as it opens .xlsx, with every value unchanged) - a month is never split into
 several files. The month files go in one mail, or in one mail each if together
-they are over the limit. See app.services.scheduled_report_mail for scheduling,
-recipients and sending.
+they are over the limit: first the files are made smaller together (see
+app.services.attachment_fit), and only if they still cannot share one mail are they
+spread over as few mails as possible. See app.services.scheduled_report_mail for
+scheduling, recipients and sending.
 """
 
 from __future__ import annotations
@@ -18,7 +20,7 @@ from pathlib import Path
 from app.config import SCRATCH_DIR
 from app.jobs import JobUserError, run_cpu_phase
 from app.regional import now_ist
-from app.services import report_mail_preview
+from app.services import attachment_fit, report_mail_preview
 from app.services import scheduled_report_mail as mail
 from app.services import xlsb_convert, xlsx_compact
 from app.services.erp_ageing import oracle_config
@@ -85,6 +87,13 @@ def build(snapshot: dict, progress_cb=None, cancel_event=None) -> mail.MailPaylo
         final, how = fit_in_one_file(path, progress_cb)
         files.append((label, start, end, summary, final, how))
 
+    # One email carries a limited total, not a limited size per file. When the month files together are over it,
+    # they are made smaller together (compacted, then .xlsb) so they still go in ONE mail; only if that is still
+    # not enough are they spread over as few mails as possible.
+    groups, fitted_how, finals = attachment_fit.fit_together([f[4] for f in files], progress_cb)
+    files = [(label, start, end, summary, final, how if fitted_how == "complete workbooks" else fitted_how)
+             for (label, start, end, summary, _, how), final in zip(files, finals)]
+
     first_start, last_end = files[0][1], files[-1][2]
     total_rows = sum(f[3]["rows"] for f in files)
     payload.values = {
@@ -100,7 +109,10 @@ def build(snapshot: dict, progress_cb=None, cancel_event=None) -> mail.MailPaylo
         "from": first_start.isoformat(),
         "to": last_end.isoformat(),
         "rows": total_rows,
-        "attachment": files[0][5] if len(files) == 1 else f"{len(files)} files, one per month",
+        "attachment": files[0][5] if len(files) == 1 else (
+            f"{len(files)} files, one per month"
+            + ("" if fitted_how == "complete workbooks" else f" ({fitted_how})")
+        ),
         "files": [
             {"period": label, "from": start.isoformat(), "to": end.isoformat(), "rows": summary["rows"],
              "sheets": summary["sheets"], "attachment": how, "file": final.name, "bytes": final.stat().st_size}
@@ -114,12 +126,7 @@ def build(snapshot: dict, progress_cb=None, cancel_event=None) -> mail.MailPaylo
                 f"continues on {summary['sheets']} sheets of the same file."
             )
 
-    # all the month files in one mail when they fit the limit together, otherwise one mail per file
-    paths = [str(f[4]) for f in files]
-    if sum(f[4].stat().st_size for f in files) <= mail.MAX_ATTACHMENT_BYTES:
-        payload.attachment_groups = [paths]
-    else:
-        payload.attachment_groups = [[p] for p in paths]
+    payload.attachment_groups = groups
     payload.downloads = [
         (f"{_ATTACHMENT_LABEL} - {f[0]}" if len(files) > 1 else _ATTACHMENT_LABEL, str(f[4])) for f in files
     ]

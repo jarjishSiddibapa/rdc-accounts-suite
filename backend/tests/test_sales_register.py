@@ -340,8 +340,27 @@ class MonthFilesTests(unittest.TestCase):
         self.assertEqual(built, [(date(2026, 10, 1), date(2026, 10, 31))])
         self.assertEqual(payload.values["period"], "Previous Month")
 
-    def test_files_too_big_together_go_one_per_mail(self):
-        with patch.object(mail, "MAX_ATTACHMENT_BYTES", 1000):
+    def test_files_too_big_together_are_made_smaller_and_still_go_in_one_mail(self):
+        # one email carries a limited TOTAL, so the files are shrunk together (.xlsb) rather than split
+        def fake_xlsb(source, destination):
+            Path(destination).write_bytes(b"y" * 100)
+            return True
+
+        with patch.object(mail, "MAX_ATTACHMENT_BYTES", 1000), \
+                patch.object(auto_mail.attachment_fit.xlsx_compact, "compact_xlsx_in_place"), \
+                patch.object(auto_mail.attachment_fit.xlsb_convert, "convert_to_xlsb", fake_xlsb):
+            payload, _ = self._build(date(2026, 11, 2), sizes={date(2026, 10, 1): 700, date(2026, 11, 1): 700})
+        self.assertEqual(len(payload.attachment_groups), 1)
+        names = [Path(p).name for p in payload.attachment_groups[0]]
+        self.assertEqual(len(names), 2)
+        self.assertTrue(any(name.endswith(".xlsb") for name in names))
+        self.assertEqual(sorted(Path(p).name for _, p in payload.downloads), sorted(names))   # the preview offers what is sent
+        self.assertIn(".xlsb", payload.detail["attachment"])
+
+    def test_only_when_they_still_cannot_share_a_mail_are_they_spread_over_several(self):
+        with patch.object(mail, "MAX_ATTACHMENT_BYTES", 1000), \
+                patch.object(auto_mail.attachment_fit.xlsx_compact, "compact_xlsx_in_place"), \
+                patch.object(auto_mail.attachment_fit.xlsb_convert, "convert_to_xlsb", lambda s, d: False):
             payload, _ = self._build(date(2026, 11, 2), sizes={date(2026, 10, 1): 700, date(2026, 11, 1): 700})
         self.assertEqual([len(g) for g in payload.attachment_groups], [1, 1])
 

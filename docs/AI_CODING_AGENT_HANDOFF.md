@@ -698,6 +698,16 @@ Receipts, Working), latest version per month.
 Default recipients and other system mail configuration are managed centrally
 through the admin UI and database. They remain editable at compose time.
 
+**One mail, however many files.** Gmail's size limit applies to the whole email
+(all attachments together, about a third bigger once encoded), not to each file;
+`scheduled_report_mail.MAX_ATTACHMENT_BYTES` (17 MB of raw files) is what one mail
+carries in total. When several workbooks are over that together,
+`services/attachment_fit.py` (`fit_together`; Debtors and Sales Register) makes
+them smaller first (compact `.xlsx`, then `.xlsb`, same values) so they still go in
+ONE mail, and only if that is not enough spreads them over as few mails as
+possible. A mail sent in parts keeps "(Part n of m)" in its subject but carries no
+explanation of the split in its text.
+
 **Mail standard for every application.** Whatever an application produces, it
 can be mailed by hand, to people chosen at that moment, and every send is
 recorded in the application:
