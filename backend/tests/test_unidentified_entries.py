@@ -181,5 +181,40 @@ class BuildTests(unittest.TestCase):
             self.assertTrue(Path(path).is_file())
 
 
+class SplitWhenTooBigTests(unittest.TestCase):
+    def test_entries_too_big_for_one_email_even_as_xlsb_are_split_by_rows_with_none_lost(self):
+        from app.services import attachment_fit, scheduled_report_mail as mail
+        with tempfile.TemporaryDirectory() as tmp, \
+                patch.object(auto_mail, "SCRATCH_DIR", Path(tmp)), \
+                patch.object(auto_mail, "oracle_config", lambda: None), \
+                patch.object(auto_mail, "fetch_register_from_erp", lambda cfg, log, cancel: _register()), \
+                patch.object(processor, "_fetch_comments", _comments), \
+                patch.object(auto_mail, "run_cpu_phase", lambda fn, *args, **kw: fn(*args, **kw)):
+            whole = auto_mail.build({}, None, None)
+            whole_size = Path(whole.attachment_groups[0][0]).stat().st_size
+            self.assertEqual(len(whole.attachment_groups), 1)
+            # a limit just under the whole workbook: one row per part now fits, the whole does not
+            with patch.object(mail, "MAX_ATTACHMENT_BYTES", whole_size - 1), \
+                    patch.object(attachment_fit.xlsx_compact, "compact_xlsx_in_place"), \
+                    patch.object(attachment_fit.xlsb_convert, "convert_to_xlsb", lambda s, d: False):
+                payload = auto_mail.build({}, None, None)
+            files = [Path(p) for group in payload.attachment_groups for p in group]
+            self.assertEqual(len(files), 2)
+            self.assertTrue(all(f.stat().st_size <= whole_size - 1 for f in files))
+            rows = []
+            for f in sorted(files):
+                ws = load_workbook(f).active
+                self.assertEqual(ws.cell(row=1, column=1).value, "Customer Name")      # each part is complete
+                rows += [ws.cell(row=r, column=2).value for r in range(2, ws.max_row + 1)
+                         if ws.cell(row=r, column=1).value != "Grand Total"]
+            whole_ws = load_workbook(whole.attachment_groups[0][0]).active
+            expected = [whole_ws.cell(row=r, column=2).value for r in range(2, whole_ws.max_row + 1)
+                        if whole_ws.cell(row=r, column=1).value != "Grand Total"]
+            self.assertEqual(sorted(map(str, rows)), sorted(map(str, expected)))     # every entry, exactly once
+            self.assertEqual(payload.values["rows"], "2")
+            self.assertEqual(len(payload.downloads), 2)
+            self.assertIn("split", payload.detail["attachment"])
+
+
 if __name__ == "__main__":
     unittest.main()

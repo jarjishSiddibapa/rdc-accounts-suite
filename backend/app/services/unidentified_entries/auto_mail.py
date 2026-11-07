@@ -16,10 +16,9 @@ from pathlib import Path
 from app.config import SCRATCH_DIR
 from app.jobs import run_cpu_phase
 from app.regional import now_ist
-from app.services import report_mail_preview
+from app.services import attachment_fit, report_mail_preview
 from app.services import scheduled_report_mail as mail
 from app.services.erp_ageing import oracle_config
-from app.services.sales_register.auto_mail import fit_in_one_file
 from app.services.unapplied_receipts import processor, report_job
 from app.services.unapplied_receipts.erp_register import fetch_register_from_erp
 
@@ -48,19 +47,28 @@ def build(snapshot: dict, progress_cb=None, cancel_event=None) -> mail.MailPaylo
     report(0.8, "Writing the workbook...")
     path = work_dir / f"Unidentified_Entries_As_On_{as_on.isoformat()}.xlsx"
     run_cpu_phase(report_job.cpu_write_unidentified, unidentified, str(path), as_on, LOOK)
-    final, how = fit_in_one_file(path, progress_cb)
 
     rows = len(unidentified)
+
+    def write_slice(first: int, last: int, part_path: Path) -> None:
+        part = unidentified.iloc[first:last].reset_index(drop=True)
+        run_cpu_phase(report_job.cpu_write_unidentified, part, str(part_path), as_on, LOOK)
+
+    # the same rule as every application: compacted, then .xlsb, and only if it is still too big for one email
+    # on its own is it split by rows (every row in exactly one part)
+    splitter = attachment_fit.row_splitter(rows, write_slice, work_dir, path.stem)
+    groups, how, finals = attachment_fit.fit_together([path], progress_cb, {path: splitter})
+
     payload.values = {"date": as_on.strftime("%d-%b-%Y"), "rows": f"{rows:,}"}
     payload.detail = {
         "as_on_date": as_on.isoformat(),
         "rows": rows,
         "attachment": how,
-        "file": final.name,
-        "bytes": final.stat().st_size,
+        "file": ", ".join(f.name for f in finals),
+        "bytes": sum(f.stat().st_size for f in finals),
     }
-    payload.attachment_groups = [[str(final)]]
-    payload.downloads = [(final.name, str(final))]
+    payload.attachment_groups = groups
+    payload.downloads = [(f.name, str(f)) for f in finals]
     return payload
 
 

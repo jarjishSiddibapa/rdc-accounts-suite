@@ -231,15 +231,16 @@ class OneFileTests(unittest.TestCase):
 
     def test_a_report_within_the_limit_goes_as_it_is(self):
         path = self._file(100)
-        self.assertEqual(auto_mail.fit_in_one_file(path), (path, "complete workbook"))
+        groups, how, finals = auto_mail.attachment_fit.fit_together([path])
+        self.assertEqual((groups, how, finals), ([[str(path)]], "complete workbook", [path]))
 
     def test_too_big_but_fine_once_compacted(self):
         path = self._file(2_000_000)
         with patch.object(mail, "MAX_ATTACHMENT_BYTES", 1_000_000), \
-                patch.object(auto_mail.xlsx_compact, "compact_xlsx_in_place",
+                patch.object(auto_mail.attachment_fit.xlsx_compact, "compact_xlsx_in_place",
                              lambda p: Path(p).write_bytes(b"y" * 500)):
-            final, how = auto_mail.fit_in_one_file(path)
-        self.assertEqual(final, path)
+            groups, how, finals = auto_mail.attachment_fit.fit_together([path])
+        self.assertEqual(finals, [path])
         self.assertIn("compacted", how)
 
     def test_still_too_big_becomes_xlsb(self):
@@ -250,25 +251,20 @@ class OneFileTests(unittest.TestCase):
             return True
 
         with patch.object(mail, "MAX_ATTACHMENT_BYTES", 1_000_000), \
-                patch.object(auto_mail.xlsx_compact, "compact_xlsx_in_place"), \
-                patch.object(auto_mail.xlsb_convert, "convert_to_xlsb", fake_xlsb):
-            final, how = auto_mail.fit_in_one_file(path)
-        self.assertEqual(final.suffix, ".xlsb")
+                patch.object(auto_mail.attachment_fit.xlsx_compact, "compact_xlsx_in_place"), \
+                patch.object(auto_mail.attachment_fit.xlsb_convert, "convert_to_xlsb", fake_xlsb):
+            groups, how, finals = auto_mail.attachment_fit.fit_together([path])
+        self.assertEqual(finals[0].suffix, ".xlsb")
         self.assertIn(".xlsb", how)
 
-    def test_when_even_that_is_too_big_it_is_never_split_it_stops(self):
-        path = self._file(2_000_000)
-
-        def fake_xlsb(source, destination):
-            Path(destination).write_bytes(b"z" * 1_500_000)
-            return True
-
-        with patch.object(mail, "MAX_ATTACHMENT_BYTES", 1_000_000), \
-                patch.object(auto_mail.xlsx_compact, "compact_xlsx_in_place"), \
-                patch.object(auto_mail.xlsb_convert, "convert_to_xlsb", fake_xlsb):
-            with self.assertRaises(JobUserError) as caught:
-                auto_mail.fit_in_one_file(path)
-        self.assertIn("never split", str(caught.exception))
+    def test_the_day_ranges_cover_the_month_exactly_with_no_gap_and_no_overlap(self):
+        for count in (2, 3, 7, 31):
+            ranges = auto_mail._day_ranges(date(2026, 10, 1), date(2026, 10, 31), count)
+            self.assertEqual(len(ranges), count)
+            self.assertEqual(ranges[0][0], date(2026, 10, 1))
+            self.assertEqual(ranges[-1][1], date(2026, 10, 31))
+            for (_, last), (first, _) in zip(ranges, ranges[1:]):
+                self.assertEqual(first, last + timedelta(days=1))
 
     def test_the_real_converter_keeps_values_types_and_dates(self):
         """A real workbook through the real compaction and .xlsb conversion."""
@@ -293,13 +289,13 @@ class OneFileTests(unittest.TestCase):
 class MonthFilesTests(unittest.TestCase):
     """auto_mail.build: one file per month, the files in one mail while they fit."""
 
-    def _build(self, today, sizes=None):
+    def _build(self, today, sizes=None, size_of=None):
         tmp = tempfile.TemporaryDirectory()
         self.addCleanup(tmp.cleanup)
         built = []
 
         def fake_cpu_phase(fn, cfg, start, end, path, progress_cb=None):
-            Path(path).write_bytes(b"x" * (sizes or {}).get(start, 100))
+            Path(path).write_bytes(b"x" * (size_of(start, end) if size_of else (sizes or {}).get(start, 100)))
             built.append((start, end))
             return {"rows": 10 * len(built), "columns": 50, "sheets": 1}
 
@@ -401,6 +397,40 @@ class MonthFilesTests(unittest.TestCase):
                 patch.object(auto_mail.attachment_fit.xlsb_convert, "convert_to_xlsb", lambda s, d: False):
             payload, _ = self._build(date(2026, 11, 2), sizes={date(2026, 10, 1): 700, date(2026, 11, 1): 700})
         self.assertEqual([len(g) for g in payload.attachment_groups], [1, 1])
+
+
+    def test_a_month_too_big_on_its_own_even_as_xlsb_is_split_into_date_ranges_not_dropped(self):
+        # 100 bytes a day: October (3,100) is over the 1,000 limit, a quarter of it (~800) fits
+        no_shrink = (patch.object(auto_mail.attachment_fit.xlsx_compact, "compact_xlsx_in_place"),
+                     patch.object(auto_mail.attachment_fit.xlsb_convert, "convert_to_xlsb", lambda s, d: False))
+        with patch.object(mail, "MAX_ATTACHMENT_BYTES", 1000), no_shrink[0], no_shrink[1]:
+            payload, built = self._build(date(2026, 11, 2), size_of=lambda s, e: ((e - s).days + 1) * 100)
+        sent_files = [Path(p) for g in payload.attachment_groups for p in g]
+        # every file within the limit, every day of October in exactly one part, November untouched
+        self.assertTrue(all(f.stat().st_size <= 1000 for f in sent_files))
+        october = sorted(f.name for f in sent_files if "2026-10-" in f.name)
+        self.assertGreaterEqual(len(october), 4)
+        covered = []
+        for name in october:
+            first, last = name.removeprefix("RDC_Sales_Register_Report_").removesuffix(".xlsx").split("_to_")
+            covered.append((date.fromisoformat(first), date.fromisoformat(last)))
+        covered.sort()
+        self.assertEqual(covered[0][0], date(2026, 10, 1))
+        self.assertEqual(covered[-1][1], date(2026, 10, 31))
+        for (_, last), (first, _) in zip(covered, covered[1:]):
+            self.assertEqual(first, last + timedelta(days=1))
+        self.assertEqual(sum(1 for f in sent_files if "2026-11-01" in f.name), 1)
+        self.assertEqual(len(payload.downloads), len(sent_files))
+        self.assertIn("split", payload.detail["attachment"])
+        self.assertEqual(payload.notes, [])
+
+    def test_a_single_day_that_is_still_too_big_stops_with_a_clear_message(self):
+        with patch.object(mail, "MAX_ATTACHMENT_BYTES", 1000), \
+                patch.object(auto_mail.attachment_fit.xlsx_compact, "compact_xlsx_in_place"), \
+                patch.object(auto_mail.attachment_fit.xlsb_convert, "convert_to_xlsb", lambda s, d: False):
+            with self.assertRaises(JobUserError) as caught:
+                self._build(date(2026, 11, 2), size_of=lambda s, e: 5000)       # even one day is over the limit
+        self.assertIn("Nothing was sent", str(caught.exception))
 
 
 class AccessTests(unittest.TestCase):

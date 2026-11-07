@@ -208,6 +208,16 @@ class SwitchTests(unittest.TestCase):
             _, ws = self.ws()
             self.assertIsInstance(fast_xlsx.new_sheet(ws), fast_xlsx.FastSheet)
 
+    def test_the_self_check_does_not_depend_on_the_clock(self):
+        # xlsxwriter stamps a workbook with the second it is written in; two samples written either side of a
+        # clock tick used to differ in docProps/core.xml and switch the fast path off by chance
+        import time
+        with tempfile.TemporaryDirectory() as tmp:
+            first = fast_xlsx._sample(os.path.join(tmp, "a.xlsx"), fast_xlsx.ClassicSheet)
+            time.sleep(1.1)
+            second = fast_xlsx._sample(os.path.join(tmp, "b.xlsx"), fast_xlsx.ClassicSheet)
+        self.assertEqual(first, second)
+
     def test_the_switch_turns_it_off(self):
         with patch.dict(os.environ, {"FAST_XLSX": "0"}):
             self.assertFalse(fast_xlsx.enabled())

@@ -26,6 +26,7 @@ from app.services import xlsb_convert, xlsx_compact
 from app.services.debtors_mailer import mapping_store
 from app.services.gst_invoice_adder import report_job as gst_job
 from app.services.mailer_shared import sheet_to_html
+from app.services.untagged_invoices import auto_mail as untagged_auto_mail
 from app.services.unapplied_receipts import report_job as unapplied_job
 from app.services.unapplied_receipts.erp_register import fetch_register_from_erp
 from app.services.untagged_invoices import processor as untagged_processor
@@ -114,12 +115,13 @@ def _hold_reason(warnings: list[dict]) -> str:
     )
 
 
-def _fit_attachments(paths: list[Path], progress_cb=None) -> tuple[list[list[str]], str]:
+def _fit_attachments(paths: list[Path], progress_cb=None, splitters=None) -> tuple[list[list[str]], str]:
     """The workbooks grouped into as few mails as the size limit allows, and a
     note on what had to be done. Nothing is ever left out: first the same
     workbooks written more compactly, then the largest as .xlsb (Excel opens it
-    as it opens .xlsx), and only if that is still too much, several mails."""
-    groups, how, _ = attachment_fit.fit_together(paths, progress_cb)
+    as it opens .xlsx), then a workbook that is still too big for an email on its own
+    is split (``splitters``), and only what cannot share a mail goes in several."""
+    groups, how, _ = attachment_fit.fit_together(paths, progress_cb, splitters)
     return groups, how
 
 
@@ -263,15 +265,21 @@ def build(snapshot: dict, progress_cb=None, cancel_event=None) -> mail.MailPaylo
         ("4. Below 1k Invoices (Summary):", sheet_to_html(str(summary_path), "Below 1k Summary", payload.css, "b")),
     ]
 
-    groups, how = _fit_attachments([gst_path, unapplied_path, untagged_path], progress_cb)
+    # A workbook that is still too big for an email on its own (even as .xlsb) is split as the last resort: the
+    # ageing by rows, the Untagged report as its own sheets plus slices of its full ageing. Every row lands in
+    # exactly one part. The Unapplied Receipts workbook has no splitter: if it is ever that big, the job stops.
+    def write_gst_slice(first: int, last: int, part_path: Path) -> None:
+        part = gst.df.iloc[first:last].reset_index(drop=True)
+        run_cpu_phase(gst_job.write_workbook, str(part_path), part, gst.gst_map, look=LOOK)
+
+    splitters = {
+        gst_path: attachment_fit.row_splitter(len(gst.df), write_gst_slice, work_dir, gst_path.stem),
+        untagged_path: untagged_auto_mail.untagged_splitter(untagged.frames, work_dir, as_on, look=LOOK),
+    }
+    groups, how = _fit_attachments([gst_path, unapplied_path, untagged_path], progress_cb, splitters)
     payload.attachment_groups = groups
     payload.detail["attachment"] = how
     payload.downloads = [(Path(p).name, p) for group in groups for p in group]
-    if len(groups) > 1:
-        payload.notes.append(
-            "The three reports are too large for a single email, so they are sent in "
-            f"{len(groups)} mails. Nothing has been left out."
-        )
     return payload
 
 

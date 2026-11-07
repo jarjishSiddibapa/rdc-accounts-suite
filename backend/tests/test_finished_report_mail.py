@@ -146,12 +146,32 @@ class SendTests(unittest.TestCase):
             self.assertIn(calls.error.status_code, (400, 404, 409), name)
             calls.sent.assert_not_called()
 
-    def test_a_report_too_large_to_email_is_refused_with_a_clear_message(self):
-        with patch.object(frm.mail, "MAX_ATTACHMENT_BYTES", 5):
+    def test_a_report_over_the_limit_is_shrunk_first_and_the_download_is_untouched(self):
+        sent_names = []
+
+        def fake_shrink(path):
+            converted = Path(path).with_suffix(".xlsb")
+            converted.write_bytes(b"s")
+            return converted
+
+        def capture(**kwargs):
+            sent_names.append(Path(kwargs["attachments"][0]).name)
+
+        with patch.object(frm.mail, "MAX_ATTACHMENT_BYTES", 5), \
+                patch.object(frm.attachment_fit, "shrink_to_fit", fake_shrink):
+            calls = self._run(self._body(), send_error=capture)      # a callable side effect sees the real call
+        self.assertEqual(calls.result["status"], "sent")
+        self.assertEqual(sent_names, ["TB.xlsb"])                       # the recipient gets the smaller form
+        self.assertEqual(self.report.read_bytes(), b"workbook bytes")   # the report that can be downloaded is unchanged
+
+    def test_a_report_still_over_the_limit_after_shrinking_is_refused_with_a_clear_message(self):
+        with patch.object(frm.mail, "MAX_ATTACHMENT_BYTES", 5), \
+                patch.object(frm.attachment_fit, "shrink_to_fit", lambda path: path):
             calls = self._run(self._body())
         self.assertEqual(calls.error.status_code, 400)
-        self.assertIn("too large to email", calls.error.detail)
+        self.assertIn("even in its smallest form", calls.error.detail)
         calls.sent.assert_not_called()
+        self.assertFalse(list(Path(self.tmp.name).glob("email-report-*")))   # nothing left behind
 
     def test_a_person_can_only_email_their_own_job(self):
         # get_job is asked for the signed-in person's own jobs only

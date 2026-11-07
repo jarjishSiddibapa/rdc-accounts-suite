@@ -698,15 +698,23 @@ Receipts, Working), latest version per month.
 Default recipients and other system mail configuration are managed centrally
 through the admin UI and database. They remain editable at compose time.
 
-**One mail, however many files.** Gmail's size limit applies to the whole email
-(all attachments together, about a third bigger once encoded), not to each file;
-`scheduled_report_mail.MAX_ATTACHMENT_BYTES` (17 MB of raw files) is what one mail
-carries in total. When several workbooks are over that together,
-`services/attachment_fit.py` (`fit_together`; Debtors and Sales Register) makes
-them smaller first (compact `.xlsx`, then `.xlsb`, same values) so they still go in
-ONE mail, and only if that is not enough spreads them over as few mails as
-possible. A mail sent in parts keeps "(Part n of m)" in its subject but carries no
-explanation of the split in its text.
+**One mail, however many files, the same rule in every application.** Gmail's
+size limit applies to the whole email (all attachments together, about a third
+bigger once encoded), not to each file; `scheduled_report_mail.MAX_ATTACHMENT_BYTES`
+(17 MB of raw files) is what one mail carries in total.
+`services/attachment_fit.py` (`fit_together`) is the one implementation, used by
+Sales Register, Unidentified Entries, Debtors, Untagged Invoices and GST Invoice
+Number: (1) files that fit together go as they are; (2) otherwise the big `.xlsx`
+files are compacted, then (3) converted to `.xlsb` (same values), largest first, so
+they still go in ONE mail; (4) only a file that is still over the limit on its own
+is split, by the application's own splitter (Sales Register by date range, the
+others by rows; every row/day lands in exactly one part, nothing is dropped); (5)
+whatever must be several mails is packed into as few as possible. A mail sent in
+parts keeps "(Part n of m)" in its subject but has no explanation of the split in
+its text. Apps without a splitter (Debtors' Unapplied Receipts workbook, the
+"Email this report" button of the report generators, Unaccounted Transactions)
+shrink as above and, if still too big, stop with a clear message before anything is
+sent. Cashflow attaches one small formula workbook and is not touched.
 
 **Mail standard for every application.** Whatever an application produces, it
 can be mailed by hand, to people chosen at that moment, and every send is

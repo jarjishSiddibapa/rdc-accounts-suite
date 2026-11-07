@@ -29,7 +29,7 @@ from app.database import get_db
 from app.jobs import claim_job_action, finish_job_action, get_job
 from app.rate_limit import auth_limiter
 from app.regional import now_ist
-from app.services import mailer_shared
+from app.services import attachment_fit, mailer_shared
 from app.services import scheduled_report_mail as mail
 from app.validation import normalize_email
 
@@ -121,15 +121,37 @@ def make_finished_report_mail_router(app_key: str, label: str) -> APIRouter:
         output_path = Path(result.get("output_path", "")) if isinstance(result, dict) else Path("")
         if not output_path.is_file():
             raise HTTPException(status_code=404, detail="The report file is no longer available. Generate it again.")
-        size = output_path.stat().st_size
-        if size > mail.MAX_ATTACHMENT_BYTES:
-            raise HTTPException(
-                status_code=400,
-                detail=f"The report is {size / 1024 / 1024:.1f} MB, too large to email. Download it and share it another way.",
-            )
+        # What goes out is a copy under the download name; if it is over what one email carries it is made smaller
+        # first (compacted, then .xlsb: the same data), as in every application. The downloadable report itself
+        # is never changed.
+        name = attachment_name(result, output_path, label)
+        staging = Path(tempfile.mkdtemp(prefix="email-report-", dir=SCRATCH_DIR))
+        try:
+            attachment = staging / name
+            shutil.copyfile(output_path, attachment)
+            if attachment.stat().st_size > mail.MAX_ATTACHMENT_BYTES:
+                attachment = attachment_fit.shrink_to_fit(attachment)
+                name = attachment.name
+            size = attachment.stat().st_size
+            if size > mail.MAX_ATTACHMENT_BYTES:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"The report is {size / 1024 / 1024:.1f} MB even in its smallest form, more than one email "
+                        "can carry. Download it and share it another way."
+                    ),
+                )
+        except BaseException:
+            shutil.rmtree(staging, ignore_errors=True)
+            raise
 
-        claim_state, _ = claim_job_action(body.job_id, owner_id=user.id, action=f"email-{body.request_id}")
+        try:
+            claim_state, _ = claim_job_action(body.job_id, owner_id=user.id, action=f"email-{body.request_id}")
+        except BaseException:
+            shutil.rmtree(staging, ignore_errors=True)
+            raise
         if claim_state != "claimed":
+            shutil.rmtree(staging, ignore_errors=True)
             detail = {
                 "in_progress": "This email is already being sent.",
                 "completed": "This email has already been sent.",
@@ -138,13 +160,9 @@ def make_finished_report_mail_router(app_key: str, label: str) -> APIRouter:
             raise HTTPException(status_code=404 if claim_state == "missing" else 409, detail=detail)
 
         started = datetime.now(UTC).replace(tzinfo=None)
-        name = attachment_name(result, output_path, label)
         recipients = {"to": to_list, "cc": cc_list}
         detail_log = {"job_id": body.job_id, "sent_from": sender["email"], "attachment": name, "bytes": size}
-        staging = Path(tempfile.mkdtemp(prefix="email-report-", dir=SCRATCH_DIR))
         try:
-            attachment = staging / name          # the recipient sees the friendly name, not the scratch file's
-            shutil.copyfile(output_path, attachment)
             mailer_shared.send_mail(
                 from_email=sender["email"],
                 app_password=sender["app_password"],

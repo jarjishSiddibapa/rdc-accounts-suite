@@ -357,6 +357,9 @@ def _sample(path: str, sheet_class) -> dict[str, bytes]:
     wb = xlsxwriter.Workbook(path, {"constant_memory": True, "default_date_format": "dd-mmm-yy",
                                     "strings_to_formulas": False, "strings_to_numbers": False,
                                     "strings_to_urls": False, "nan_inf_to_errors": True})
+    # xlsxwriter stamps the workbook with the time it is written, to the second: two samples written either side
+    # of a clock tick would differ in docProps/core.xml and switch the fast path off for no real reason
+    wb.set_properties({"created": _dt.datetime(2026, 1, 1)})
     ws = wb.add_worksheet("T")
     head = wb.add_format({"bold": True, "bg_color": "#C2D8ED"})
     plain = wb.add_format({"font_name": "Calibri", "border": 1})

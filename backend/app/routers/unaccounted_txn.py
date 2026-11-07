@@ -26,6 +26,7 @@ from app.auth import get_current_user
 from app.config import SCRATCH_DIR
 from app.database import get_db
 from app.jobs import (
+    JobUserError,
     cancel_job,
     claim_job_action,
     finish_job_action,
@@ -35,7 +36,7 @@ from app.jobs import (
 )
 from app.permissions import require_app_access
 from app.regional import now_ist
-from app.services import mailer_shared, send_history
+from app.services import attachment_fit, mailer_shared, send_history
 from app.services.unaccounted import excel_writers, mappings, processing
 from app.uploads import save_upload
 
@@ -973,6 +974,17 @@ def _job_mail_send(
     final_to = to_list
     final_cc = cc_list
     attachments = [p for p in [ua_out, mrn_out, po_out] if p]
+    # One email carries a limited total (not per file): if the reports are over it together they are made smaller
+    # first (compacted, then .xlsb: the same data), as in every application. If they still cannot share one email
+    # the preview stops here, with a clear message, rather than failing when the mail is sent.
+    if attachments:
+        groups, _, fitted = attachment_fit.fit_together([Path(p) for p in attachments])
+        if len(groups) > 1:
+            raise JobUserError(
+                "These reports are more than one email can carry even in their smallest form. "
+                "Download them and send them in separate emails. Nothing was sent."
+            )
+        attachments = [str(p) for p in fitted]
 
     # Always stop here and hand back the fully-built email for review first -
     # nothing gets sent from this job. The frontend shows the user exactly

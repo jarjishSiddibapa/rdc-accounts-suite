@@ -2,19 +2,20 @@
 
 One workbook per calendar month (see report.get_report_periods): each is fetched
 from the ERP and written exactly as the ERP returns it (see
-app.services.sales_register.report). If a month's file is over the email size
-limit it is first written more compactly, then converted to .xlsb (Excel opens
-it as it opens .xlsx, with every value unchanged) - a month is never split into
-several files. The month files go in one mail, or in one mail each if together
-they are over the limit: first the files are made smaller together (see
-app.services.attachment_fit), and only if they still cannot share one mail are they
-spread over as few mails as possible. See app.services.scheduled_report_mail for
+app.services.sales_register.report). All the files go in ONE mail. Because one
+email carries a limited total (not a limit per file), files that are too big together
+are made smaller first, with every value unchanged: written more compactly, then
+converted to .xlsb (Excel opens it as it opens .xlsx). Only if a single month is
+still too big for an email on its own is it split, as the last resort, into the
+fewest date ranges that fit (every day lands in exactly one part, nothing is left
+out); see app.services.attachment_fit. See app.services.scheduled_report_mail for
 scheduling, recipients and sending.
 """
 
 from __future__ import annotations
 
 import uuid
+from datetime import date, timedelta
 from pathlib import Path
 
 from app.config import SCRATCH_DIR
@@ -22,7 +23,6 @@ from app.jobs import JobUserError, run_cpu_phase
 from app.regional import now_ist
 from app.services import attachment_fit, report_mail_preview
 from app.services import scheduled_report_mail as mail
-from app.services import xlsb_convert, xlsx_compact
 from app.services.erp_ageing import oracle_config
 from app.services.sales_register import report
 
@@ -30,39 +30,35 @@ APP_KEY = "rdc-sales-register-report"
 _ATTACHMENT_LABEL = "RDC Sales Register Report"
 
 
-def _megabytes(size: int) -> str:
-    return f"{size / 1024 / 1024:.1f} MB"
+def _day_ranges(start: date, end: date, count: int) -> list[tuple[date, date]]:
+    """``count`` consecutive date ranges that together cover start..end exactly: no gap, no overlap."""
+    days = (end - start).days + 1
+    ranges, first = [], start
+    for index in range(count):
+        length = days // count + (1 if index < days % count else 0)
+        last = first + timedelta(days=length - 1)
+        ranges.append((first, last))
+        first = last + timedelta(days=1)
+    return ranges
 
 
-def fit_in_one_file(path: Path, progress_cb=None) -> tuple[Path, str]:
-    """The report as the one file to attach, and a note on how it got there.
-    Raises JobUserError if even the smallest form is over the email limit: the
-    report is never split into several files."""
-    limit = mail.MAX_ATTACHMENT_BYTES
-    if path.stat().st_size <= limit:
-        return path, "complete workbook"
-
-    if progress_cb:
-        progress_cb(0.91, "Compacting the workbook to fit one email...")
-    xlsx_compact.compact_xlsx_in_place(path)
-    if path.stat().st_size <= limit:
-        return path, "complete workbook (compacted to fit the email limit)"
-
-    if progress_cb:
-        progress_cb(0.93, "Converting the workbook to .xlsb to fit one email...")
-    binary = path.with_suffix(".xlsb")
-    if xlsb_convert.convert_to_xlsb(path, binary):
-        if binary.stat().st_size <= limit:
-            return binary, "complete workbook (as .xlsb to fit the email limit)"
-        smallest = binary.stat().st_size
-    else:
-        binary.unlink(missing_ok=True)
-        smallest = path.stat().st_size
-    raise JobUserError(
-        f"The report is {_megabytes(smallest)} even in its smallest form (.xlsb), over the "
-        f"{_megabytes(limit)} an email can carry, and it is never split into several files. "
-        "Nothing was sent."
-    )
+def _month_splitter(start: date, end: date, work_dir: Path, state: dict):
+    """How one month's workbook is cut when it is too big for an email on its own: into consecutive date ranges,
+    each fetched from the ERP and written as a complete workbook of its own."""
+    def split(parts_wanted: int) -> list[Path]:
+        days = (end - start).days + 1
+        if days < 2 or state.get("at_finest"):
+            raise attachment_fit.CannotSplit("it is a single day, which cannot be split any further.")
+        count = min(parts_wanted, days)
+        state["at_finest"] = count == days
+        parts, summaries = [], []
+        for first, last in _day_ranges(start, end, count):
+            path = work_dir / f"{report.report_file_stem(first, last)}.xlsx"
+            summaries.append(run_cpu_phase(report.build_workbook, oracle_config(), first, last, str(path)))
+            parts.append(path)
+        state["parts"], state["summaries"] = parts, summaries
+        return parts
+    return split
 
 
 def build(snapshot: dict, progress_cb=None, cancel_event=None) -> mail.MailPayload:
@@ -77,59 +73,72 @@ def build(snapshot: dict, progress_cb=None, cancel_event=None) -> mail.MailPaylo
     if not periods:
         raise JobUserError("There is no completed day to report on yet.")
 
-    # one file per month: each is fetched, written and fitted to the email limit on its own
-    files = []                       # (label, start, end, summary, final path, how)
+    # one file per month: each is fetched and written on its own
+    months = []                       # label, start, end, summary, path, split state
     for index, (label, start, end) in enumerate(periods):
         low, span = index / len(periods), 1 / len(periods)
         scaled = (lambda frac, msg, low=low, span=span: progress_cb((low + frac * span) * 0.9, msg)) if progress_cb else None
         path = work_dir / f"{report.report_file_stem(start, end)}.xlsx"
         summary = run_cpu_phase(report.build_workbook, oracle_config(), start, end, str(path), progress_cb=scaled)
-        final, how = fit_in_one_file(path, progress_cb)
-        files.append((label, start, end, summary, final, how))
+        months.append((label, start, end, summary, path, {}))
 
-    # One email carries a limited total, not a limited size per file. When the month files together are over it,
-    # they are made smaller together (compacted, then .xlsb) so they still go in ONE mail; only if that is still
-    # not enough are they spread over as few mails as possible.
-    groups, fitted_how, finals = attachment_fit.fit_together([f[4] for f in files], progress_cb)
-    files = [(label, start, end, summary, final, how if fitted_how == "complete workbooks" else fitted_how)
-             for (label, start, end, summary, _, how), final in zip(files, finals)]
+    # One email carries a limited TOTAL, so the files are made smaller together (compacted, then .xlsb) and go in
+    # ONE mail. Only a month that is still too big on its own is split; only what cannot share a mail is spread.
+    splitters = {path: _month_splitter(start, end, work_dir, state) for _, start, end, _, path, state in months}
+    groups, fitted_how, finals = attachment_fit.fit_together([m[4] for m in months], progress_cb, splitters)
 
-    first_start, last_end = files[0][1], files[-1][2]
-    total_rows = sum(f[3]["rows"] for f in files)
+    def files_of(month) -> list[Path]:
+        """The final files that belong to a month: its own file (maybe converted) or its parts."""
+        stems = {p.stem for p in month[5].get("parts", [])} or {month[4].stem}
+        return [final for final in finals if final.stem in stems]
+
+    def rows_of(month) -> int:
+        return sum(s["rows"] for s in month[5]["summaries"]) if month[5].get("parts") and files_of(month) else month[3]["rows"]
+
+    first_start, last_end = months[0][1], months[-1][2]
+    total_rows = sum(rows_of(m) for m in months)
     payload.values = {
         "date": run_date.strftime("%d-%b-%Y"),
-        "report": _ATTACHMENT_LABEL + (" files" if len(files) > 1 else ""),
-        "period": " + ".join(f[0] for f in files),
+        "report": _ATTACHMENT_LABEL + (" files" if len(finals) > 1 else ""),
+        "period": " + ".join(m[0] for m in months),
         "from_date": first_start.strftime("%d-%b-%Y"),
         "to_date": last_end.strftime("%d-%b-%Y"),
         "rows": f"{total_rows:,}",
     }
+    how = fitted_how
     payload.detail = {
         "period": payload.values["period"],
         "from": first_start.isoformat(),
         "to": last_end.isoformat(),
         "rows": total_rows,
-        "attachment": files[0][5] if len(files) == 1 else (
-            f"{len(files)} files, one per month"
-            + ("" if fitted_how == "complete workbooks" else f" ({fitted_how})")
+        "attachment": how if len(months) == 1 else (
+            f"{len(months)} files, one per month"
+            + ("" if fitted_how in attachment_fit.UNCHANGED else f" ({fitted_how})")
         ),
         "files": [
-            {"period": label, "from": start.isoformat(), "to": end.isoformat(), "rows": summary["rows"],
-             "sheets": summary["sheets"], "attachment": how, "file": final.name, "bytes": final.stat().st_size}
-            for label, start, end, summary, final, how in files
+            {"period": m[0], "from": m[1].isoformat(), "to": m[2].isoformat(), "rows": rows_of(m),
+             "sheets": m[3]["sheets"], "attachment": fitted_how,
+             "file": ", ".join(f.name for f in files_of(m)), "bytes": sum(f.stat().st_size for f in files_of(m))}
+            for m in months
         ],
     }
-    for label, _, _, summary, _, _ in files:
-        if summary["sheets"] > 1:
+    for label, _, _, summary, _, state in months:
+        if summary["sheets"] > 1 and not state.get("parts"):
             payload.notes.append(
                 f"The {label} file has {summary['rows']:,} rows, more than one Excel sheet holds, so it "
                 f"continues on {summary['sheets']} sheets of the same file."
             )
 
     payload.attachment_groups = groups
-    payload.downloads = [
-        (f"{_ATTACHMENT_LABEL} - {f[0]}" if len(files) > 1 else _ATTACHMENT_LABEL, str(f[4])) for f in files
-    ]
+    downloads = []
+    for month in months:
+        month_files = files_of(month)
+        for number, final in enumerate(month_files, 1):
+            name = _ATTACHMENT_LABEL if len(months) == 1 else f"{_ATTACHMENT_LABEL} - {month[0]}"
+            if len(month_files) > 1:
+                name += f" (part {number} of {len(month_files)})"
+            downloads.append((name, str(final)))
+    payload.downloads = downloads
     return payload
 
 

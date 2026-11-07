@@ -15,15 +15,12 @@ from pathlib import Path
 
 from app.config import SCRATCH_DIR
 from app.jobs import run_cpu_phase
-from app.services import report_mail_preview
+from app.services import attachment_fit, report_mail_preview
 from app.services import scheduled_report_mail as mail
-from app.services import xlsb_convert, xlsx_compact
+from app.services import xlsb_convert, xlsx_compact  # noqa: F401 - the tests patch them on this module
 from app.services.gst_invoice_adder import report_job
 
 APP_KEY = "gst-invoice-adder"
-# Aim a little under the hard limit so a part never lands just over it.
-_TARGET_PART_BYTES = int(mail.MAX_ATTACHMENT_BYTES * 0.85)
-_MAX_SPLIT_ATTEMPTS = 4
 
 
 def _stats_table(total: int, found: int, blank: int) -> str:
@@ -36,29 +33,6 @@ def _stats_table(total: int, found: int, blank: int) -> str:
         f"<tr><td style='{cell}'>{total:,}</td><td style='{cell}'>{found:,}</td>"
         f"<td style='{cell}'>{blank:,}</td></tr></table>"
     )
-
-
-def _write_parts(df, gst_map: dict, work_dir, stem: str, size_of_whole: int) -> list[str]:
-    """Split the rows into parts that each fit in one mail and write them."""
-    rows = len(df)
-    bytes_per_row = max(size_of_whole / max(rows, 1), 1)
-    rows_per_part = max(1000, int(_TARGET_PART_BYTES / bytes_per_row))
-    for _ in range(_MAX_SPLIT_ATTEMPTS):
-        ranges = [(start, min(start + rows_per_part, rows)) for start in range(0, rows, rows_per_part)]
-        paths: list[str] = []
-        for index, (start, end) in enumerate(ranges, 1):
-            path = str(work_dir / f"{stem}_Part_{index}_of_{len(ranges)}.xlsx")
-            run_cpu_phase(report_job.write_workbook, path, df.iloc[start:end].reset_index(drop=True), gst_map)
-            xlsx_compact.compact_xlsx_in_place(path)
-            paths.append(path)
-        if all(_size(path) <= mail.MAX_ATTACHMENT_BYTES for path in paths):
-            return paths
-        rows_per_part = max(1000, rows_per_part // 2)
-    raise RuntimeError("The report could not be split into mails small enough to send.")
-
-
-def _size(path: str) -> int:
-    return Path(path).stat().st_size
 
 
 def build(snapshot: dict, progress_cb=None, cancel_event=None) -> mail.MailPayload:
@@ -87,40 +61,22 @@ def build(snapshot: dict, progress_cb=None, cancel_event=None) -> mail.MailPaylo
     }
     payload.sections = [("Summary", _stats_table(result["total"], result["found"], result["blank"]))]
 
-    whole_size = whole_path.stat().st_size
-    payload.detail["attachment"] = "complete workbook"
-    if whole_size > mail.MAX_ATTACHMENT_BYTES:
-        # The same complete workbook, written more compactly (see xlsx_compact):
-        # it opens in Excel exactly as before, at under half the size.
-        if progress_cb:
-            progress_cb(0.91, "Compacting the workbook to fit an email...")
-        xlsx_compact.compact_xlsx_in_place(whole_path)
-        whole_size = whole_path.stat().st_size
-        payload.detail["attachment"] = "complete workbook (compacted to fit the email limit)"
-    binary_path = whole_path.with_suffix(".xlsb")
-    if whole_size > mail.MAX_ATTACHMENT_BYTES:
-        # Still too big: the same complete workbook as .xlsb, one file.
-        if progress_cb:
-            progress_cb(0.915, "Converting the workbook to .xlsb to fit an email...")
-        if xlsb_convert.convert_to_xlsb(whole_path, binary_path) \
-                and binary_path.stat().st_size <= mail.MAX_ATTACHMENT_BYTES:
-            payload.attachment_groups = [[str(binary_path)]]
-            payload.downloads = [("GST Invoice Number report", str(whole_path))]
-            payload.detail["attachment"] = "complete workbook (as .xlsb to fit the email limit)"
-            return payload
-        binary_path.unlink(missing_ok=True)
-    if whole_size <= mail.MAX_ATTACHMENT_BYTES:
-        payload.attachment_groups = [[str(whole_path)]]
+    def write_slice(first: int, last: int, part_path: Path) -> None:
+        part = built.df.iloc[first:last].reset_index(drop=True)
+        run_cpu_phase(report_job.write_workbook, str(part_path), part, built.gst_map)
+
+    # the same rule as every application: compacted, then .xlsb, and only if it is still too big for an email on
+    # its own is it split by rows (every row in exactly one part)
+    splitter = attachment_fit.row_splitter(len(built.df), write_slice, work_dir, stem)
+    groups, how, finals = attachment_fit.fit_together([whole_path], progress_cb, {whole_path: splitter})
+    payload.attachment_groups = groups
+    payload.detail["attachment"] = how
+    if len(finals) == 1:
+        # one file (as built, compacted or .xlsb): the complete workbook stays downloadable
         payload.downloads = [("GST Invoice Number report", str(whole_path))]
     else:
-        # The .xlsb could not be made or is still too big: split, nothing left out.
-        if progress_cb:
-            progress_cb(0.92, "Splitting the report into parts that fit in an email...")
-        parts = _write_parts(built.df, built.gst_map, work_dir, stem, whole_size)
         whole_path.unlink(missing_ok=True)
-        payload.attachment_groups = [[path] for path in parts]
-        payload.downloads = [(f"Part {i} of {len(parts)}", path) for i, path in enumerate(parts, 1)]
-        payload.detail["attachment"] = f"split into {len(parts)} mails (size limit)"
+        payload.downloads = [(f"Part {i} of {len(finals)}", str(path)) for i, path in enumerate(finals, 1)]
     return payload
 
 

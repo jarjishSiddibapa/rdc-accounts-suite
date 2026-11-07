@@ -12,53 +12,39 @@ from datetime import date
 from pathlib import Path
 
 from app.config import SCRATCH_DIR
-from app.services import report_mail_preview
+from app.services import attachment_fit, report_mail_preview
 from app.services import scheduled_report_mail as mail
-from app.services import xlsb_convert, xlsx_compact
+from app.services import xlsb_convert, xlsx_compact  # noqa: F401 - the tests patch them on this module
 from app.services.mailer_shared import sheet_to_html
 from app.services.untagged_invoices import processor, report_job
 
 APP_KEY = "untagged-invoices-report"
 
-_SPLIT_NOTE = (
-    "Nothing has been left out. Part 1 holds the Untagged Summary, Untagged Ageing, Below 1k Summary and "
-    "Below 1k Ageing sheets; the other parts hold the rows of the full Ageing sheet, in order."
-)
-
-
-def _split_without_loss(frames, work_dir: Path, as_on: date) -> list[Path]:
-    """The complete report as several workbooks that each fit one email: the
-    four summary/detail sheets first, then the rows of the full Ageing sheet in
-    as few pieces as will fit. Every row of every sheet is in exactly one."""
+def untagged_splitter(frames, work_dir: Path, as_on: date, look: str = "default"):
+    """How the Untagged Invoices workbook is cut when it is too big for an email on its own (see
+    app.services.attachment_fit): the four summary/detail sheets first, then the rows of the full Ageing sheet
+    in the number of pieces asked for. Every row of every sheet is in exactly one part."""
     df, untagged_summary, untagged_ageing, below_summary, below_ageing = frames
     stem = f"Untagged_Invoices_Report_As_On_{as_on.isoformat()}"
-    first = work_dir / f"{stem}_Part_1_Summaries_and_Detail.xlsx"
-    processor.write_report(
-        df, untagged_summary, untagged_ageing, below_summary, below_ageing,
-        first, as_on, include_full_ageing=False,
-    )
-    xlsx_compact.compact_xlsx_in_place(first)
 
-    pieces = 1
-    while True:
-        size = -(-len(df) // pieces)                       # rows per piece, rounded up
-        written: list[Path] = []
-        for index in range(pieces):
-            label = "Ageing" if pieces == 1 else f"Ageing_Part_{index + 1}_of_{pieces}"
-            path = work_dir / f"{stem}_{label}.xlsx"
+    def write_slice(first_row: int, last_row: int, path: Path) -> None:
+        processor.write_report(
+            df.iloc[first_row:last_row], untagged_summary, untagged_ageing, below_summary, below_ageing,
+            path, as_on, only_full_ageing=True, look=look,
+        )
+
+    ageing_slices = attachment_fit.row_splitter(len(df), write_slice, work_dir, f"{stem}_Ageing")
+
+    def split(parts_wanted: int) -> list[Path]:
+        first = work_dir / f"{stem}_Part_1_Summaries_and_Detail.xlsx"
+        if not first.exists():
             processor.write_report(
-                df.iloc[index * size:(index + 1) * size], untagged_summary, untagged_ageing,
-                below_summary, below_ageing, path, as_on, only_full_ageing=True,
+                df, untagged_summary, untagged_ageing, below_summary, below_ageing,
+                first, as_on, include_full_ageing=False, look=look,
             )
-            xlsx_compact.compact_xlsx_in_place(path)
-            written.append(path)
-            if path.stat().st_size > mail.MAX_ATTACHMENT_BYTES and pieces < len(df):
-                break
-        else:
-            return [first, *written]
-        for path in written:
-            path.unlink(missing_ok=True)
-        pieces += 1
+        return [first, *ageing_slices(parts_wanted)]
+
+    return split
 
 
 def _hold_reason(warnings: list[dict]) -> str:
@@ -109,33 +95,13 @@ def build(snapshot: dict, progress_cb=None, cancel_event=None) -> mail.MailPaylo
         ("Below 1k Summary", sheet_to_html(str(summary_path), "Below 1k Summary", payload.css, "b")),
     ]
 
-    payload.downloads = [("Untagged Invoices Report", str(report_path))]
-    attachment = report_path
-    if report_path.stat().st_size > mail.MAX_ATTACHMENT_BYTES:
-        # The same complete workbook, written more compactly (see xlsx_compact):
-        # it opens in Excel exactly as before, at under half the size.
-        xlsx_compact.compact_xlsx_in_place(report_path)
-        payload.detail["attachment"] = "complete workbook (compacted to fit the email limit)"
-    else:
-        payload.detail["attachment"] = "complete workbook"
-    if report_path.stat().st_size > mail.MAX_ATTACHMENT_BYTES:
-        # Still too big: the same complete workbook as .xlsb, one file.
-        binary_path = report_path.with_suffix(".xlsb")
-        if xlsb_convert.convert_to_xlsb(report_path, binary_path) \
-                and binary_path.stat().st_size <= mail.MAX_ATTACHMENT_BYTES:
-            payload.attachment_groups = [[str(binary_path)]]
-            payload.detail["attachment"] = "complete workbook (as .xlsb to fit the email limit)"
-            return payload
-        binary_path.unlink(missing_ok=True)
-        # The .xlsb could not be made or is still too big: the same data in
-        # several workbooks, one per mail. Nothing is left out.
-        parts = _split_without_loss(built.frames, work_dir, as_on)
-        payload.attachment_groups = [[str(path)] for path in parts]
-        payload.detail["attachment"] = f"complete report in {len(parts)} workbooks (size limit)"
-        payload.notes.append(_SPLIT_NOTE)
-        return payload
-
-    payload.attachment_groups = [[str(report_path)]]
+    payload.downloads = [("Untagged Invoices Report", str(report_path))]    # the complete file stays downloadable
+    # the same rule as every application: compacted, then .xlsb, and only if it is still too big for an email on
+    # its own is it split (every row in exactly one part)
+    splitter = untagged_splitter(built.frames, work_dir, as_on)
+    groups, how, _ = attachment_fit.fit_together([report_path], progress_cb, {report_path: splitter})
+    payload.attachment_groups = groups
+    payload.detail["attachment"] = how
     return payload
 
 

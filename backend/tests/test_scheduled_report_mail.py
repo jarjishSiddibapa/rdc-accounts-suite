@@ -669,19 +669,22 @@ class UntaggedMailBuilderTests(unittest.TestCase):
             payload = untagged_mail.build(self.SNAPSHOT)
         self.addCleanup(lambda: [shutil.rmtree(p, ignore_errors=True) for p in payload.cleanup])
 
-        files = [group[0] for group in payload.attachment_groups]
+        files = [p for group in payload.attachment_groups for p in group]
         self.assertGreaterEqual(len(files), 2)
-        self.assertTrue(all(Path(f).stat().st_size <= limit for f in files))
+        for group in payload.attachment_groups:                   # every mail is within the limit, as a whole
+            self.assertLessEqual(sum(Path(p).stat().st_size for p in group), limit)
+        summaries = [f for f in files if "Summaries_and_Detail" in Path(f).name]
+        self.assertEqual(len(summaries), 1)
         self.assertEqual(
-            openpyxl.load_workbook(files[0]).sheetnames,
+            openpyxl.load_workbook(summaries[0]).sheetnames,
             ["Untagged Summary", "Untagged Ageing", "Below 1k Summary", "Below 1k Ageing"],
         )
         seen = []
-        for path in files[1:]:
+        for path in sorted(f for f in files if f not in summaries):
             sheet = openpyxl.load_workbook(path)["Ageing"]
             seen += [row[0].value for row in sheet.iter_rows(min_row=2)]
         self.assertEqual(seen, [f"C{i}" for i in range(4000)])    # every Ageing row, once, in order
-        self.assertTrue(any("nothing has been left out" in note.lower() for note in payload.notes))
+        self.assertEqual(payload.notes, [])                       # no explanation of the split in the mail
         self.assertEqual(payload.downloads[0][0], "Untagged Invoices Report")   # the complete file stays downloadable
 
     def test_missing_mappings_hold_the_mail_when_that_is_the_setting(self):
@@ -719,8 +722,7 @@ class GstMailBuilderTests(unittest.TestCase):
         with patch.object(gst_mail.report_job, "build_report", self._fake_build(rows)), \
                 patch.object(gst_mail, "run_cpu_phase", direct), \
                 patch.object(gst_mail.xlsb_convert, "convert_to_xlsb", xlsb or _xlsb_stub(False)), \
-                patch.object(mail, "MAX_ATTACHMENT_BYTES", limit), \
-                patch.object(gst_mail, "_TARGET_PART_BYTES", int(limit * 0.85)):
+                patch.object(mail, "MAX_ATTACHMENT_BYTES", limit):
             payload = gst_mail.build({"send_when_unmapped": True})
         self.addCleanup(lambda: [shutil.rmtree(p, ignore_errors=True) for p in payload.cleanup])
         return payload
@@ -782,11 +784,12 @@ class GstMailBuilderTests(unittest.TestCase):
         payload = self._run(3000, limit)
         self.assertGreater(len(payload.attachment_groups), 1)
         total_rows = 0
-        for (path,) in payload.attachment_groups:
-            self.assertLessEqual(Path(path).stat().st_size, limit)
-            total_rows += openpyxl.load_workbook(path).active.max_row - 1
+        for group in payload.attachment_groups:
+            self.assertLessEqual(sum(Path(p).stat().st_size for p in group), limit)     # each mail within the limit
+            for path in group:
+                total_rows += openpyxl.load_workbook(path).active.max_row - 1
         self.assertEqual(total_rows, 3000)    # nothing lost or repeated
-        self.assertEqual(len(payload.downloads), len(payload.attachment_groups))
+        self.assertEqual(len(payload.downloads), sum(len(g) for g in payload.attachment_groups))
 
 
 class AutoMailRouteTests(_DbCase):
