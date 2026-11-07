@@ -357,6 +357,44 @@ class MonthFilesTests(unittest.TestCase):
         self.assertEqual(sorted(Path(p).name for _, p in payload.downloads), sorted(names))   # the preview offers what is sent
         self.assertIn(".xlsb", payload.detail["attachment"])
 
+    def test_a_file_already_converted_to_xlsb_is_left_alone_not_converted_again_or_deleted(self):
+        from app.services import attachment_fit
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        binary = Path(tmp.name) / "month.xlsb"
+        binary.write_bytes(b"b" * 700)
+        other = Path(tmp.name) / "other.xlsx"
+        other.write_bytes(b"x" * 700)
+        converted = []
+
+        def fake_xlsb(source, destination):
+            converted.append(Path(source).name)
+            Path(destination).write_bytes(b"y" * 100)
+            return True
+
+        with patch.object(mail, "MAX_ATTACHMENT_BYTES", 1000), \
+                patch.object(attachment_fit.xlsx_compact, "compact_xlsx_in_place"), \
+                patch.object(attachment_fit.xlsb_convert, "convert_to_xlsb", fake_xlsb):
+            groups, how, finals = attachment_fit.fit_together([binary, other])
+        self.assertEqual(converted, ["other.xlsx"])               # only the .xlsx was converted
+        self.assertTrue(binary.is_file())                          # and the .xlsb is still there, untouched
+        self.assertEqual(binary.read_bytes(), b"b" * 700)
+        self.assertEqual(len(groups), 1)
+
+    def test_a_failed_conversion_never_deletes_a_file_that_is_already_xlsb(self):
+        from app.services import attachment_fit
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        binary = Path(tmp.name) / "month.xlsb"
+        binary.write_bytes(b"b" * 700)
+        other = Path(tmp.name) / "other.xlsb"
+        other.write_bytes(b"x" * 700)
+        with patch.object(mail, "MAX_ATTACHMENT_BYTES", 1000), \
+                patch.object(attachment_fit.xlsb_convert, "convert_to_xlsb", lambda s, d: False):
+            groups, _, _ = attachment_fit.fit_together([binary, other])
+        self.assertTrue(binary.is_file() and other.is_file())
+        self.assertEqual(len(groups), 2)                           # cannot share one mail: two, nothing dropped
+
     def test_only_when_they_still_cannot_share_a_mail_are_they_spread_over_several(self):
         with patch.object(mail, "MAX_ATTACHMENT_BYTES", 1000), \
                 patch.object(auto_mail.attachment_fit.xlsx_compact, "compact_xlsx_in_place"), \

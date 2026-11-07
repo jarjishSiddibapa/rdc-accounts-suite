@@ -43,12 +43,14 @@ def fit_together(paths: list[Path], progress_cb=None) -> tuple[list[list[str]], 
     for path in sorted(paths, key=lambda p: p.stat().st_size, reverse=True):
         if total(current) <= limit:
             break
+        if path.suffix != ".xlsx":
+            continue                      # already .xlsb (or another form): nothing smaller to make of it
         if progress_cb:
             progress_cb(0.93, f"Converting {path.name} to .xlsb to fit one email...")
         binary = path.with_suffix(".xlsb")
         if xlsb_convert.convert_to_xlsb(path, binary) and binary.stat().st_size < path.stat().st_size:
             current[current.index(path)] = binary
-        else:
+        elif binary != path:
             binary.unlink(missing_ok=True)
     if total(current) <= limit:
         return [[str(p) for p in current]], "complete workbooks (as .xlsb to fit the email limit)", current
