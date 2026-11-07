@@ -89,8 +89,17 @@ MAX_UPLOAD_BYTES = int(os.environ.get("MAX_UPLOAD_BYTES", str(600 * 1024 * 1024)
 
 # Multi-process runtime. API processes stay responsive while dedicated job
 # workers execute the memory/CPU/Oracle-heavy report pipelines.
-API_WORKERS = max(1, int(os.environ.get("API_WORKERS", "2")))
-JOB_WORKER_PROCESSES = max(1, int(os.environ.get("JOB_WORKER_PROCESSES", "2")))
+def _env_count(name: str, default: int) -> int:
+    """A worker count from the environment; ``auto``, empty or invalid means the default (the real number is
+    worked out by app/sizing.py when the suite starts)."""
+    try:
+        return max(1, int(os.environ.get(name, "").strip()))
+    except ValueError:
+        return default
+
+
+API_WORKERS = _env_count("API_WORKERS", 2)
+JOB_WORKER_PROCESSES = _env_count("JOB_WORKER_PROCESSES", 2)
 JOB_POLL_SECONDS = max(0.1, float(os.environ.get("JOB_POLL_SECONDS", "0.75")))
 JOB_LEASE_SECONDS = max(30, int(os.environ.get("JOB_LEASE_SECONDS", "120")))
 JOB_HEARTBEAT_SECONDS = max(5, int(os.environ.get("JOB_HEARTBEAT_SECONDS", "15")))

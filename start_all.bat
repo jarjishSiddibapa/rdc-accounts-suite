@@ -66,8 +66,9 @@ if errorlevel 1 (
     exit /b 1
 )
 
-if "%API_WORKERS%"=="" set API_WORKERS=2
-if "%JOB_WORKER_PROCESSES%"=="" set JOB_WORKER_PROCESSES=2
+rem The number of web workers, processing workers and Excel helpers is worked out from this server's CPU cores
+rem and free memory when the suite starts (see backend\app\sizing.py). To fix a number, set API_WORKERS,
+rem JOB_WORKER_PROCESSES or CPU_JOB_POOL_WORKERS in backend\.env.
 
 rem Dependency/browser checks can take long enough for somebody to launch a
 rem second copy in the meantime. Re-run the verified cleanup immediately before

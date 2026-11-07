@@ -835,10 +835,17 @@ chunks referenced by no current `index.html`.
 
 ## 7. Database and production deployment
 
-**Memory is read from the server, not assumed (`app/memory.py`).** The default
-number of Excel-writing helper processes per job worker is sized from the memory
-free at start-up (it used to assume the documented 8 GB host; still capped by the
-CPUs and at 2, and `CPU_JOB_POOL_WORKERS` in `.env` overrides it). Before a worker
+**Worker counts are sized from the server (`app/sizing.py`, `app/memory.py`).**
+When the suite starts, the supervisor works out the number of web workers
+(`API_WORKERS`), processing workers (`JOB_WORKER_PROCESSES`) and Excel helpers per
+processing worker (`CPU_JOB_POOL_WORKERS`, passed to every worker through the
+environment) from the CPU cores and the memory free at that moment, and prints the
+decision on start-up. One core is always left free; a processing worker is assumed
+to need ~1.5 GB and a helper ~1 GB at their busiest; there are never fewer than 2
+web or processing workers nor more than 4 of either, and at most 4 helpers. A
+number set in `.env` (or `auto`, or nothing) is respected as written / decided
+automatically; `start_all.bat` no longer forces 2 and 2. If memory cannot be read
+the documented 4-core / 8 GB figures (2, 2, 1) are used. Before a worker
 starts a queued job (`jobs._claim_next_job_once`, `jobs.memory_wait`) it checks the
 memory free right now, other programs included: below `JOB_MIN_FREE_MEMORY_MB`
 (default 1024; 0 = off) the job stays queued with the phase "Waiting for server

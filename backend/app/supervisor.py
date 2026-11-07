@@ -11,6 +11,8 @@ from pathlib import Path
 from dotenv import load_dotenv
 from filelock import FileLock, Timeout
 
+from app import sizing
+
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BACKEND_DIR / "data"
 DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -143,10 +145,6 @@ def _disable_console_quick_edit() -> bool:
         return False
 
 
-def _count(name: str, default: int) -> int:
-    return max(1, int(os.environ.get(name, str(default))))
-
-
 def _spawn(name: str, command: list[str], role: str) -> subprocess.Popen:
     env = os.environ.copy()
     env["APP_PROCESS_ROLE"] = role
@@ -174,8 +172,13 @@ def main() -> int:
     STOP_FILE.unlink(missing_ok=True)
     PID_FILE.write_text(str(os.getpid()))
 
-    api_workers = _count("API_WORKERS", 2)
-    job_workers = _count("JOB_WORKER_PROCESSES", 2)
+    # Sized from this server's cores and free memory; a number set in .env (or by the start script) still wins.
+    plan = sizing.auto_plan()
+    api_workers = sizing.setting("API_WORKERS", plan.api)
+    job_workers = sizing.setting("JOB_WORKER_PROCESSES", plan.jobs)
+    helpers = sizing.setting("CPU_JOB_POOL_WORKERS", plan.helpers)
+    os.environ["CPU_JOB_POOL_WORKERS"] = str(helpers)        # every processing worker started below inherits it
+    print(sizing.describe(plan, api_workers, job_workers, helpers), flush=True)
     python = sys.executable
     children: dict[str, tuple[list[str], str, subprocess.Popen]] = {}
     try:
