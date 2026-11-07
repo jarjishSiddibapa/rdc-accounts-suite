@@ -416,10 +416,12 @@ same `ORACLE_*` configuration. Client initialization is coordinated per process
 by `backend/app/oracle_runtime.py`, with thin-mode fallback retained.
 
 GST Oracle work is globally constrained by `background_resource_slots` using
-resource key `oracle-gst`; default concurrency is one. This prevents multiple
-workers from each creating the application's internal Oracle pool at the same
-time. Increase `ORACLE_GST_JOB_CONCURRENCY` only after measuring Oracle and
-server capacity.
+resource key `oracle-gst`; default concurrency is two (the owner accepted that
+load on the ERP; it was one before). This stops more than that many workers from
+creating the application's internal Oracle pool at the same time (each job opens
+several connections). The slots are created at start-up from
+`ORACLE_GST_JOB_CONCURRENCY`; a value set in `.env` wins. Increase it further only
+after measuring Oracle and server capacity.
 
 The current unattended server implementation does not require Excel COM or a
 local interactive Excel session. `.xlsb` handling and report generation use

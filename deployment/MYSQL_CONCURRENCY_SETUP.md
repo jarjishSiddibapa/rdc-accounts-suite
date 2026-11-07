@@ -118,7 +118,11 @@ abandon request.
 Email dispatch is intentionally detached after sending begins because SMTP
 delivery cannot be safely reversed midway through a batch.
 
-Default process and lease settings can be overridden in `backend/.env`:
+The number of web workers, processing workers and Excel helpers is worked out
+automatically from the server's CPU cores and free memory when the suite starts
+(see `backend/app/sizing.py`); `ORACLE_GST_JOB_CONCURRENCY` defaults to 2. Any of
+these, and the process and lease settings, can be fixed in `backend/.env`
+(a value of `auto`, or leaving the line out, means automatic):
 
 ```dotenv
 API_WORKERS=2
@@ -129,7 +133,7 @@ JOB_HEARTBEAT_SECONDS=15
 JOB_MAX_ATTEMPTS=2
 JOB_CLIENT_MONITOR_SECONDS=2
 JOB_CLIENT_HEARTBEAT_TIMEOUT_SECONDS=120
-ORACLE_GST_JOB_CONCURRENCY=1
+ORACLE_GST_JOB_CONCURRENCY=2
 ```
 
 Increasing API or worker counts does not automatically multiply Oracle

@@ -110,7 +110,7 @@ JOB_CLIENT_MONITOR_SECONDS = max(
 JOB_CLIENT_HEARTBEAT_TIMEOUT_SECONDS = max(
     30, int(os.environ.get("JOB_CLIENT_HEARTBEAT_TIMEOUT_SECONDS", "120"))
 )
-ORACLE_GST_JOB_CONCURRENCY = max(1, int(os.environ.get("ORACLE_GST_JOB_CONCURRENCY", "1")))
+ORACLE_GST_JOB_CONCURRENCY = max(1, int(os.environ.get("ORACLE_GST_JOB_CONCURRENCY", "2")))
 # A queued job waits to start while the server has less than this much free memory (other programs share it),
 # but never longer than the wait limit. 0 switches the check off.
 JOB_MIN_FREE_MEMORY_MB = max(0, int(os.environ.get("JOB_MIN_FREE_MEMORY_MB", "1024")))
