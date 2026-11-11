@@ -429,6 +429,27 @@ class SummaryAndWorkbookTests(unittest.TestCase):
         self.assertAlmostEqual(summary_sheet.cell(rows["Total"], 8).value, 2.0)   # mapped payments only
         self.assertEqual(payments["E2"].value, 700_000)
 
+    def test_receipts_sheet_has_no_remark_column_even_with_an_unmapped_line(self):
+        from types import SimpleNamespace
+
+        from openpyxl import Workbook as _Workbook
+
+        from app.services.ultrafine_cashflow import workbook as wbk
+
+        def alloc(issues):
+            return SimpleNamespace(txn_dt=datetime(2026, 9, 1, 10, 0), description="CHQ DEP", name="X",
+                                   amount=Decimal(100), reference_no="", location="Main", cf_location="Main",
+                                   issues=issues)
+
+        rows = [alloc([]), alloc([resolver.ISSUE_NO_PARTY])]
+        receipts, payments = _Workbook().active, _Workbook().active
+        wbk._write_ledger(receipts, rows, payments=False)
+        wbk._write_ledger(payments, rows, payments=True)
+        self.assertEqual([c.value for c in receipts[3] if c.value], ["Date", "Description", "Name", "Amount",
+                                                                       "Tally Location", "CF Location"])
+        self.assertEqual(payments[3][-1].value, "Remark")   # Payments keep theirs
+        self.assertEqual(receipts.auto_filter.ref, "B3:G5")
+
     def test_workbook_has_live_formulas_cached_values_and_every_line(self):
         section = PlanSection(month="2026-09", block_no=1, title="Salaries", sort_order=0)
         self.db.add(section)

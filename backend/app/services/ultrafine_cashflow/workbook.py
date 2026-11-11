@@ -60,7 +60,9 @@ def _write_ledger(ws, rows: list[Allocation], payments: bool) -> tuple[int, str]
         if payments
         else ["Date", "Description", "Name", "Amount", "Tally Location", "CF Location"]
     )
-    flagged = any(a.issues for a in rows)   # written "anyway": say what is missing, line by line
+    # Payments written "anyway": say what is missing, line by line. Receipts carry no Remark column
+    # (an unmapped receipt is still highlighted).
+    flagged = payments and any(a.issues for a in rows)
     if flagged:
         headers.append("Remark")
     for offset, header in enumerate(headers):

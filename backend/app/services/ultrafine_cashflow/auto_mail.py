@@ -193,7 +193,7 @@ def build(snapshot: dict, progress_cb=None, cancel_event=None, month: str | None
     if outcome.get("unmapped_count"):
         payload.sender_notes.append(
             f"{outcome['unmapped_count']} bank line(s) are not mapped yet. They are highlighted in the "
-            "workbook (Remark column) and are not part of the table."
+            "workbook (Payments shows the reason in its Remark column) and are not part of the table."
         )
     if outcome.get("earlier_issue_count"):
         payload.sender_notes.append(
