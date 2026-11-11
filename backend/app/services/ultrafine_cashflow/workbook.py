@@ -10,7 +10,6 @@ app.services.xlsx_formula_cache).
 
 from __future__ import annotations
 
-from collections import Counter
 from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
@@ -22,7 +21,7 @@ from openpyxl.utils import get_column_letter
 from app.services.xlsx_formula_cache import cache_formula_values, inject_cached_values
 
 from .resolver import ISSUE_TEXT, Allocation, Maps
-from .summary import MonthFigures
+from .summary import PAYABLE_HEADER, MonthFigures
 
 _HEADER_FILL = PatternFill("solid", fgColor="1F3A5F")
 _HEADER_FONT = Font(bold=True, color="FFFFFF")
@@ -166,13 +165,8 @@ def _write_summary(ws, figures: MonthFigures, as_of: datetime,
     ws.cell(row=2, column=LAST_COL, value="Amt in Lacs")
     ws.cell(row=2, column=LAST_COL).font = _TITLE_FONT
     ws.cell(row=2, column=LAST_COL).alignment = Alignment(horizontal="right", vertical="center")
-    # "Payable (80 % Of Collection)": the heading names the percentage most rows use;
-    # the odd location paying out a different share still shows its own figure below it.
-    pct_counts = Counter(r.payable_pct for r in figures.rows)
-    payable_header = "Payable"
-    if pct_counts:
-        top = pct_counts.most_common(1)[0][0]   # ties go to the one listed first
-        payable_header = f"Payable ({top:g} % Of Collection)"
+    # The heading is fixed; each row pays out its own configured percentage.
+    payable_header = PAYABLE_HEADER
     headers = ["Sr.No.", "Location", "Authorized Person", "Op. Balance", f"Collection {month_label}",
                payable_header, "Actual Paid", "Cl. Balance"]
     for offset, header in enumerate(headers):
@@ -253,6 +247,35 @@ def _write_summary(ws, figures: MonthFigures, as_of: datetime,
         ws.column_dimensions[column].width = width
     ws.sheet_view.showGridLines = False
     return values
+
+
+TALLY_HEADERS = ["Date", "Description", "Name", "Amount", "Tally Location", "CF Location"]
+
+
+def write_import_to_tally_workbook(path: Path, allocations: list[Allocation]) -> dict:
+    """One sheet, "Main": every payment and receipt of the month in date order, on the Receipts layout
+    (a payment's Location is its Tally Location). Nothing is skipped, unmapped lines included."""
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Main"
+    for column, header in enumerate(TALLY_HEADERS, start=1):
+        ws.cell(row=1, column=column, value=header)
+    _style_header(ws, 1, 1, len(TALLY_HEADERS))
+    row_number = 1
+    for alloc in sorted(allocations, key=lambda a: (a.txn_dt, a.txn_id)):
+        row_number += 1
+        values = [alloc.txn_dt, alloc.description, alloc.name, float(alloc.amount), alloc.location, alloc.cf_location]
+        for column, value in enumerate(values, start=1):
+            ws.cell(row=row_number, column=column, value=value)
+        ws.cell(row=row_number, column=1).number_format = _DATETIME_FORMAT
+        ws.cell(row=row_number, column=4).number_format = _MONEY
+    for column, width in zip("ABCDEF", (20, 70, 42, 16, 26, 28)):
+        ws.column_dimensions[column].width = width
+    ws.freeze_panes = "A2"
+    ws.auto_filter.ref = f"A1:F{max(row_number, 2)}"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    wb.save(path)
+    return {"rows": row_number - 1}
 
 
 def write_cashflow_workbook(path: Path, figures: MonthFigures, maps: Maps) -> dict:

@@ -609,6 +609,23 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(self._http_error(r.download_month, "2026-08", db=db, user=None).status_code, 404)
         self.assertEqual(self._http_error(r.download_month, "bad", db=db, user=None).status_code, 400)
 
+        # Import to Tally: one "Main" sheet with every payment and receipt, a dated file name.
+        tally = r.import_to_tally("2026-09", db=db, user=None)
+        self.assertRegex(tally.filename, r"^import_to_tally_\d{8}_\d{6}\.xlsx$")
+        book = load_workbook(tally.path)
+        self.assertEqual(book.sheetnames, ["Main"])
+        sheet = book["Main"]
+        self.assertEqual([c.value for c in sheet[1]],
+                         ["Date", "Description", "Name", "Amount", "Tally Location", "CF Location"])
+        # every row of the Payments and Receipts sheets, together on the one sheet
+        stored = load_workbook(Path(response.path), read_only=True)
+        expected = sum(1 for _ in stored["Payments"].iter_rows(min_row=4, min_col=2, max_col=2) if _[0].value) \
+            + sum(1 for _ in stored["Receipts"].iter_rows(min_row=4, min_col=2, max_col=2) if _[0].value)
+        stored.close()
+        self.assertEqual(sheet.max_row - 1, expected)
+        self.assertEqual(self._http_error(r.import_to_tally, "2026-08", db=db, user=None).status_code, 404)
+        Path(tally.path).unlink(missing_ok=True)
+
     def test_a_bad_file_is_reported_per_file_and_does_not_stop_the_others(self):
         bad = self.tmp / "bad.csv"
         bad.write_text("a,b\n1,2\n", encoding="utf-8")

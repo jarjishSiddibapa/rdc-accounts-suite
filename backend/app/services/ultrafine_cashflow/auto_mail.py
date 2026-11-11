@@ -13,7 +13,6 @@ from __future__ import annotations
 import html
 import shutil
 import uuid
-from collections import Counter
 from datetime import datetime
 from functools import partial
 from pathlib import Path
@@ -27,7 +26,7 @@ from app.services import scheduled_report_mail as mail
 from .generate import generate_month
 from .models import CashflowFile
 from .resolver import ISSUE_TEXT, load_maps
-from .summary import MonthFigures, month_figures
+from .summary import PAYABLE_HEADER, MonthFigures, month_figures
 from .workbook import _ordinal
 
 APP_KEY = "ultrafine-cashflow"
@@ -66,8 +65,7 @@ def summary_table_html(figures: MonthFigures, as_of: datetime) -> str:
     """The Summary sheet as the table of the mail: title, header, one row per CF
     location, an orange total after each group, a blank line and the grand total."""
     month_label = datetime.strptime(figures.month, "%Y-%m").strftime("%B- %Y")
-    counts = Counter(row.payable_pct for row in figures.rows)
-    payable = f"Payable ({counts.most_common(1)[0][0]:g} % Of Collection)" if counts else "Payable"
+    payable = PAYABLE_HEADER
     headers = ["Sr.No.", "Location", "Authorized Person", "Op. Balance", f"Collection {month_label}",
                payable, "Actual Paid", "Cl. Balance"]
 

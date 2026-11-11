@@ -686,6 +686,14 @@ export function UploadPanel({
     a.remove();
   }
 
+  function importToTally(month: string) {
+    const a = document.createElement("a");
+    a.href = apiUrl(`${BASE}/months/${month}/import-to-tally`);
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+
   const needsFix = (uploadResult?.months ?? []).filter(
     (m) => m.status === "needs_mapping_fix",
   );
@@ -965,6 +973,16 @@ export function UploadPanel({
                               Download
                             </Button>
                           )
+                        )}
+                        {row.transactions > 0 && (
+                          <Button
+                            variant="secondary"
+                            className="min-h-9 px-3 py-1.5"
+                            icon={<Download className="h-4 w-4" />}
+                            onClick={() => importToTally(row.month)}
+                          >
+                            Import to Tally
+                          </Button>
                         )}
                         {row.transactions > 0 && (
                           <Button

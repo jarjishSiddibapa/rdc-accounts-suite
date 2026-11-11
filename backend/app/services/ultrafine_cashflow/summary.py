@@ -25,6 +25,10 @@ from .models import (
 )
 from .resolver import Allocation, Maps, allocations_for_month, load_maps
 
+# The Summary column heading is fixed text. The percentage each CF location really pays out is its own
+# "Payable % of collection" setting (Mappings > CF locations and Summary settings); the heading never changes with it.
+PAYABLE_HEADER = "Payable (80 % Of Collection)"
+
 LAKH = Decimal("100000")
 
 

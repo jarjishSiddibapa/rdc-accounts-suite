@@ -8,6 +8,7 @@
   * GET  /months                months with data, issues and the stored file.
   * POST /months/{m}/generate   (re)generate one month (job).
   * GET  /months/{m}/download   the latest stored workbook of the month.
+  * GET  /months/{m}/import-to-tally  all payments and receipts on one "Main" sheet.
   * GET  /months/{m}/transactions, PUT /transactions/{id}/override
                                 review lines; set a party or type a split.
   * GET/PUT /months/{m}/setup   opening-balance / statutory inputs and the
@@ -17,7 +18,9 @@
 
 from __future__ import annotations
 
+import os
 import re
+import tempfile
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -28,6 +31,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session
+from starlette.background import BackgroundTask
 
 from app.auth import get_current_user
 from app.config import SCRATCH_DIR
@@ -63,6 +67,7 @@ from app.services.ultrafine_cashflow.resolver import (
     unmapped_summary,
 )
 from app.services.ultrafine_cashflow.statement_reader import read_statement
+from app.services.ultrafine_cashflow.workbook import write_import_to_tally_workbook
 from app.services.ultrafine_cashflow.summary import month_figures, months_with_data, plan_blocks
 from app.uploads import save_upload
 
@@ -264,6 +269,27 @@ def download_month(month: str, db: Session = Depends(get_db), user: User = Depen
     if stored is None or not Path(stored.file_path).is_file():
         raise HTTPException(status_code=404, detail="No cashflow has been generated for this month yet.")
     return FileResponse(path=stored.file_path, filename=stored.file_name, media_type=_XLSX)
+
+
+@router.get("/months/{month}/import-to-tally")
+def import_to_tally(month: str, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+    """Every payment and receipt of the month on one sheet ("Main"), named import_to_tally_<date>_<time>.xlsx."""
+    month = _month(month)
+    allocations = allocations_for_month(db, month, load_maps(db))
+    if not allocations:
+        raise HTTPException(status_code=404, detail="This month has no transactions yet.")
+    SCRATCH_DIR.mkdir(parents=True, exist_ok=True)
+    fd, tmp_name = tempfile.mkstemp(suffix=".xlsx", dir=str(SCRATCH_DIR))
+    os.close(fd)
+    tmp = Path(tmp_name)
+    try:
+        write_import_to_tally_workbook(tmp, allocations)
+    except Exception:
+        tmp.unlink(missing_ok=True)
+        raise
+    name = f"import_to_tally_{datetime.now():%Y%m%d_%H%M%S}.xlsx"
+    return FileResponse(path=tmp, filename=name, media_type=_XLSX,
+                        background=BackgroundTask(tmp.unlink, missing_ok=True))
 
 
 @router.get("/months/{month}/unmapped")
