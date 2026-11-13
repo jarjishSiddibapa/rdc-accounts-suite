@@ -1128,6 +1128,26 @@ Register and Unidentified Entries, its automatic-mail settings (schedule, freque
 log) are managed by whoever is granted the application. Only the Untagged Invoices, GST Invoice Number
 and Ultrafine mailers keep administrator-only settings, because their sender can be chosen.
 
+**Meeting Debtors Reports Auto Mailer** (`meeting-debtors-reports-auto-mailer`,
+`app/services/meeting_debtors/`, `app/routers/meeting_debtors_mailer.py`): the Debtors Reports Auto Mailer
+with ONE difference - the date the reports are as on is chosen: a calendar date, or "till last month end"
+(the last day of the month before the run, including that day, worked out afresh at every run). Same builder
+(`debtors_mailer.auto_mail.build(..., as_on=...)`), same wording (`SPECS[...]` is a `dataclasses.replace` of the
+Debtors spec), same two mapping tables (shared, edited from either page), `fixed_sender`, own schedule /
+recipients / send log. The router is the Debtors one (`debtors_mailer.make_router(app_key, mailer)`) plus
+`GET/PUT /as-on` (setting stored in `meeting_debtors_as_on`, `as_on.py`); the page is the Debtors page
+(`DebtorsMailerPage`) plus `AsOnCard`. The choice applies to the automatic mail, "Send now" and "Mail this report".
+As on a past date, the ERP is asked point-in-time: `erp_ageing.ageing_as_on_sql()` takes the items with
+GL date <= the date that were not closed on it; an item still open today is counted back from today's balance
+(applications / adjustments / write-offs with a later GL date are undone), an item closed since is built forward
+from its original amount (a reversed receipt has nothing to undo), so a date after everything posted gives
+exactly the live ageing. `erp_register.register_sql(as_on)` adds `app.gl_date <= :as_on` to the Unapplied
+Receipts Register (applications are ledger entries). Checked on the live ERP: as on a far future date and as
+on today the rows equal the live queries row for row (the only differences seen were receipts applied by users
+while the test ran), and building forward and counting back agree for every invoice, debit memo and credit
+memo at four past dates. Only classes INV / DM / CM / PMT are counted (the only ones that are ever open).
+The Debtors Reports Auto Mailer itself is unchanged: no date is asked of the ERP and its queries are as before.
+
 ## 8. Verification and evidence
 
 Run from `backend/`:

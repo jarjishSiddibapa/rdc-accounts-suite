@@ -120,7 +120,7 @@ class RegisterFrameTests(unittest.TestCase):
         self.assertTrue(all(df[c].dtype == float for c in ("On Account/ Prepayment Amount", "Unapplied Amount")))
 
     def test_the_three_report_parameters_are_left_empty(self):
-        sql = erp_register.REGISTER_SQL.format(hint="")
+        sql = erp_register.REGISTER_SQL.format(hint="", as_on="")
         for bind in (":p_in_format_option", ":nls_NO_BATCH", ":p_in_curr_code"):
             self.assertIn(bind, sql)
         self.assertNotIn(";", sql)

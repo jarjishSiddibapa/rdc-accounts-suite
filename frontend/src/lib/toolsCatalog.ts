@@ -203,6 +203,15 @@ export const TOOLS_CATALOG: ToolCatalogEntry[] = [
     company: 'RDC',
   },
   {
+    to: '/tools/meeting-debtors-reports-auto-mailer',
+    title: 'Meeting Debtors Reports Auto Mailer',
+    description: 'The Debtors Reports Auto Mailer with the as on date you choose: a calendar date, or the last day of last month.',
+    icon: MailCheck,
+    appKey: 'meeting-debtors-reports-auto-mailer',
+    category: 'AR reporting',
+    company: 'RDC',
+  },
+  {
     to: '/tools/rdc-sales-register-report',
     title: 'RDC Sales Register Report',
     description: 'The Accounts Sales Register exactly as it is in the ERP, mailed as an Excel file per month, by hand or on a schedule.',

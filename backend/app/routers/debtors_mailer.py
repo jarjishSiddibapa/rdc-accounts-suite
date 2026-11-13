@@ -11,6 +11,10 @@ mails them together (see app.services.debtors_mailer.auto_mail):
   /jobs/{id}       - poll / cancel the background jobs above.
   /mappings/...    - the two mapping tables the reports use (Location Name ->
                      Location, Location -> Accounts Incharge).
+
+``make_router`` builds all of this for one application: the Meeting Debtors Reports Auto Mailer
+(app.routers.meeting_debtors_mailer) is the same application with its own schedule, recipients and
+send log, sharing these two mapping tables.
 """
 
 from typing import Optional
@@ -30,31 +34,6 @@ from app.services.debtors_mailer import auto_mail, mapping_store
 
 APP_KEY = auto_mail.APP_KEY
 
-router = APIRouter(
-    prefix=f"/api/tools/{APP_KEY}", tags=[APP_KEY],
-    dependencies=[Depends(require_app_access(APP_KEY))],
-)
-
-router.include_router(make_auto_mail_router(APP_KEY, run_job=auto_mail.run_auto_mail_job,
-                                            access=require_app_access(APP_KEY)))
-router.include_router(make_report_mail_router(APP_KEY, auto_mail.run_preview_job, sender_choice=True))
-
-
-@router.get("/jobs/{job_id}")
-def job_status(job_id: str, user: User = Depends(get_current_user)):
-    job = get_job(job_id, owner_id=user.id)
-    if job is None:
-        raise HTTPException(status_code=404, detail="Job not found")
-    return job
-
-
-@router.post("/jobs/{job_id}/cancel")
-def cancel(job_id: str, user: User = Depends(get_current_user)):
-    job = cancel_job(job_id, owner_id=user.id)
-    if job is None:
-        raise HTTPException(status_code=404, detail="Job not found")
-    return job
-
 
 # ── request bodies ───────────────────────────────────────────────────────────
 
@@ -68,85 +47,109 @@ class AccountsInchargeBody(BaseModel):
     accounts_incharge: Optional[str] = None
 
 
-# ── 1. Location Map  (key = location_name) ─────────────────────────────────
+def make_router(app_key: str, mailer) -> APIRouter:
+    """The routes of one application of this kind. ``mailer`` is its auto_mail module (``run_auto_mail_job``
+    and ``run_preview_job``)."""
+    router = APIRouter(
+        prefix=f"/api/tools/{app_key}", tags=[app_key],
+        dependencies=[Depends(require_app_access(app_key))],
+    )
 
-@router.get("/mappings/locations")
-def list_locations(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    location_map, _ = mapping_store.load_all(db)
-    return [
-        {"location_name": location_name, "location": location}
-        for location_name, location in sorted(location_map.items())
-    ]
+    router.include_router(make_auto_mail_router(app_key, run_job=mailer.run_auto_mail_job,
+                                                access=require_app_access(app_key)))
+    router.include_router(make_report_mail_router(app_key, mailer.run_preview_job, sender_choice=True))
 
+    @router.get("/jobs/{job_id}")
+    def job_status(job_id: str, user: User = Depends(get_current_user)):
+        job = get_job(job_id, owner_id=user.id)
+        if job is None:
+            raise HTTPException(status_code=404, detail="Job not found")
+        return job
 
-@router.post("/mappings/locations")
-def add_location(body: LocationBody, db: Session = Depends(get_db),
-                 user: User = Depends(get_current_user)):
-    location_name = body.location_name.strip()
-    if not location_name:
-        raise HTTPException(status_code=400, detail="location_name is required")
-    location = (body.location or "").strip()
-    mapping_store.upsert_location(db, location_name, location)
-    return {"ok": True, "location_name": location_name.upper(), "location": location}
+    @router.post("/jobs/{job_id}/cancel")
+    def cancel(job_id: str, user: User = Depends(get_current_user)):
+        job = cancel_job(job_id, owner_id=user.id)
+        if job is None:
+            raise HTTPException(status_code=404, detail="Job not found")
+        return job
 
+    # ── 1. Location Map  (key = location_name) ─────────────────────────────
 
-@router.put("/mappings/locations/{key}")
-def edit_location(key: str, body: LocationBody, db: Session = Depends(get_db),
-                  user: User = Depends(get_current_user)):
-    new_location_name = body.location_name.strip()
-    location = (body.location or "").strip()
-    if new_location_name.upper() != key.upper():
+    @router.get("/mappings/locations")
+    def list_locations(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+        location_map, _ = mapping_store.load_all(db)
+        return [
+            {"location_name": location_name, "location": location}
+            for location_name, location in sorted(location_map.items())
+        ]
+
+    @router.post("/mappings/locations")
+    def add_location(body: LocationBody, db: Session = Depends(get_db),
+                     user: User = Depends(get_current_user)):
+        location_name = body.location_name.strip()
+        if not location_name:
+            raise HTTPException(status_code=400, detail="location_name is required")
+        location = (body.location or "").strip()
+        mapping_store.upsert_location(db, location_name, location)
+        return {"ok": True, "location_name": location_name.upper(), "location": location}
+
+    @router.put("/mappings/locations/{key}")
+    def edit_location(key: str, body: LocationBody, db: Session = Depends(get_db),
+                      user: User = Depends(get_current_user)):
+        new_location_name = body.location_name.strip()
+        location = (body.location or "").strip()
+        if new_location_name.upper() != key.upper():
+            if not mapping_store.delete_location(db, key):
+                raise HTTPException(status_code=404, detail="Location name not found")
+        mapping_store.upsert_location(db, new_location_name, location)
+        return {"ok": True, "location_name": new_location_name.upper(), "location": location}
+
+    @router.delete("/mappings/locations/{key}")
+    def delete_location(key: str, db: Session = Depends(get_db),
+                        user: User = Depends(get_current_user)):
         if not mapping_store.delete_location(db, key):
             raise HTTPException(status_code=404, detail="Location name not found")
-    mapping_store.upsert_location(db, new_location_name, location)
-    return {"ok": True, "location_name": new_location_name.upper(), "location": location}
+        return {"ok": True}
 
+    # ── 2. Accounts Incharge Map  (key = location) ─────────────────────────
 
-@router.delete("/mappings/locations/{key}")
-def delete_location(key: str, db: Session = Depends(get_db),
-                    user: User = Depends(get_current_user)):
-    if not mapping_store.delete_location(db, key):
-        raise HTTPException(status_code=404, detail="Location name not found")
-    return {"ok": True}
+    @router.get("/mappings/accounts-incharge")
+    def list_accounts_incharge(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+        _, incharge_map = mapping_store.load_all(db)
+        return [
+            {"location": location, "accounts_incharge": incharge}
+            for location, incharge in sorted(incharge_map.items())
+        ]
 
+    @router.post("/mappings/accounts-incharge")
+    def add_accounts_incharge(body: AccountsInchargeBody, db: Session = Depends(get_db),
+                              user: User = Depends(get_current_user)):
+        location = body.location.strip()
+        if not location:
+            raise HTTPException(status_code=400, detail="location is required")
+        incharge = (body.accounts_incharge or "").strip()
+        mapping_store.upsert_accounts_incharge(db, location, incharge)
+        return {"ok": True, "location": location, "accounts_incharge": incharge}
 
-# ── 2. Accounts Incharge Map  (key = location) ──────────────────────────────
+    @router.put("/mappings/accounts-incharge/{key}")
+    def edit_accounts_incharge(key: str, body: AccountsInchargeBody, db: Session = Depends(get_db),
+                               user: User = Depends(get_current_user)):
+        new_location = body.location.strip()
+        incharge = (body.accounts_incharge or "").strip()
+        if new_location != key:
+            if not mapping_store.delete_accounts_incharge(db, key):
+                raise HTTPException(status_code=404, detail="Location not found")
+        mapping_store.upsert_accounts_incharge(db, new_location, incharge)
+        return {"ok": True, "location": new_location, "accounts_incharge": incharge}
 
-@router.get("/mappings/accounts-incharge")
-def list_accounts_incharge(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    _, incharge_map = mapping_store.load_all(db)
-    return [
-        {"location": location, "accounts_incharge": incharge}
-        for location, incharge in sorted(incharge_map.items())
-    ]
-
-
-@router.post("/mappings/accounts-incharge")
-def add_accounts_incharge(body: AccountsInchargeBody, db: Session = Depends(get_db),
-                          user: User = Depends(get_current_user)):
-    location = body.location.strip()
-    if not location:
-        raise HTTPException(status_code=400, detail="location is required")
-    incharge = (body.accounts_incharge or "").strip()
-    mapping_store.upsert_accounts_incharge(db, location, incharge)
-    return {"ok": True, "location": location, "accounts_incharge": incharge}
-
-
-@router.put("/mappings/accounts-incharge/{key}")
-def edit_accounts_incharge(key: str, body: AccountsInchargeBody, db: Session = Depends(get_db),
-                           user: User = Depends(get_current_user)):
-    new_location = body.location.strip()
-    incharge = (body.accounts_incharge or "").strip()
-    if new_location != key:
+    @router.delete("/mappings/accounts-incharge/{key}")
+    def delete_accounts_incharge(key: str, db: Session = Depends(get_db),
+                                 user: User = Depends(get_current_user)):
         if not mapping_store.delete_accounts_incharge(db, key):
             raise HTTPException(status_code=404, detail="Location not found")
-    mapping_store.upsert_accounts_incharge(db, new_location, incharge)
-    return {"ok": True, "location": new_location, "accounts_incharge": incharge}
+        return {"ok": True}
+
+    return router
 
 
-@router.delete("/mappings/accounts-incharge/{key}")
-def delete_accounts_incharge(key: str, db: Session = Depends(get_db),
-                             user: User = Depends(get_current_user)):
-    if not mapping_store.delete_accounts_incharge(db, key):
-        raise HTTPException(status_code=404, detail="Location not found")
-    return {"ok": True}
+router = make_router(APP_KEY, auto_mail)

@@ -42,10 +42,11 @@ class _SharedAgeing:
     it (and whichever asks first). Each caller gets its own copy, so a report
     that edits its frame cannot disturb the others."""
 
-    def __init__(self, oracle_cfg, cancel_event, progress_cb=None):
+    def __init__(self, oracle_cfg, cancel_event, progress_cb=None, as_on: date | None = None):
         self._cfg = oracle_cfg
         self._cancel = cancel_event
         self._progress_cb = progress_cb
+        self._as_on = as_on        # None: the open ageing as it is now
         self._lock = threading.Lock()
         self._frame = None
         self.log: list[tuple[str, str]] = []
@@ -53,9 +54,10 @@ class _SharedAgeing:
     def get(self):
         with self._lock:
             if self._frame is None:
+                extra = {} if self._as_on is None else {"as_on": self._as_on}
                 self._frame = erp_ageing.fetch_ageing_from_erp(
                     self._cfg, _ListLog(self.log), progress_cb=self._progress_cb,
-                    cancel_event=self._cancel, include_buckets=True,
+                    cancel_event=self._cancel, include_buckets=True, **extra,
                 )
             return self._frame.copy()
 
@@ -125,12 +127,15 @@ def _fit_attachments(paths: list[Path], progress_cb=None, splitters=None) -> tup
     return groups, how
 
 
-def build(snapshot: dict, progress_cb=None, cancel_event=None) -> mail.MailPayload:
+def build(snapshot: dict, progress_cb=None, cancel_event=None, *, as_on: date | None = None) -> mail.MailPayload:
+    """The mail: the three reports from one ageing fetch. ``as_on`` (a date): everything as it stood on that
+    date (the Meeting Debtors Reports Auto Mailer); without it, the live open ageing as on today."""
     work_dir = SCRATCH_DIR / f"mail-debtors-{uuid.uuid4().hex}"
     work_dir.mkdir(parents=True, exist_ok=True)
     payload = mail.MailPayload(values={"date": "", "total": "", "found": "", "blank": ""}, cleanup=[str(work_dir)])
 
-    as_on = date.today()
+    past_date = as_on          # what the ERP queries are asked for; None = as it is now
+    as_on = as_on or date.today()
     stamp = as_on.isoformat()
     gst_path = work_dir / f"Ageing_with_GST_Invoice_Numbers_As_On_{stamp}.xlsx"
     unapplied_path = work_dir / f"Unapplied_Receipts_Report_As_On_{stamp}.xlsx"
@@ -164,7 +169,7 @@ def build(snapshot: dict, progress_cb=None, cancel_event=None) -> mail.MailPaylo
     allow_unmapped = bool(snapshot["send_when_unmapped"])
 
     # Fetched once, from the ERP, for all three reports (each on its own connection(s)).
-    shared = _SharedAgeing(cfg, cancel)
+    shared = _SharedAgeing(cfg, cancel, as_on=past_date)
     regions = customer_region.RegionFetch(cfg, cancel)
 
     def build_gst():
@@ -178,7 +183,7 @@ def build(snapshot: dict, progress_cb=None, cancel_event=None) -> mail.MailPaylo
             str(untagged_path), allow_unmapped=allow_unmapped, progress_cb=reporter("untagged"),
             cancel_event=cancel, maps=(location_map, incharge_map),
             ageing=lambda: _without_buckets(shared.get()), regions=regions.result,
-            write=_cpu_write_untagged,
+            write=_cpu_write_untagged, as_on_date=as_on,
         )
         # A workbook that is over the email limit by itself is always compacted by _fit_attachments
         # (nothing can bring the total under the limit without it), so do it now, while the other reports
@@ -188,11 +193,12 @@ def build(snapshot: dict, progress_cb=None, cancel_event=None) -> mail.MailPaylo
         return result
 
     def build_unapplied():
-        register = fetch_register_from_erp(cfg, None, cancel)
+        register = (fetch_register_from_erp(cfg, None, cancel) if past_date is None
+                    else fetch_register_from_erp(cfg, None, cancel, as_on=past_date))
         return unapplied_job.build_report(
             str(unapplied_path), cfg, (incharge_map, location_map), register, shared.get(),
             regions.result(), allow_unmapped=allow_unmapped, progress_cb=reporter("unapplied"),
-            cancel_event=cancel, look=LOOK,
+            cancel_event=cancel, as_on_date=as_on, look=LOOK,
         )
 
     jobs = {"gst": build_gst, "untagged": build_untagged, "unapplied": build_unapplied}

@@ -396,6 +396,7 @@ def _init_db_unlocked():
     from app.services.trial_balance_formatter import models as _trial_balance_formatter_models  # noqa: F401
     from app.services.untagged_invoices import models as _untagged_invoices_models  # noqa: F401
     from app.services.debtors_mailer import models as _debtors_mailer_models  # noqa: F401
+    from app.services.meeting_debtors import models as _meeting_debtors_models  # noqa: F401
     from app.services.ultrafine_fse_reminder import models as _ultrafine_fse_reminder_models  # noqa: F401
     from app.services.ultrafine_cashflow import models as _ultrafine_cashflow_models  # noqa: F401
 

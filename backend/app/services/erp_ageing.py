@@ -7,6 +7,7 @@ column names that export used, so the reports read it the same way.
 
 from __future__ import annotations
 
+import datetime as _dt
 import threading
 from concurrent.futures import FIRST_EXCEPTION, ThreadPoolExecutor, wait
 
@@ -176,6 +177,123 @@ WHERE
     AND arc.customer_id            = hca.cust_account_id
 """
 
+# ── the same ageing as on a past date ────────────────────────────────────────
+#
+# What was open on a date is worked out from the receivables ledger (the payment schedule, every application
+# and every adjustment, each with its GL date) the way Oracle's own aging works:
+#   * an item counts when its GL date is on or before the date and it was not yet closed on it;
+#   * an item that is still open today is counted back from today's balance: what was posted after the date
+#     (applications, adjustments, write-offs) is undone. So for a date after everything posted, this is exactly
+#     the open ageing above;
+#   * an item closed since is built forward from its original amount with what was posted up to the date:
+#     an invoice / debit memo: original + adjustments - applied to it (and discounts); a credit memo: the same
+#     plus the applications made from it; a receipt: its original (negative) amount + what was applied from it
+#     (applications and write-offs). (A receipt reversed since has no application to undo, so it is built forward.)
+_AS_ON_WITH = """
+WITH sched AS (
+    SELECT p.payment_schedule_id, p.customer_trx_id, p.customer_id, p.class, p.cash_receipt_id, p.status,
+           p.trx_number, p.trx_date, p.amount_due_original, p.amount_due_remaining rem_now,
+           p.acctd_amount_due_remaining acctd_now, NVL(p.exchange_rate, 1) fx
+    FROM apps.ar_payment_schedules_all p
+    WHERE p.class IN ('INV', 'DM', 'CM', 'PMT')
+      AND p.gl_date <= :as_on
+      AND p.gl_date_closed > :as_on
+      {slice}
+),
+onto AS (
+    SELECT a.applied_payment_schedule_id payment_schedule_id,
+           SUM(CASE WHEN a.gl_date <= :as_on THEN a.amount_applied + NVL(a.earned_discount_taken, 0)
+                                                 + NVL(a.unearned_discount_taken, 0) END) upto,
+           SUM(CASE WHEN a.gl_date >  :as_on THEN a.amount_applied + NVL(a.earned_discount_taken, 0)
+                                                 + NVL(a.unearned_discount_taken, 0) END) later
+    FROM apps.ar_receivable_applications_all a
+    WHERE a.status = 'APP'
+      AND a.applied_payment_schedule_id IN (SELECT payment_schedule_id FROM sched WHERE class <> 'PMT')
+    GROUP BY a.applied_payment_schedule_id
+),
+issued AS (
+    SELECT a.payment_schedule_id,
+           SUM(CASE WHEN a.gl_date <= :as_on THEN a.amount_applied END) upto,
+           SUM(CASE WHEN a.gl_date >  :as_on THEN a.amount_applied END) later
+    FROM apps.ar_receivable_applications_all a
+    WHERE a.status = 'APP'
+      AND a.payment_schedule_id IN (SELECT payment_schedule_id FROM sched WHERE class = 'CM')
+    GROUP BY a.payment_schedule_id
+),
+rcpt AS (
+    SELECT a.cash_receipt_id,
+           SUM(CASE WHEN a.gl_date <= :as_on THEN a.amount_applied END) upto,
+           SUM(CASE WHEN a.gl_date >  :as_on THEN a.amount_applied END) later
+    FROM apps.ar_receivable_applications_all a
+    WHERE a.status IN ('APP', 'ACTIVITY')
+      AND a.cash_receipt_id IN (SELECT cash_receipt_id FROM sched WHERE class = 'PMT')
+    GROUP BY a.cash_receipt_id
+),
+adj AS (
+    SELECT j.payment_schedule_id,
+           SUM(CASE WHEN j.gl_date <= :as_on THEN j.amount END) upto,
+           SUM(CASE WHEN j.gl_date >  :as_on THEN j.amount END) later
+    FROM apps.ar_adjustments_all j
+    WHERE j.status = 'A'
+      AND j.payment_schedule_id IN (SELECT payment_schedule_id FROM sched WHERE class <> 'PMT')
+    GROUP BY j.payment_schedule_id
+)
+"""
+
+_AS_ON_FROM = """
+FROM
+    (
+        SELECT t.payment_schedule_id, t.customer_trx_id, t.customer_id, t.class, t.trx_number, t.trx_date,
+               t.remaining amount_due_remaining,
+               CASE WHEN t.status = 'OP' THEN t.acctd_now + ROUND(t.back * t.fx, 2)
+                    ELSE ROUND(t.remaining * t.fx, 2) END acctd_amount_due_remaining
+        FROM (
+            SELECT s.*,
+                   CASE WHEN s.status = 'OP' THEN s.rem_now + s.back ELSE s.forward END remaining
+            FROM (
+                SELECT sched.*,
+                       CASE sched.class
+                           WHEN 'PMT' THEN -NVL(rcpt.later, 0)
+                           WHEN 'CM'  THEN NVL(onto.later, 0) - NVL(adj.later, 0) - NVL(issued.later, 0)
+                           ELSE            NVL(onto.later, 0) - NVL(adj.later, 0)
+                       END back,
+                       CASE sched.class
+                           WHEN 'PMT' THEN sched.amount_due_original + NVL(rcpt.upto, 0)
+                           WHEN 'CM'  THEN sched.amount_due_original + NVL(adj.upto, 0)
+                                           - NVL(onto.upto, 0) + NVL(issued.upto, 0)
+                           ELSE            sched.amount_due_original + NVL(adj.upto, 0) - NVL(onto.upto, 0)
+                       END forward
+                FROM sched
+                LEFT JOIN onto   ON onto.payment_schedule_id   = sched.payment_schedule_id
+                LEFT JOIN issued ON issued.payment_schedule_id = sched.payment_schedule_id
+                LEFT JOIN rcpt   ON rcpt.cash_receipt_id       = sched.cash_receipt_id
+                LEFT JOIN adj    ON adj.payment_schedule_id    = sched.payment_schedule_id
+            ) s
+        ) t
+        WHERE t.remaining <> 0
+    ) apsa,
+    apps.ar_customers     arc,
+    apps.hz_cust_accounts hca
+
+WHERE
+        arc.customer_id = apsa.customer_id
+    AND arc.customer_id = hca.cust_account_id
+"""
+
+
+def ageing_as_on_sql(part: int | None = None, parts: int = 1) -> str:
+    """The ageing as on a date (bind ``:as_on``): the select list of ERP_AGEING_SQL with the ledger-based
+    balances above. With ``part`` it is one of ``parts`` disjoint slices of the items (by payment schedule),
+    each selecting the schedule id to put the rows back in order."""
+    select = ERP_AGEING_SQL.split("\nFROM\n", 1)[0].replace("TRUNC(SYSDATE)", ":as_on")
+    if part is not None:
+        select = select.replace(
+            "SELECT\n    arc.customer_name", "SELECT\n    apsa.payment_schedule_id ps_id,\n    arc.customer_name", 1,
+        )
+    slice_clause = f"AND MOD(p.payment_schedule_id, {parts}) = {part}" if part is not None else ""
+    return _AS_ON_WITH.format(slice=slice_clause) + select + _AS_ON_FROM
+
+
 DAYS_OS_COL = "Days O/S"
 TYPE_COL = "Type (Transaction/Receipt)"
 
@@ -255,8 +373,8 @@ def _partition_sql(part: int, parts: int) -> str:
     return sql + f"\n    AND MOD(apsa.payment_schedule_id, {parts}) = {part}\n"
 
 
-def _fetch_rows(oracle_cfg: OracleConfig, sql: str, cancel_event, on_rows=None):
-    """Run `sql` on its own connection; (column names, rows)."""
+def _fetch_rows(oracle_cfg: OracleConfig, sql: str, cancel_event, on_rows=None, binds=None):
+    """Run `sql` (with its bind values) on its own connection; (column names, rows)."""
     conn = _connect_oracle(oracle_cfg)
     stop_watcher, watcher = _start_cancel_watcher(conn, cancel_event)
     rows: list = []
@@ -264,7 +382,10 @@ def _fetch_rows(oracle_cfg: OracleConfig, sql: str, cancel_event, on_rows=None):
         cur = conn.cursor()
         cur.arraysize = _FETCH_SIZE
         try:
-            cur.execute(sql)
+            if binds:
+                cur.execute(sql, binds)
+            else:
+                cur.execute(sql)
             columns = [d[0] for d in cur.description]
             while True:
                 if cancel_event is not None and cancel_event.is_set():
@@ -292,9 +413,11 @@ def _fetch_rows(oracle_cfg: OracleConfig, sql: str, cancel_event, on_rows=None):
 
 
 def fetch_ageing_from_erp(oracle_cfg: OracleConfig, log_q=None, progress_cb=None,
-                          cancel_event=None, include_buckets: bool = True) -> pd.DataFrame:
+                          cancel_event=None, include_buckets: bool = True,
+                          as_on: _dt.date | None = None) -> pd.DataFrame:
     """Run ERP_AGEING_SQL against Oracle and return the open ageing as the
     export-shaped frame (see erp_frame). Reports progress from 0.05 to 0.25.
+    With ``as_on`` (a date) it is the ageing as it stood on that date instead (see ageing_as_on_sql).
 
     The query's time is the database working out each row's Location and
     payment term, so it is split into ORACLE_FETCH_PARALLELISM slices that run
@@ -303,8 +426,10 @@ def fetch_ageing_from_erp(oracle_cfg: OracleConfig, log_q=None, progress_cb=None
     query runs as one, exactly as supplied."""
     _init_oracle_client(oracle_cfg.instant_client_dir)
     if log_q:
-        log_q.put(("info", "Fetching the open ageing from the ERP ..."))
+        log_q.put(("info", "Fetching the open ageing from the ERP ..." if as_on is None else
+                           f"Fetching the ageing as on {as_on.strftime('%d-%b-%Y')} from the ERP ..."))
     parts = max(1, int(config.ORACLE_FETCH_PARALLELISM))
+    binds = None if as_on is None else {"as_on": _dt.datetime.combine(as_on, _dt.time())}
 
     fetched = [0]
     lock = threading.Lock()
@@ -322,7 +447,9 @@ def fetch_ageing_from_erp(oracle_cfg: OracleConfig, log_q=None, progress_cb=None
         def counted(n: int) -> None:
             count(n)
             report()
-        columns, rows = _fetch_rows(oracle_cfg, ERP_AGEING_SQL, cancel_event, counted)
+        columns, rows = _fetch_rows(
+            oracle_cfg, ERP_AGEING_SQL if as_on is None else ageing_as_on_sql(), cancel_event, counted, binds=binds,
+        )
     else:
         failed = threading.Event()
         either = EitherEvent(cancel_event, failed)
@@ -330,7 +457,8 @@ def fetch_ageing_from_erp(oracle_cfg: OracleConfig, log_q=None, progress_cb=None
 
         def run(part: int):
             try:
-                return _fetch_rows(oracle_cfg, _partition_sql(part, parts), either, count)
+                sql = _partition_sql(part, parts) if as_on is None else ageing_as_on_sql(part, parts)
+                return _fetch_rows(oracle_cfg, sql, either, count, binds=binds)
             except BaseException as exc:
                 with lock:
                     if not first_error:

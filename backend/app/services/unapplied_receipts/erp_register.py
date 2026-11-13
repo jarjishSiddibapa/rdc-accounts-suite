@@ -13,6 +13,8 @@ uploaded file.
 
 from __future__ import annotations
 
+import datetime as _dt
+
 import pandas as pd
 
 from app import config
@@ -143,6 +145,7 @@ WHERE
     AND abs.batch_source_id(+) = bat.batch_source_id
 
     AND gc.code_combination_id = app.code_combination_id
+    {as_on}
 
 GROUP BY
     party.party_name,
@@ -185,13 +188,20 @@ _COLUMNS = {
 }
 
 
-def register_sql() -> str:
+def register_sql(as_on: _dt.date | None = None) -> str:
     """The query. The database is asked to run it with ORACLE_REGISTER_PARALLEL_DEGREE
     parallel workers (about 21 s -> 5 s on the full history, same rows); an
     optimizer hint, so a database without parallel query simply ignores it.
-    0 leaves it out."""
+    0 leaves it out.
+
+    With ``as_on`` only what was posted up to that GL date counts (bind ``:as_on``). Every application is
+    a ledger entry (an unapplied amount that is later applied is reversed by a negative one), so the
+    sums are then the receipts' balances on that date."""
     degree = config.ORACLE_REGISTER_PARALLEL_DEGREE
-    return REGISTER_SQL.format(hint=f"/*+ PARALLEL({degree}) */" if degree > 1 else "")
+    return REGISTER_SQL.format(
+        hint=f"/*+ PARALLEL({degree}) */" if degree > 1 else "",
+        as_on="" if as_on is None else "AND app.gl_date <= :as_on",
+    )
 
 
 def register_frame(columns: list[str], rows: list) -> pd.DataFrame:
@@ -214,8 +224,9 @@ def register_frame(columns: list[str], rows: list) -> pd.DataFrame:
     return df.reset_index(drop=True)
 
 
-def fetch_register_from_erp(oracle_cfg: OracleConfig, log_q=None, cancel_event=None) -> pd.DataFrame:
-    """Run the register query against the ERP; the register as a frame."""
+def fetch_register_from_erp(oracle_cfg: OracleConfig, log_q=None, cancel_event=None,
+                            as_on: _dt.date | None = None) -> pd.DataFrame:
+    """Run the register query against the ERP; the register as a frame (as on ``as_on``, when given)."""
     _init_oracle_client(oracle_cfg.instant_client_dir)
     if log_q:
         log_q.put(("info", "Fetching the Unapplied Receipts Register from the ERP ..."))
@@ -225,7 +236,10 @@ def fetch_register_from_erp(oracle_cfg: OracleConfig, log_q=None, cancel_event=N
         cur = conn.cursor()
         cur.arraysize = 5000
         try:
-            cur.execute(register_sql(), p_in_format_option=None, nls_no_batch=None, p_in_curr_code=None)
+            binds = {"p_in_format_option": None, "nls_no_batch": None, "p_in_curr_code": None}
+            if as_on is not None:
+                binds["as_on"] = _dt.datetime.combine(as_on, _dt.time())
+            cur.execute(register_sql(as_on), **binds)
             columns = [d[0] for d in cur.description]
             rows = cur.fetchall()
         except Exception as exc:

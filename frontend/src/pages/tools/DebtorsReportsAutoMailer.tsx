@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { MailCheck } from 'lucide-react'
 import { AppShell } from '@/components/AppShell'
 import { GlassCard } from '@/components/GlassCard'
@@ -12,7 +12,6 @@ import { ApiError, del, get, post, put } from '@/lib/api'
 import { segmentClass } from '@/utils/segment'
 
 const BASE = '/tools/debtors-reports-auto-mailer'
-const REPORT_NAME = 'Debtors Reports'
 
 // ── mapping tables ───────────────────────────────────────────────────────
 
@@ -66,7 +65,7 @@ const MAIL_MAPPING_FIXES: Record<string, MappingFix> = {
   },
 }
 
-function MappingSection({ config }: { config: MappingConfig }) {
+function MappingSection({ config, base }: { config: MappingConfig; base: string }) {
   const [rows, setRows] = useState<MappingRow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -75,30 +74,30 @@ function MappingSection({ config }: { config: MappingConfig }) {
     setLoading(true)
     setError(null)
     try {
-      setRows(await get<MappingRow[]>(`${BASE}/mappings/${config.key}`))
+      setRows(await get<MappingRow[]>(`${base}/mappings/${config.key}`))
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Could not load mapping table.')
     } finally {
       setLoading(false)
     }
-  }, [config.key])
+  }, [base, config.key])
 
   useEffect(() => {
     void load()
   }, [load])
 
   async function handleAdd(row: MappingRow) {
-    await post(`${BASE}/mappings/${config.key}`, config.buildBody(row))
+    await post(`${base}/mappings/${config.key}`, config.buildBody(row))
     await load()
   }
 
   async function handleEdit(index: number, row: MappingRow) {
-    await put(`${BASE}/mappings/${config.key}/${config.buildKey(rows[index])}`, config.buildBody(row))
+    await put(`${base}/mappings/${config.key}/${config.buildKey(rows[index])}`, config.buildBody(row))
     await load()
   }
 
   async function handleDelete(index: number) {
-    await del(`${BASE}/mappings/${config.key}/${config.buildKey(rows[index])}`)
+    await del(`${base}/mappings/${config.key}/${config.buildKey(rows[index])}`)
     await load()
   }
 
@@ -124,13 +123,30 @@ function MappingSection({ config }: { config: MappingConfig }) {
 
 // ── page ─────────────────────────────────────────────────────────────────
 
-export default function DebtorsReportsAutoMailer() {
+/**
+ * The page of a debtors mailer. The Debtors Reports Auto Mailer and the Meeting Debtors Reports Auto Mailer are
+ * this same page; the meeting one passes `asOnPanel` (where the date the reports are as on is chosen) and says
+ * in `summary` that the reports are as on that date.
+ */
+export function DebtorsMailerPage({
+  base,
+  title,
+  reportName,
+  summary,
+  asOnPanel,
+}: {
+  base: string
+  title: string
+  reportName: string
+  summary: string
+  asOnPanel?: ReactNode
+}) {
   const [activeMappingTab, setActiveMappingTab] = useState(0)
   // bumped when a send-now run finishes, so the settings card reloads its last run and send log
   const [refreshKey, setRefreshKey] = useState(0)
 
   return (
-    <AppShell title="Debtors Reports Auto Mailer">
+    <AppShell title={title}>
       <div className="flex flex-col gap-6">
         <GlassCard padding="lg" className="flex flex-col gap-4">
           <div className="flex items-center gap-4">
@@ -140,34 +156,30 @@ export default function DebtorsReportsAutoMailer() {
             <div>
               <p className="text-sm font-semibold text-accent">Accounts · Debtors</p>
               <h2 className="mt-1.5 font-display text-xl font-semibold tracking-[-0.025em] text-ink">
-                Debtors Reports Auto Mailer
+                {title}
               </h2>
-              <p className="mt-1 text-sm leading-6 text-ink-dim">
-                One mail with all three debtors reports. The ageing is fetched from the ERP once and shared:
-                the receivable ageing with the GST invoice numbers added, the Unapplied Receipts report (its
-                summary in the mail) and the Untagged Invoices report (its summaries in the mail), each as an
-                attachment. Each customer’s Location comes from its ERP region, with the mapping tables
-                below as the fallback.
-              </p>
+              <p className="mt-1 text-sm leading-6 text-ink-dim">{summary}</p>
             </div>
           </div>
         </GlassCard>
 
+        {asOnPanel}
+
         <ReportMailPanel
-          baseUrl={BASE}
-          reportName={REPORT_NAME}
+          baseUrl={base}
+          reportName={reportName}
           description="Builds the three reports from the live ERP and shows you the exact mail before anything is sent. It always goes from the system email."
           unmappedHint='Map each value above and preview again, or preview anyway - they show as "-".'
           mappingFixes={MAIL_MAPPING_FIXES}
         />
 
         <SendNowCard
-          baseUrl={BASE}
+          baseUrl={base}
           description="Runs the scheduled mail right away: it builds the three reports and sends them to the saved recipients, from the system email, with the saved subject and text. It is recorded in the send log below like any scheduled mail. To review the mail first, use Mail this report above."
           onFinished={() => setRefreshKey((key) => key + 1)}
         />
 
-        <AutoMailCard key={refreshKey} baseUrl={BASE} reportName={REPORT_NAME} />
+        <AutoMailCard key={refreshKey} baseUrl={base} reportName={reportName} />
 
         <GlassCard padding="lg" className="flex flex-col gap-5">
           <div>
@@ -191,9 +203,20 @@ export default function DebtorsReportsAutoMailer() {
             ))}
           </div>
 
-          <MappingSection key={activeMappingTab} config={MAPPING_CONFIGS[activeMappingTab]} />
+          <MappingSection key={activeMappingTab} config={MAPPING_CONFIGS[activeMappingTab]} base={base} />
         </GlassCard>
       </div>
     </AppShell>
+  )
+}
+
+export default function DebtorsReportsAutoMailer() {
+  return (
+    <DebtorsMailerPage
+      base={BASE}
+      title="Debtors Reports Auto Mailer"
+      reportName="Debtors Reports"
+      summary="One mail with all three debtors reports. The ageing is fetched from the ERP once and shared: the receivable ageing with the GST invoice numbers added, the Unapplied Receipts report (its summary in the mail) and the Untagged Invoices report (its summaries in the mail), each as an attachment. Each customer’s Location comes from its ERP region, with the mapping tables below as the fallback."
+    />
   )
 }

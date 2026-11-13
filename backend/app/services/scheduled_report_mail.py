@@ -25,7 +25,7 @@ import logging
 import os
 import re
 import shutil
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime, time as dtime, timedelta
 from pathlib import Path
 from string import Formatter
@@ -154,6 +154,14 @@ SPECS: dict[str, MailSpec] = {
         allow_hourly=False,
     ),
 }
+
+# The Meeting Debtors Reports Auto Mailer is the Debtors Reports Auto Mailer (same wording, same placeholders,
+# always sent from the system email) with its own schedule, recipients and log; only the as-on date differs.
+SPECS["meeting-debtors-reports-auto-mailer"] = replace(
+    SPECS["debtors-reports-auto-mailer"],
+    app_key="meeting-debtors-reports-auto-mailer",
+    label="Meeting Debtors Reports",
+)
 
 
 @dataclass
@@ -1008,6 +1016,8 @@ def _job_for(app_key: str):
         from app.services.untagged_invoices.auto_mail import run_auto_mail_job
     elif app_key == "debtors-reports-auto-mailer":
         from app.services.debtors_mailer.auto_mail import run_auto_mail_job
+    elif app_key == "meeting-debtors-reports-auto-mailer":
+        from app.services.meeting_debtors.auto_mail import run_auto_mail_job
     elif app_key == "rdc-sales-register-report":
         from app.services.sales_register.auto_mail import run_auto_mail_job
     elif app_key == "unidentified-entries":
