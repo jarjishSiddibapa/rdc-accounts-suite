@@ -95,7 +95,7 @@ class MailerWiringTests(unittest.TestCase):
     def test_the_meeting_mail_is_built_as_on_the_chosen_date(self):
         seen = {}
 
-        def fake_build(snapshot, progress_cb=None, cancel_event=None, *, as_on=None):
+        def fake_build(snapshot, progress_cb=None, cancel_event=None, *, as_on=None, app_key=None):
             seen["as_on"] = as_on
             return mail.MailPayload(values={"date": "x"})
 
@@ -142,7 +142,7 @@ class MailerWiringTests(unittest.TestCase):
             calls["register"].append(extra.get("as_on"))
             return pd.DataFrame()
 
-        def fake_gst(path, name, progress_cb=None, cancel_event=None, ageing=None, look="default"):
+        def fake_gst(path, name, progress_cb=None, cancel_event=None, ageing=None, look="default", prepare=None):
             ageing()
             return SimpleNamespace(result={"total": 1, "found": 1, "blank": 0}, df=frame, gst_map={})
 

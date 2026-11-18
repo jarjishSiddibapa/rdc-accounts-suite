@@ -179,6 +179,7 @@ class MailPayload:
     detail: dict = field(default_factory=dict)   # stored with the run
     hold_reason: str | None = None               # set: do not send, record why
     cleanup: list[str] = field(default_factory=list)
+    reword: object = None                        # (subject, intro templates) -> the pair to render, when the wording follows what was built
 
 
 # ── validation helpers ───────────────────────────────────────────────────────
@@ -885,13 +886,16 @@ def compose_messages(snapshot: dict, payload: MailPayload) -> list[dict]:
     parts (the tables go in the first only)."""
     groups = payload.attachment_groups or [[]]
     messages = []
+    subject_template, intro_template = snapshot["subject_template"], snapshot["intro_template"]
+    if payload.reword is not None:
+        subject_template, intro_template = payload.reword(subject_template, intro_template)
     for index, group in enumerate(groups, 1):
-        subject = render_text(snapshot["subject_template"], payload.values)
+        subject = render_text(subject_template, payload.values)
         if len(groups) > 1:
             subject = f"{subject} (Part {index} of {len(groups)})"
         notes = list(payload.notes)
         body = _wrap_html(
-            render_text(snapshot["intro_template"], payload.values),
+            render_text(intro_template, payload.values),
             payload.sections if index == 1 else [],
             notes,
             snapshot["signature"],

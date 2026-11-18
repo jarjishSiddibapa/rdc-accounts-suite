@@ -70,12 +70,12 @@ def cpu_classify_and_validate(df, ageing_path, incharge_map, supplier_site_map, 
 
 
 def cpu_write_report(df_main, df_advance, output_path, as_on_date, df_unidentified,
-                     incharge_map, progress_cb=None, look="default"):
+                     incharge_map, progress_cb=None, look="default", incharge_column=False):
     log_q = CollectingLogQueue()
     processor.write_formatted_excel(
         df_main, df_advance, output_path, as_on_date,
         df_unidentified=df_unidentified, incharge_map=incharge_map, log_q=log_q,
-        progress_cb=progress_cb, look=look,
+        progress_cb=progress_cb, look=look, incharge_column=incharge_column,
     )
     return log_q.messages
 
@@ -94,7 +94,7 @@ def slim_ageing(ageing_frame):
 
 def build_report(output_path: str, oracle_cfg, maps, register_frame, ageing_frame, region_by_account,
                  allow_unmapped: bool = False, progress_cb=None, cancel_event=None,
-                 as_on_date: date | None = None, look: str = "default") -> dict:
+                 as_on_date: date | None = None, look: str = "default", incharge_column: bool = False) -> dict:
     """The report from data already fetched. ``maps`` = (incharge_map,
     location_map); the result has the same shape as the web job's."""
     incharge_map, supplier_site_map = maps
@@ -125,7 +125,7 @@ def build_report(output_path: str, oracle_cfg, maps, register_frame, ageing_fram
 
     cpu_messages = run_cpu_phase(
         cpu_write_report, df_main, df_advance, output_path, as_on_date, df_unidentified, incharge_map,
-        look=look,
+        look=look, incharge_column=incharge_column,
     )
     log_q.messages.extend(cpu_messages)
     return {

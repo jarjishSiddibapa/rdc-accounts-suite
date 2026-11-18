@@ -7,7 +7,9 @@ its copy). They are seeded once from those tools' current mappings
 (mapping_store.py), after which they are edited here only.
 """
 
-from sqlalchemy import Boolean, Column, Integer, String
+from datetime import datetime
+
+from sqlalchemy import Boolean, Column, DateTime, Integer, String
 
 from app.database import Base
 
@@ -34,3 +36,17 @@ class AccountsInchargeMap(Base):
     location          = Column(String(255), unique=True, index=True, nullable=False)
     accounts_incharge = Column(String(255), nullable=False, default="")
     is_deleted        = Column(Boolean, default=False, nullable=False)
+
+
+class ReportChoice(Base):
+    """Which of the three reports an application sends (one row per application; no row = all three)."""
+
+    __tablename__ = "debtors_mailer_report_choice"
+
+    id         = Column(Integer, primary_key=True)
+    app_key    = Column(String(64), unique=True, index=True, nullable=False)
+    ageing     = Column(Boolean, default=True, nullable=False)      # the ageing with the GST invoice numbers
+    unapplied  = Column(Boolean, default=True, nullable=False)      # the Unapplied Receipts report
+    untagged   = Column(Boolean, default=True, nullable=False)      # the Untagged Invoices report (with Below 1k)
+    updated_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_by = Column(String(255), nullable=True)

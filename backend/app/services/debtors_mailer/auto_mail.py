@@ -23,7 +23,7 @@ from app.jobs import JobCancelled, run_cpu_phase
 from app.services import attachment_fit, customer_region, erp_ageing, report_mail_preview
 from app.services import scheduled_report_mail as mail
 from app.services import xlsb_convert, xlsx_compact
-from app.services.debtors_mailer import mapping_store
+from app.services.debtors_mailer import mapping_store, report_choice
 from app.services.gst_invoice_adder import report_job as gst_job
 from app.services.mailer_shared import sheet_to_html
 from app.services.untagged_invoices import auto_mail as untagged_auto_mail
@@ -127,9 +127,16 @@ def _fit_attachments(paths: list[Path], progress_cb=None, splitters=None) -> tup
     return groups, how
 
 
-def build(snapshot: dict, progress_cb=None, cancel_event=None, *, as_on: date | None = None) -> mail.MailPayload:
-    """The mail: the three reports from one ageing fetch. ``as_on`` (a date): everything as it stood on that
-    date (the Meeting Debtors Reports Auto Mailer); without it, the live open ageing as on today."""
+def build(snapshot: dict, progress_cb=None, cancel_event=None, *, as_on: date | None = None,
+          app_key: str = APP_KEY) -> mail.MailPayload:
+    """The mail: the reports picked for ``app_key`` (all three unless fewer were chosen), from one ageing fetch.
+    ``as_on`` (a date): everything as it stood on that date (the Meeting Debtors Reports Auto Mailer); without
+    it, the live open ageing as on today. Every sheet that has a Location also has the Accounts Incharge right
+    after it."""
+    selected = report_choice.current(app_key)
+    want_ageing = report_choice.AGEING in selected
+    want_unapplied = report_choice.UNAPPLIED in selected
+    want_untagged = report_choice.UNTAGGED in selected
     work_dir = SCRATCH_DIR / f"mail-debtors-{uuid.uuid4().hex}"
     work_dir.mkdir(parents=True, exist_ok=True)
     payload = mail.MailPayload(values={"date": "", "total": "", "found": "", "blank": ""}, cleanup=[str(work_dir)])
@@ -142,7 +149,8 @@ def build(snapshot: dict, progress_cb=None, cancel_event=None, *, as_on: date | 
     untagged_path = work_dir / f"Untagged_Invoices_Report_As_On_{stamp}.xlsx"
 
     # progress: each report counts for a third of the first 90 %
-    fractions = {"gst": 0.0, "unapplied": 0.0, "untagged": 0.0}
+    fractions = {name: 0.0 for name, wanted in
+                 (("gst", want_ageing), ("unapplied", want_unapplied), ("untagged", want_untagged)) if wanted}
     progress_lock = threading.Lock()
 
     def reporter(name: str):
@@ -172,10 +180,14 @@ def build(snapshot: dict, progress_cb=None, cancel_event=None, *, as_on: date | 
     shared = _SharedAgeing(cfg, cancel, as_on=past_date)
     regions = customer_region.RegionFetch(cfg, cancel)
 
+    def with_gst_incharge(frame):
+        return untagged_processor.add_incharge_after_location_name(
+            frame, location_map, incharge_map, regions.result())
+
     def build_gst():
         return gst_job.build_report(
             str(gst_path), gst_path.name, progress_cb=reporter("gst"), cancel_event=cancel, ageing=shared.get,
-            look=LOOK,
+            look=LOOK, prepare=with_gst_incharge,
         )
 
     def build_untagged():
@@ -183,7 +195,7 @@ def build(snapshot: dict, progress_cb=None, cancel_event=None, *, as_on: date | 
             str(untagged_path), allow_unmapped=allow_unmapped, progress_cb=reporter("untagged"),
             cancel_event=cancel, maps=(location_map, incharge_map),
             ageing=lambda: _without_buckets(shared.get()), regions=regions.result,
-            write=_cpu_write_untagged, as_on_date=as_on,
+            write=_cpu_write_untagged, as_on_date=as_on, incharge_column=True,
         )
         # A workbook that is over the email limit by itself is always compacted by _fit_attachments
         # (nothing can bring the total under the limit without it), so do it now, while the other reports
@@ -198,10 +210,11 @@ def build(snapshot: dict, progress_cb=None, cancel_event=None, *, as_on: date | 
         return unapplied_job.build_report(
             str(unapplied_path), cfg, (incharge_map, location_map), register, shared.get(),
             regions.result(), allow_unmapped=allow_unmapped, progress_cb=reporter("unapplied"),
-            cancel_event=cancel, as_on_date=as_on, look=LOOK,
+            cancel_event=cancel, as_on_date=as_on, look=LOOK, incharge_column=True,
         )
 
-    jobs = {"gst": build_gst, "untagged": build_untagged, "unapplied": build_unapplied}
+    jobs = {name: fn for name, fn, wanted in (("gst", build_gst, want_ageing), ("untagged", build_untagged, want_untagged),
+                                              ("unapplied", build_unapplied, want_unapplied)) if wanted}
     first_error: list[BaseException] = []
 
     def guarded(fn):
@@ -225,64 +238,82 @@ def build(snapshot: dict, progress_cb=None, cancel_event=None, *, as_on: date | 
     if cancel_event is not None and cancel_event.is_set():
         raise JobCancelled("Cancelled")
 
-    gst = futures["gst"].result()
-    untagged = futures["untagged"].result()
-    unapplied = futures["unapplied"].result()
-    gst_result, untagged_result = gst.result, untagged.result
+    gst = futures["gst"].result() if want_ageing else None
+    untagged = futures["untagged"].result() if want_untagged else None
+    unapplied = futures["unapplied"].result() if want_unapplied else None
+    gst_result = gst.result if gst else None
+    untagged_result = untagged.result if untagged else None
 
     payload.values = {
         "date": as_on.strftime("%d-%b-%Y"),
-        "total": f"{gst_result['total']:,}",
-        "found": f"{gst_result['found']:,}",
-        "blank": f"{gst_result['blank']:,}",
+        "total": f"{gst_result['total']:,}" if gst_result else "",
+        "found": f"{gst_result['found']:,}" if gst_result else "",
+        "blank": f"{gst_result['blank']:,}" if gst_result else "",
     }
+    # the mail's wording (subject, the numbered list, the "attached" sentence) follows the reports sent
+    payload.reword = lambda subject, intro: (
+        report_choice.adapt_subject(subject, mail.SPECS[app_key].default_subject, selected),
+        report_choice.adapt_intro(intro, selected),
+    )
     warnings = _merge_warnings(
-        untagged_result.get("validation_warnings"), unapplied.get("validation_warnings"),
+        (untagged_result or {}).get("validation_warnings"), (unapplied or {}).get("validation_warnings"),
         location_map=location_map, incharge_map=incharge_map, regions=set(regions.result().values()),
     )
+    untagged_result = untagged_result or {}
+    unapplied_result = unapplied or {}
     payload.detail = {
         "as_on_date": as_on.isoformat(),
-        "ageing_rows": gst_result["total"],
-        "gst_found": gst_result["found"],
-        "gst_blank": gst_result["blank"],
+        "reports": list(selected),
+        "ageing_rows": gst_result["total"] if gst_result else None,
+        "gst_found": gst_result["found"] if gst_result else None,
+        "gst_blank": gst_result["blank"] if gst_result else None,
         "untagged_summary_locations": untagged_result.get("untagged_summary_row_count"),
         "untagged_ageing_rows": untagged_result.get("untagged_ageing_row_count"),
         "below_1k_ageing_rows": untagged_result.get("below_1k_ageing_row_count"),
-        "unapplied_rows": unapplied.get("main_row_count"),
-        "unapplied_advance_rows": unapplied.get("advance_row_count"),
+        "unapplied_rows": unapplied_result.get("main_row_count"),
+        "unapplied_advance_rows": unapplied_result.get("advance_row_count"),
         "unmapped": warnings,
     }
-    if (untagged_result["needs_mapping_fix"] or unapplied["needs_mapping_fix"]) and not allow_unmapped:
+    if (untagged_result.get("needs_mapping_fix") or unapplied_result.get("needs_mapping_fix")) and not allow_unmapped:
         payload.hold_reason = _hold_reason(warnings)
         return payload
 
-    # the summaries shown in the mail, formatted exactly as in the reports
-    summary_path = work_dir / "summaries.xlsx"
-    untagged_processor.write_summary_workbook(
-        untagged.untagged_summary, untagged.below_1k_summary, summary_path, look=LOOK)
-    payload.intro_note = f"Note: {untagged_processor.LAKHS_NOTE}"
     # The ageing with GST numbers is only an attachment (the intro lists it). The reports carry
     # no title bar or lakhs label above their tables; the heading above each table names it and
-    # the note above the sections says the amounts are in lakhs.
-    payload.sections = [
-        ("2. Unapplied Receipts (Summary):",
-         sheet_to_html(str(unapplied_path), "Summary", payload.css, "r")),
-        ("3. Untagged Invoices (Summary):", sheet_to_html(str(summary_path), "Untagged Summary", payload.css, "u")),
-        ("4. Below 1k Invoices (Summary):", sheet_to_html(str(summary_path), "Below 1k Summary", payload.css, "b")),
-    ]
+    # the note above the sections says the amounts are in lakhs. Only the reports sent have a section; the
+    # headings are numbered as the list in the mail text is.
+    tables: list[tuple[str, str]] = []                 # (heading, html), numbered below
+    if unapplied is not None:
+        tables.append(("Unapplied Receipts (Summary):",
+                       sheet_to_html(str(unapplied_path), "Summary", payload.css, "r")))
+    if untagged is not None:
+        # the summaries shown in the mail, formatted exactly as in the reports
+        summary_path = work_dir / "summaries.xlsx"
+        untagged_processor.write_summary_workbook(
+            untagged.untagged_summary, untagged.below_1k_summary, summary_path, look=LOOK)
+        payload.intro_note = f"Note: {untagged_processor.LAKHS_NOTE}"
+        tables.append(("Untagged Invoices (Summary):",
+                       sheet_to_html(str(summary_path), "Untagged Summary", payload.css, "u")))
+        tables.append(("Below 1k Invoices (Summary):",
+                       sheet_to_html(str(summary_path), "Below 1k Summary", payload.css, "b")))
+    first_number = 2 if want_ageing else 1      # the ageing, when sent, is item 1 of the list
+    payload.sections = [(f"{first_number + i}. {heading}", html) for i, (heading, html) in enumerate(tables)]
 
     # A workbook that is still too big for an email on its own (even as .xlsb) is split as the last resort: the
     # ageing by rows, the Untagged report as its own sheets plus slices of its full ageing. Every row lands in
     # exactly one part. The Unapplied Receipts workbook has no splitter: if it is ever that big, the job stops.
-    def write_gst_slice(first: int, last: int, part_path: Path) -> None:
-        part = gst.df.iloc[first:last].reset_index(drop=True)
-        run_cpu_phase(gst_job.write_workbook, str(part_path), part, gst.gst_map, look=LOOK)
+    splitters = {}
+    if gst is not None:
+        def write_gst_slice(first: int, last: int, part_path: Path) -> None:
+            part = gst.df.iloc[first:last].reset_index(drop=True)
+            run_cpu_phase(gst_job.write_workbook, str(part_path), part, gst.gst_map, look=LOOK)
 
-    splitters = {
-        gst_path: attachment_fit.row_splitter(len(gst.df), write_gst_slice, work_dir, gst_path.stem),
-        untagged_path: untagged_auto_mail.untagged_splitter(untagged.frames, work_dir, as_on, look=LOOK),
-    }
-    groups, how = _fit_attachments([gst_path, unapplied_path, untagged_path], progress_cb, splitters)
+        splitters[gst_path] = attachment_fit.row_splitter(len(gst.df), write_gst_slice, work_dir, gst_path.stem)
+    if untagged is not None:
+        splitters[untagged_path] = untagged_auto_mail.untagged_splitter(untagged.frames, work_dir, as_on, look=LOOK)
+    attached = [path for path, wanted in ((gst_path, want_ageing), (unapplied_path, want_unapplied),
+                                          (untagged_path, want_untagged)) if wanted]
+    groups, how = _fit_attachments(attached, progress_cb, splitters)
     payload.attachment_groups = groups
     payload.detail["attachment"] = how
     payload.downloads = [(Path(p).name, p) for group in groups for p in group]

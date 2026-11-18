@@ -840,6 +840,23 @@ def _with_real_dates(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+INCHARGE_COL = "Accounts Incharge"
+
+
+def _with_incharge(df: pd.DataFrame, incharge_map: dict) -> pd.DataFrame:
+    """``df`` with 'Accounts Incharge' right after 'Location' (the incharge the mapping holds for the row's Location,
+    blank where it has none, as in the Summary). Unchanged when there is no Location column."""
+    if "Location" not in df.columns or df.empty:
+        if "Location" in df.columns and INCHARGE_COL not in df.columns:
+            df = df.copy()
+            df.insert(list(df.columns).index("Location") + 1, INCHARGE_COL, "")
+        return df
+    df = df.copy()
+    incharge = df["Location"].map(lambda loc: incharge_map.get(str(loc).strip(), "") if loc is not None else "")
+    df.insert(list(df.columns).index("Location") + 1, INCHARGE_COL, incharge.fillna(""))
+    return df
+
+
 def _apply_accounts_look(wb) -> None:
     """Restyle the finished workbook in the look of the Unaccounted / MRN / PO
     reports: Calibri 11, black thin borders, plain white rows, light-blue column
@@ -938,9 +955,11 @@ def write_formatted_excel(df_main: pd.DataFrame, df_advance: pd.DataFrame,
                           incharge_map: dict = None,
                           log_q=None,
                           progress_cb=None,
-                          look: str = "default"):
+                          look: str = "default",
+                          incharge_column: bool = False):
     """Write df to path as a professionally formatted xlsx. ``look="accounts"``
-    gives it the look of the Unaccounted / MRN / PO reports."""
+    gives it the look of the Unaccounted / MRN / PO reports. ``incharge_column``: an Accounts Incharge column
+    right after Location on the receipts and advance sheets (the Debtors reports); the Summary is as ever."""
     wb = Workbook()
     ws = wb.active
     ws.title = "Unapplied Receipts"
@@ -950,6 +969,10 @@ def write_formatted_excel(df_main: pd.DataFrame, df_advance: pd.DataFrame,
     first = hdr + 1
 
     df       = _with_real_dates(df_main)
+    df_advance_sheet = df_advance
+    if incharge_column:
+        df = _with_incharge(df, incharge_map or {})
+        df_advance_sheet = _with_incharge(df_advance, incharge_map or {})
     cols     = list(df.columns)
     n_cols   = len(cols)
     n_rows   = len(df)
@@ -1093,7 +1116,7 @@ def write_formatted_excel(df_main: pd.DataFrame, df_advance: pd.DataFrame,
     ws.sheet_properties.tabColor = "00B61D"
 
     # ── Advance of Customers sheet ────────────────────────────────────────────
-    _write_advance_sheet(wb, df_advance, as_on_date, titles=titles)
+    _write_advance_sheet(wb, df_advance_sheet, as_on_date, titles=titles)
 
     # ── Unidentified Customers sheet ──────────────────────────────────────────
     _write_unidentified_sheet(

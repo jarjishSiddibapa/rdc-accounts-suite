@@ -59,7 +59,7 @@ class BuiltReport:
 
 def build_report(output_path: str, allow_unmapped: bool = False, progress_cb=None,
                  cancel_event=None, *, maps=None, ageing=None, regions=None, write=None,
-                 as_on_date: date | None = None) -> BuiltReport:
+                 as_on_date: date | None = None, incharge_column: bool = False) -> BuiltReport:
     """Fetch the ageing from the ERP and write the 5-sheet workbook to
     ``output_path`` (not written while mappings are missing and
     ``allow_unmapped`` is False). The ageing is live, so it is as on today.
@@ -69,7 +69,8 @@ def build_report(output_path: str, allow_unmapped: bool = False, progress_cb=Non
     incharge_map), ``ageing`` = the ageing frame (or a callable returning it),
     ``regions`` = {customer -> ERP region} (or a callable), and ``write`` =
     how to write the workbook (to run it on the CPU pool). ``as_on_date`` (with an ``ageing`` fetched as on
-    that date): the date the report is as on; today when not given."""
+    that date): the date the report is as on; today when not given. ``incharge_column``: put each row's Accounts
+    Incharge right after its Location on the Ageing sheets (the Debtors reports)."""
     log_q = LogQueue(progress_cb)
     as_on_date = as_on_date or date.today()
 
@@ -128,6 +129,9 @@ def build_report(output_path: str, allow_unmapped: bool = False, progress_cb=Non
             "validation_warnings": validation_warnings,
             "log": log_q.messages,
         })
+
+    if incharge_column:
+        df = processor.add_incharge_column(df, incharge_map)
 
     if progress_cb:
         progress_cb(0.30, "Recomputing ageing buckets...")

@@ -30,7 +30,7 @@ from app.models import User
 from app.permissions import require_app_access
 from app.routers.auto_mail_routes import make_auto_mail_router
 from app.routers.report_mail_routes import make_report_mail_router
-from app.services.debtors_mailer import auto_mail, mapping_store
+from app.services.debtors_mailer import auto_mail, mapping_store, report_choice
 
 APP_KEY = auto_mail.APP_KEY
 
@@ -45,6 +45,10 @@ class LocationBody(BaseModel):
 class AccountsInchargeBody(BaseModel):
     location: str
     accounts_incharge: Optional[str] = None
+
+
+class ReportChoiceBody(BaseModel):
+    reports: list[str]          # the reports to send: "ageing", "unapplied", "untagged"
 
 
 def make_router(app_key: str, mailer) -> APIRouter:
@@ -72,6 +76,20 @@ def make_router(app_key: str, mailer) -> APIRouter:
         if job is None:
             raise HTTPException(status_code=404, detail="Job not found")
         return job
+
+    # ── which reports are sent ─────────────────────────────────────────────
+
+    @router.get("/reports")
+    def get_reports(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+        return report_choice.get_setting(db, app_key)
+
+    @router.put("/reports")
+    def put_reports(body: ReportChoiceBody, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
+        try:
+            return report_choice.save_setting(db, app_key, body.reports, user.email)
+        except report_choice.ReportChoiceError as exc:
+            db.rollback()
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     # ── 1. Location Map  (key = location_name) ─────────────────────────────
 

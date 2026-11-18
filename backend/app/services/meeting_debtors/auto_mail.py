@@ -24,7 +24,7 @@ def build(snapshot: dict, progress_cb=None, cancel_event=None) -> mail.MailPaylo
         mode, as_on = as_on_choice.current(APP_KEY)
     except as_on_choice.AsOnError as exc:
         raise JobUserError(str(exc)) from exc
-    payload = debtors.build(snapshot, progress_cb, cancel_event, as_on=as_on)
+    payload = debtors.build(snapshot, progress_cb, cancel_event, as_on=as_on, app_key=APP_KEY)
     payload.detail["as_on_mode"] = mode
     return payload
 

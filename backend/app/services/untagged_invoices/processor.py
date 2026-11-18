@@ -274,6 +274,20 @@ def missing_incharge_mappings(locations: list[str], incharge_map: dict[str, str]
     return [loc for loc in uniq if loc not in incharge_map]
 
 
+INCHARGE_COL = "Accounts Incharge"
+
+
+def add_incharge_column(df: pd.DataFrame, incharge_map: dict[str, str]) -> pd.DataFrame:
+    """Insert 'Accounts Incharge' immediately after 'Location': the incharge the Accounts Incharge mapping holds
+    for each row's Location (blank where it has none, as in the summaries). Only the Debtors reports ask for it."""
+    df = df.copy()
+    df[INCHARGE_COL] = df[LOCATION_COL].map(lambda loc: incharge_map.get(loc, "")).fillna("")
+    cols = list(df.columns)
+    cols.remove(INCHARGE_COL)
+    cols.insert(cols.index(LOCATION_COL) + 1, INCHARGE_COL)
+    return df[cols]
+
+
 def add_location_column(df: pd.DataFrame, location_map: dict[str, str],
                         region_by_account: dict[str, str] | None = None) -> pd.DataFrame:
     """Insert the 'Location' column immediately after 'Location Name'.
@@ -294,6 +308,24 @@ def add_location_column(df: pd.DataFrame, location_map: dict[str, str],
     cols.remove(LOCATION_COL)
     cols.insert(cols.index(loc_name_col) + 1, LOCATION_COL)
     return df[cols]
+
+
+def add_incharge_after_location_name(df: pd.DataFrame, location_map: dict[str, str], incharge_map: dict[str, str],
+                                     region_by_account: dict[str, str] | None = None) -> pd.DataFrame:
+    """For an ageing frame that has no 'Location' column (the GST-numbered ageing): insert 'Accounts Incharge'
+    right after 'Location Name'. The incharge is that of the row's Location, worked out exactly as
+    add_location_column does (the customer's ERP region, else the mapped Location Name)."""
+    loc_name_col = _find_col(df.columns, _LOCATION_NAME_TOKENS)
+    if not loc_name_col:
+        raise JobUserError("Could not find a 'Location Name' column in the ageing.")
+    raw_upper = df[loc_name_col].fillna("").astype(str).str.strip().str.upper()
+    mapped = raw_upper.map(location_map).fillna("")
+    region = _region_of_each_row(df, region_by_account)
+    location = mapped if region is None else region.where(region.notna(), mapped)
+    df = df.copy()
+    df.insert(list(df.columns).index(loc_name_col) + 1, INCHARGE_COL,
+              location.map(lambda loc: incharge_map.get(loc, "")).fillna(""))
+    return df
 
 
 def recompute_ageing_buckets(df: pd.DataFrame, as_on_date: _dt.date, log_q=None) -> pd.DataFrame:

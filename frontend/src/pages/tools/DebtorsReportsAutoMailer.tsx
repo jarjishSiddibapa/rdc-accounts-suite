@@ -7,6 +7,7 @@ import { MappingTable, type MappingColumn, type MappingRow } from '@/components/
 import { LoadingNotice } from '@/components/LoadingNotice'
 import { AutoMailCard } from '@/components/AutoMailCard'
 import { SendNowCard } from '@/components/SendNowCard'
+import { ReportsCard } from '@/components/ReportsCard'
 import { ReportMailPanel, type MappingFix } from '@/components/ReportMailPanel'
 import { ApiError, del, get, post, put } from '@/lib/api'
 import { segmentClass } from '@/utils/segment'
@@ -165,17 +166,19 @@ export function DebtorsMailerPage({
 
         {asOnPanel}
 
+        <ReportsCard baseUrl={base} />
+
         <ReportMailPanel
           baseUrl={base}
           reportName={reportName}
-          description="Builds the three reports from the live ERP and shows you the exact mail before anything is sent. It always goes from the system email."
+          description="Builds the reports you picked above from the live ERP and shows you the exact mail before anything is sent. It always goes from the system email."
           unmappedHint='Map each value above and preview again, or preview anyway - they show as "-".'
           mappingFixes={MAIL_MAPPING_FIXES}
         />
 
         <SendNowCard
           baseUrl={base}
-          description="Runs the scheduled mail right away: it builds the three reports and sends them to the saved recipients, from the system email, with the saved subject and text. It is recorded in the send log below like any scheduled mail. To review the mail first, use Mail this report above."
+          description="Runs the scheduled mail right away: it builds the reports you picked above and sends them to the saved recipients, from the system email, with the saved subject and text. It is recorded in the send log below like any scheduled mail. To review the mail first, use Mail this report above."
           onFinished={() => setRefreshKey((key) => key + 1)}
         />
 

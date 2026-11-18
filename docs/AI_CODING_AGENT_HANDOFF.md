@@ -1148,6 +1148,23 @@ while the test ran), and building forward and counting back agree for every invo
 memo at four past dates. Only classes INV / DM / CM / PMT are counted (the only ones that are ever open).
 The Debtors Reports Auto Mailer itself is unchanged: no date is asked of the ERP and its queries are as before.
 
+Both Debtors apps (the Debtors and the Meeting one, one code path) also have:
+* **An "Accounts Incharge" column right after Location on every sheet that has a Location**, and only in these two
+  apps (the standalone Untagged Invoices, Unapplied Receipts and GST Invoice Number tools are unchanged: every
+  new parameter defaults off). The Untagged workbook's three Ageing sheets get it (`build_report(...,
+  incharge_column=True)`, `processor.add_incharge_column`); the Unapplied workbook's receipts and Advance sheets get
+  it before Sales Person (`write_formatted_excel(..., incharge_column=True)`, `_with_incharge`); the GST ageing, which
+  has only "Location Name", gets it after that column (`gst_job.build_report(..., prepare=...)`,
+  `untagged processor.add_incharge_after_location_name`, the same Location as the Untagged report: the customer's ERP
+  region, else the mapped Location Name). The summaries already carried the incharge. A Location with no incharge
+  mapped shows "-" (blank in the Unapplied sheets, as ever). The Unidentified Customers sheet has no Location.
+* **Which reports are sent** (`debtors_mailer/report_choice.py`, table `debtors_mailer_report_choice`,
+  `GET/PUT /reports`, `ReportsCard`): any of Ageing with GST Invoice Numbers / Unapplied Receipts / Untagged
+  Invoices (with Below 1k); none saved = all three; at least one. `auto_mail.build(..., app_key=...)` reads it, builds and
+  attaches only those (a report left out is not even fetched), and `MailPayload.reword` makes `compose_messages`
+  word the subject, numbered list, section numbers and "... attached" sentence for what was sent (only the standard
+  wording is rewritten; text a person typed is left alone). Used by the automatic mail, Send now and Mail this report.
+
 ## 8. Verification and evidence
 
 Run from `backend/`:
