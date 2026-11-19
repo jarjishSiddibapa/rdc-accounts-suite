@@ -28,6 +28,7 @@ from sqlalchemy.orm import Session
 from app.auth import get_current_user
 from app.database import get_db
 from app.jobs import claim_job_action, finish_job_action, get_job, submit_job
+from app.routers.auto_mail_routes import current_plan_id
 from app.services import mailer_shared
 from app.services import scheduled_report_mail as mail
 from app.validation import normalize_email
@@ -83,10 +84,18 @@ def make_report_mail_router(app_key: str, preview_job, per_month: bool = False,
     fixed_sender = sender_choice and spec.fixed_sender      # always the system email, whatever the request says
 
     @router.get("/defaults")
-    def get_defaults(db: Session = Depends(get_db), user=Depends(get_current_user)):
-        settings = mail.get_or_create_settings(db, app_key)
-        # To / Cc start from the last mail that was sent, else the admin defaults
-        recipients = mailer_shared.get_prefill_recipients(db, app_key)
+    def get_defaults(db: Session = Depends(get_db), user=Depends(get_current_user),
+                     plan_id: int | None = Depends(current_plan_id)):
+        if plan_id is None:
+            settings = mail.get_or_create_settings(db, app_key)
+            # To / Cc start from the last mail that was sent, else the admin defaults
+            recipients = mailer_shared.get_prefill_recipients(db, app_key)
+        else:
+            # a mail plan: the plan's own wording and recipients
+            from app.services.debtors_mailer import plans
+
+            settings = plans.require(db, plan_id)
+            recipients = plans.recipients(settings)
         sender = mailer_shared.get_email_settings(user.id)
         defaults = {
             "to": recipients["to"],
@@ -113,7 +122,8 @@ def make_report_mail_router(app_key: str, preview_job, per_month: bool = False,
         return defaults
 
     @router.post("/preview")
-    def start_preview(body: PreviewBody, user=Depends(get_current_user), db: Session = Depends(get_db)):
+    def start_preview(body: PreviewBody, user=Depends(get_current_user), db: Session = Depends(get_db),
+                      plan_id: int | None = Depends(current_plan_id)):
         if fixed_sender:
             body.sender = "system"
         if sender_choice:
@@ -138,6 +148,8 @@ def make_report_mail_router(app_key: str, preview_job, per_month: bool = False,
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         extra = {}
+        if plan_id is not None:
+            extra["plan_id"] = plan_id
         if sender_choice:
             extra["sender"] = (body.sender or "me").strip()
         if per_month:
@@ -162,7 +174,8 @@ def make_report_mail_router(app_key: str, preview_job, per_month: bool = False,
         return FileResponse(path=str(path), filename=path.name, media_type=_XLSX)
 
     @router.post("/confirm-send")
-    def confirm_send(body: ConfirmBody, user=Depends(get_current_user), db: Session = Depends(get_db)):
+    def confirm_send(body: ConfirmBody, user=Depends(get_current_user), db: Session = Depends(get_db),
+                     plan_id: int | None = Depends(current_plan_id)):
         result = _finished_preview(body.job_id, user)
         if sender_choice:
             # the sender that was previewed (what the person saw as "From") is the one that sends
@@ -220,12 +233,14 @@ def make_report_mail_router(app_key: str, preview_job, per_month: bool = False,
                 problem = f"The mail could not be sent: {str(exc)[:300]}"
             if sent:
                 problem += f" {len(sent)} of {len(result['messages'])} mails had already gone out."
-            mail.record_manual_send(app_key, user.email, started, "failed", problem, recipients, sent, detail_log)
+            mail.record_manual_send(app_key, user.email, started, "failed", problem, recipients, sent, detail_log,
+                                    plan_id)
             raise HTTPException(status_code=502, detail=problem) from exc
 
         finish_job_action(body.job_id, owner_id=user.id, action="confirm-send", succeeded=True)
-        mail.record_manual_send(app_key, user.email, started, "sent", None, recipients, sent, detail_log)
-        mailer_shared.remember_recipients(app_key, result["to"], result["cc"])
+        mail.record_manual_send(app_key, user.email, started, "sent", None, recipients, sent, detail_log, plan_id)
+        if plan_id is None:         # a mail plan keeps its own saved recipients; they are not replaced by a one-off send
+            mailer_shared.remember_recipients(app_key, result["to"], result["cc"])
         return {"status": "sent", "to": result["to"], "cc": result["cc"], "messages": sent}
 
     return router

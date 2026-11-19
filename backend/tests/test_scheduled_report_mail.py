@@ -22,6 +22,7 @@ from app.models import (
 )
 from app.regional import IST
 from app.services import scheduled_report_mail as mail
+from app.services.debtors_mailer.models import MailPlan
 from app.services import xlsb_convert, xlsb_writer, xlsx_compact
 from app.services.gst_invoice_adder import auto_mail as gst_mail
 from app.services.mailer_shared import sheet_to_html
@@ -52,7 +53,7 @@ class _DbCase(unittest.TestCase):
     def setUp(self):
         engine = create_engine("sqlite://")
         Base.metadata.create_all(
-            engine, tables=[Application.__table__, ApplicationEmailRecipient.__table__, ScheduledReportMail.__table__,
+            engine, tables=[Application.__table__, ApplicationEmailRecipient.__table__, ScheduledReportMail.__table__, MailPlan.__table__,
                     SystemEmailSettings.__table__, ScheduledReportMailLog.__table__,
                     User.__table__, EmailSettings.__table__],
         )
@@ -816,8 +817,8 @@ class AutoMailRouteTests(_DbCase):
 
     def test_save_then_read_back(self):
         body = self.routes_module.AutoMailBody(**GOOD)
-        saved = self.endpoint("/auto-mail", "PUT")(body, self.db)
-        read = self.endpoint("/auto-mail", "GET")(self.db)
+        saved = self.endpoint("/auto-mail", "PUT")(body, self.db, plan_id=None)
+        read = self.endpoint("/auto-mail", "GET")(self.db, plan_id=None)
         self.assertEqual(saved["days"], read["days"])
         self.assertEqual(read["to"], ["a@rdc.in"])
 
@@ -825,7 +826,7 @@ class AutoMailRouteTests(_DbCase):
         from fastapi import HTTPException
         body = self.routes_module.AutoMailBody(**{**GOOD, "days": []})
         with self.assertRaises(HTTPException) as caught:
-            self.endpoint("/auto-mail", "PUT")(body, self.db)
+            self.endpoint("/auto-mail", "PUT")(body, self.db, plan_id=None)
         self.assertEqual(caught.exception.status_code, 400)
         self.assertIn("at least one day", caught.exception.detail)
 
@@ -833,7 +834,7 @@ class AutoMailRouteTests(_DbCase):
         self.db.add(ScheduledReportMailLog(app_key=APP, trigger="manual", status="sent", requested_by="a@rdc.in",
                                            started_at=dt.datetime(2026, 10, 19, 3, 0)))
         self.db.commit()
-        result = self.endpoint("/auto-mail/log", "GET")(20, 0, self.db)
+        result = self.endpoint("/auto-mail/log", "GET")(20, 0, self.db, plan_id=None)
         self.assertEqual(result["total"], 1)
         self.assertEqual(result["items"][0]["requested_by"], "a@rdc.in")
         self.assertTrue(result["items"][0]["started_at"].startswith("2026-10-19T03:00"))

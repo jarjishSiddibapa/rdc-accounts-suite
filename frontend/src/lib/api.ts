@@ -216,6 +216,13 @@ export function put<T>(path: string, data?: unknown): Promise<T> {
   })
 }
 
+export function patch<T>(path: string, data?: unknown): Promise<T> {
+  return request<T>(path, {
+    method: 'PATCH',
+    body: data !== undefined ? JSON.stringify(data) : undefined,
+  })
+}
+
 export function del<T>(path: string): Promise<T> {
   return request<T>(path, { method: 'DELETE' })
 }

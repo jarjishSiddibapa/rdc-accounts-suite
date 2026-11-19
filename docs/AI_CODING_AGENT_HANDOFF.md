@@ -1124,33 +1124,55 @@ preview), `fixed_sender=True` (always the system email) and, like the Sales Regi
 whoever is granted the application (`make_auto_mail_router(..., access=require_app_access(KEY))`).
 Its jobs run on the `oracle-gst` resource allowance. The Debtors Reports Auto Mailer is a
 `fixed_sender` report too (manual and automatic mail both from the system email) and, like the Sales
-Register and Unidentified Entries, its automatic-mail settings (schedule, frequency, recipients, send now,
+Register and Unidentified Entries, its mail plans' settings (schedule, frequency, recipients, send now,
 log) are managed by whoever is granted the application. Only the Untagged Invoices, GST Invoice Number
 and Ultrafine mailers keep administrator-only settings, because their sender can be chosen.
 
-**Meeting Debtors Reports Auto Mailer** (`meeting-debtors-reports-auto-mailer`,
-`app/services/meeting_debtors/`, `app/routers/meeting_debtors_mailer.py`): the Debtors Reports Auto Mailer
-with ONE difference - the date the reports are as on is chosen: a calendar date, or "till last month end"
-(the last day of the month before the run, including that day, worked out afresh at every run). Same builder
-(`debtors_mailer.auto_mail.build(..., as_on=...)`), same wording (`SPECS[...]` is a `dataclasses.replace` of the
-Debtors spec), same two mapping tables (shared, edited from either page), `fixed_sender`, own schedule /
-recipients / send log. The router is the Debtors one (`debtors_mailer.make_router(app_key, mailer)`) plus
-`GET/PUT /as-on` (setting stored in `meeting_debtors_as_on`, `as_on.py`); the page is the Debtors page
-(`DebtorsMailerPage`) plus `AsOnCard`. The choice applies to the automatic mail, "Send now" and "Mail this report".
-As on a past date, the ERP is asked point-in-time: `erp_ageing.ageing_as_on_sql()` takes the items with
-GL date <= the date that were not closed on it; an item still open today is counted back from today's balance
-(applications / adjustments / write-offs with a later GL date are undone), an item closed since is built forward
-from its original amount (a reversed receipt has nothing to undo), so a date after everything posted gives
-exactly the live ageing. `erp_register.register_sql(as_on)` adds `app.gl_date <= :as_on` to the Unapplied
-Receipts Register (applications are ledger entries). Checked on the live ERP: as on a far future date and as
-on today the rows equal the live queries row for row (the only differences seen were receipts applied by users
-while the test ran), and building forward and counting back agree for every invoice, debit memo and credit
-memo at four past dates. Only classes INV / DM / CM / PMT are counted (the only ones that are ever open).
-The Debtors Reports Auto Mailer itself is unchanged: no date is asked of the ERP and its queries are as before.
-
-Both Debtors apps (the Debtors and the Meeting one, one code path) also have:
-* **An "Accounts Incharge" column right after Location on every sheet that has a Location**, and only in these two
-  apps (the standalone Untagged Invoices, Unapplied Receipts and GST Invoice Number tools are unchanged: every
+**Debtors Reports Auto Mailer and its MAIL PLANS** (`debtors-reports-auto-mailer`, `app/services/debtors_mailer/`,
+`app/routers/debtors_mailer.py`, page `DebtorsReportsAutoMailer.tsx`): the application builds the GST-numbered ageing, the
+Unapplied Receipts report and the Untagged Invoices report (with Below 1k) from ONE ERP ageing fetch. It has any number
+(at most 20) of **mail plans** - each one scheduled mail with its own reports, as-on date, schedule, recipients, wording and
+send log. (They replaced the separate "Meeting Debtors Reports Auto Mailer" application, whose key is now in
+`RETIRED_APP_KEYS`: a plan with the as-on date "last day of last month" is the same thing.)
+* **Storage**: table `debtors_mail_plan` (`models.MailPlan`). Its schedule / run-state columns are named exactly like those
+  of `ScheduledReportMail`, so the scheduler's duck-typed functions (`due_slot`, `due_every_slot`, `next_run`, ...) work on a
+  plan row unchanged. Recipients are the plan's own `to_list` / `cc_list` (JSON), not Admin -> Report recipients (the key
+  is no longer in `REPORT_RECIPIENT_APP_KEYS`). `scheduled_report_mail_log.plan_id` (additive column) ties a send-log
+  entry to its plan. Deleting a plan is a soft delete; it is switched off and its log stays.
+* **Per plan** (`plans.py`): reports (`ageing` / `unapplied` / `untagged`, at least one; the mail's subject, numbered list,
+  section numbers and "attached" sentence follow it through `MailPayload.reword`, only the standard wording is rewritten);
+  the as-on date - `today` (the live ageing, nothing asked of the ERP's history: exactly what the application always
+  did), `last_month_end` (the last day of the month before the run, worked out at every run) or `date` (a fixed calendar
+  date, not in the future); schedule (weekly / monthly, several times a day, every-N-hours); recipients; wording;
+  "when a location has no mapping".
+* **Routes**: `/plans` (list, create / copy), `/plans/{id}` (get, PATCH rename, DELETE), and under `/plans/{id}` the
+  same `/auto-mail` (+ `/log`, `/send-now`), `/mail/...`, `/jobs/...`, `/mappings/...` shapes the other mailers have, plus
+  `/reports` and `/as-on`. This lets the existing cards (`AutoMailCard`, `ReportMailPanel`, `SendNowCard`, `ReportsCard`,
+  `AsOnCard`) work for a plan with `baseUrl = /tools/debtors-reports-auto-mailer/plans/{id}`. The shared route factories
+  (`auto_mail_routes`, `report_mail_routes`) pick the plan up from the path with the `current_plan_id` dependency (None for
+  every other application), and `scheduled_report_mail.settings_view / save_settings / log_view / run_mail_job /
+  record_manual_send` take an optional `plan_id`. Everything under `/plans/{id}` follows the application's permission
+  (checked before the plan is looked up, so a person without access cannot probe plan ids).
+* **Running**: `scheduled_report_mail.enqueue_due_checks` skips a spec with `per_plan=True` as an application and instead
+  starts one `run_auto_mail_job(trigger, requested_by, plan_id=...)` job per due enabled plan (result entries look like
+  `debtors-reports-auto-mailer#<plan id>`). `auto_mail.build(snapshot)` takes `snapshot["reports"]` and `snapshot["as_on"]`
+  (`_build_for(plan_id)` reads them fresh from the plan when the run starts). Two plans run at once (each on the
+  `oracle-gst` allowance); the same plan never runs twice at once (`running_since` per plan). Send now, the preview and a
+  scheduled run are all the same code path.
+* **Upgrading an installation**: on the first start with plans, `plans.migrate_legacy` (called from `init_db`) turns an
+  application schedule that was set up before plans (enabled, or with recipients, or already run) into a plan called
+  "Debtors Reports" - same days, times, recipients, wording, and the slot it last ran (so nothing is sent twice) - and
+  switches the old row off. It runs once (never again after a plan exists, even a deleted one).
+* **As on a past date** the ERP is asked point-in-time: `erp_ageing.ageing_as_on_sql()` takes the items with GL date <=
+  the date that were not closed on it; an item still open today is counted back from today's balance (applications /
+  adjustments / write-offs with a later GL date are undone), an item closed since is built forward from its original
+  amount (a reversed receipt has nothing to undo), so a date after everything posted gives exactly the live ageing.
+  `erp_register.register_sql(as_on)` adds `app.gl_date <= :as_on` to the Unapplied Receipts Register (applications are
+  ledger entries). Checked on the live ERP: as on a far future date and as on today the rows equal the live queries row
+  for row, and building forward and counting back agree for every invoice, debit memo and credit memo at four past dates.
+  Only classes INV / DM / CM / PMT are counted (the only ones that are ever open).
+* **An "Accounts Incharge" column right after Location on every sheet that has a Location**, and only in this
+  application (the standalone Untagged Invoices, Unapplied Receipts and GST Invoice Number tools are unchanged: every
   new parameter defaults off). The Untagged workbook's three Ageing sheets get it (`build_report(...,
   incharge_column=True)`, `processor.add_incharge_column`); the Unapplied workbook's receipts and Advance sheets get
   it before Sales Person (`write_formatted_excel(..., incharge_column=True)`, `_with_incharge`); the GST ageing, which
@@ -1158,12 +1180,10 @@ Both Debtors apps (the Debtors and the Meeting one, one code path) also have:
   `untagged processor.add_incharge_after_location_name`, the same Location as the Untagged report: the customer's ERP
   region, else the mapped Location Name). The summaries already carried the incharge. A Location with no incharge
   mapped shows "-" (blank in the Unapplied sheets, as ever). The Unidentified Customers sheet has no Location.
-* **Which reports are sent** (`debtors_mailer/report_choice.py`, table `debtors_mailer_report_choice`,
-  `GET/PUT /reports`, `ReportsCard`): any of Ageing with GST Invoice Numbers / Unapplied Receipts / Untagged
-  Invoices (with Below 1k); none saved = all three; at least one. `auto_mail.build(..., app_key=...)` reads it, builds and
-  attaches only those (a report left out is not even fetched), and `MailPayload.reword` makes `compose_messages`
-  word the subject, numbered list, section numbers and "... attached" sentence for what was sent (only the standard
-  wording is rewritten; text a person typed is left alone). Used by the automatic mail, Send now and Mail this report.
+* **The page**: a plan switcher (name, On/Off, "n of 3 reports - as on ..."), New plan (blank, or a copy of one), and for the
+  selected plan (`?plan=<id>`): a one-sentence description of what it does, Rename / Duplicate / Delete, then three
+  numbered steps (1 which reports, 2 the as-on date, 3 when / who / wording + send history), then "Mail this report" (preview,
+  then send) and "Send now". The two mapping tables are shared by every plan and sit at the bottom.
 
 ## 8. Verification and evidence
 

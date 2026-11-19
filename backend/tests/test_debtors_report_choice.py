@@ -6,49 +6,14 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pandas as pd
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-
-from app.database import Base
 from app.services import scheduled_report_mail as mail
 from app.services.debtors_mailer import auto_mail as debtors
 from app.services.debtors_mailer import report_choice
-from app.services.debtors_mailer.models import ReportChoice
 from app.services.unapplied_receipts import processor as unapplied_processor
 from app.services.untagged_invoices import processor as untagged_processor
 
-KEY = "meeting-debtors-reports-auto-mailer"
+KEY = "debtors-reports-auto-mailer"
 SPEC = mail.SPECS[KEY]
-
-
-class ChoiceTests(unittest.TestCase):
-    def setUp(self):
-        engine = create_engine("sqlite:///:memory:")
-        Base.metadata.create_all(engine, tables=[ReportChoice.__table__])
-        self.factory = sessionmaker(bind=engine)
-        self.db = self.factory()
-        self.addCleanup(self.db.close)
-
-    def test_nothing_saved_means_all_three_as_it_always_was(self):
-        view = report_choice.get_setting(self.db, KEY)
-        self.assertEqual(view["selected"], ["ageing", "unapplied", "untagged"])
-        self.assertTrue(view["all_selected"])
-
-    def test_a_choice_is_saved_per_application(self):
-        report_choice.save_setting(self.db, KEY, ["unapplied"], "a@b.in")
-        self.assertEqual(report_choice.get_setting(self.db, KEY)["selected"], ["unapplied"])
-        self.assertTrue(report_choice.get_setting(self.db, "debtors-reports-auto-mailer")["all_selected"])
-
-    def test_at_least_one_report_and_only_known_ones(self):
-        with self.assertRaisesRegex(report_choice.ReportChoiceError, "at least one"):
-            report_choice.save_setting(self.db, KEY, [], None)
-        with self.assertRaisesRegex(report_choice.ReportChoiceError, "Unknown"):
-            report_choice.save_setting(self.db, KEY, ["ageing", "nope"], None)
-
-    def test_a_run_reads_the_saved_choice_in_the_mails_order(self):
-        report_choice.save_setting(self.db, KEY, ["untagged", "ageing"], None)
-        with patch.object(report_choice, "SessionLocal", self.factory):
-            self.assertEqual(report_choice.current(KEY), ("ageing", "untagged"))
 
 
 class WordingTests(unittest.TestCase):
@@ -112,8 +77,7 @@ class OnlyThePickedReportsAreBuiltTests(unittest.TestCase):
                 pass
 
         registers = []
-        with patch.object(debtors.report_choice, "current", lambda key: selected), \
-                patch.object(debtors, "SessionLocal", FakeSession), \
+        with patch.object(debtors, "SessionLocal", FakeSession), \
                 patch.object(debtors.mapping_store, "load_all", lambda db: ({}, {})), \
                 patch.object(debtors, "_fit_attachments", lambda paths, *a, **k: ([[str(p) for p in paths]], "ok")), \
                 patch.object(debtors.erp_ageing, "oracle_config", lambda: object()), \
@@ -123,7 +87,7 @@ class OnlyThePickedReportsAreBuiltTests(unittest.TestCase):
                 patch.object(debtors.gst_job, "build_report", gst), \
                 patch.object(debtors.untagged_job, "build_report", untagged), \
                 patch.object(debtors.unapplied_job, "build_report", unapplied):
-            payload = debtors.build({"send_when_unmapped": False}, app_key=KEY)
+            payload = debtors.build({"send_when_unmapped": False, "reports": selected})
         return built, payload, registers
 
     def test_only_the_picked_reports_are_built(self):

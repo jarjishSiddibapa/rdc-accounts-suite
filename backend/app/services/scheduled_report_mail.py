@@ -25,7 +25,7 @@ import logging
 import os
 import re
 import shutil
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, time as dtime, timedelta
 from pathlib import Path
 from string import Formatter
@@ -74,6 +74,7 @@ class MailSpec:
     scheduled: bool = True      # False: only ever mailed by hand (preview, then confirm)
     allow_hourly: bool = True   # offers the every-N-hours schedule next to the days / times one
     fixed_sender: bool = False  # always sent from the system email; nobody can choose another sender
+    per_plan: bool = False      # has several mail plans (each with its own schedule), not one schedule of its own
 
 
 SPECS: dict[str, MailSpec] = {
@@ -117,6 +118,7 @@ SPECS: dict[str, MailSpec] = {
         ),
         placeholders=("date", "total", "found", "blank"),
         fixed_sender=True,
+        per_plan=True,
     ),
     "rdc-sales-register-report": MailSpec(
         app_key="rdc-sales-register-report",
@@ -154,14 +156,6 @@ SPECS: dict[str, MailSpec] = {
         allow_hourly=False,
     ),
 }
-
-# The Meeting Debtors Reports Auto Mailer is the Debtors Reports Auto Mailer (same wording, same placeholders,
-# always sent from the system email) with its own schedule, recipients and log; only the as-on date differs.
-SPECS["meeting-debtors-reports-auto-mailer"] = replace(
-    SPECS["debtors-reports-auto-mailer"],
-    app_key="meeting-debtors-reports-auto-mailer",
-    label="Meeting Debtors Reports",
-)
 
 
 @dataclass
@@ -568,10 +562,28 @@ def resolve_manual_sender(db: Session, choice: str | None, user_id: int) -> dict
             "configured": sender["configured"], "problem": sender["problem"]}
 
 
-def settings_view(db: Session, app_key: str) -> dict:
-    spec = SPECS[app_key]
-    row = get_or_create_settings(db, app_key)
-    recipients = get_report_recipient_defaults(db, app_key)
+def _plan(db: Session, plan_id: int):
+    """The mail plan (Debtors Reports) a run or a setting belongs to; ValueError when it is gone."""
+    from app.services.debtors_mailer import plans    # imported here: that module imports this one
+
+    return plans.require(db, plan_id)
+
+
+def plan_settings_view(db: Session, plan) -> dict:
+    from app.services.debtors_mailer import plans
+
+    return _settings_view(db, SPECS[plans.APP_KEY], plan, plans.recipients(plan))
+
+
+def settings_view(db: Session, app_key: str, plan_id: int | None = None) -> dict:
+    """The automatic-mail settings of an application, or of one of its mail plans (``plan_id``)."""
+    if plan_id is not None:
+        return plan_settings_view(db, _plan(db, plan_id))
+    return _settings_view(db, SPECS[app_key], get_or_create_settings(db, app_key),
+                          get_report_recipient_defaults(db, app_key))
+
+
+def _settings_view(db: Session, spec: MailSpec, row, recipients: dict) -> dict:
     upcoming = next_run(row)
     sender = resolve_sender(db, row.sender_user_id)
     try:
@@ -619,8 +631,9 @@ def settings_view(db: Session, app_key: str) -> dict:
     }
 
 
-def save_settings(db: Session, app_key: str, data: dict) -> dict:
-    """Validate and store the admin's choices; ValueError carries a plain message."""
+def save_settings(db: Session, app_key: str, data: dict, plan_id: int | None = None) -> dict:
+    """Validate and store the admin's choices for an application, or for one of its mail plans (``plan_id``,
+    whose recipients are kept on the plan); ValueError carries a plain message."""
     spec = SPECS[app_key]
     mode = str(data.get("mode") or "weekly")
     if mode not in ("weekly", "monthly"):
@@ -690,9 +703,15 @@ def save_settings(db: Session, app_key: str, data: dict) -> dict:
             )
         sender_user_id = raw_sender
 
-    row = get_or_create_settings(db, app_key)
     # recipients first: it raises on a duplicate address before anything else is touched
-    set_report_recipient_defaults(db, app_key, to_list, cc_list)
+    if plan_id is None:
+        row = get_or_create_settings(db, app_key)
+        set_report_recipient_defaults(db, app_key, to_list, cc_list)
+    else:
+        from app.services.debtors_mailer import plans
+
+        row = _plan(db, plan_id)
+        plans.set_recipients(row, to_list, cc_list)
     row.sender_user_id = sender_user_id
     row.enabled = enabled
     row.send_mode = mode
@@ -719,30 +738,43 @@ def save_settings(db: Session, app_key: str, data: dict) -> dict:
     row.updated_at = datetime.utcnow()
     db.commit()
     audit_middleware.log_event("scheduled_mail.settings_saved", details={
-        "app_key": app_key, "enabled": enabled, "mode": mode, "days": days, "month_days": month_days,
-        "times": times, "times_enabled": on_times, "every_hours": hours,
+        "app_key": app_key, "plan_id": plan_id, "enabled": enabled, "mode": mode, "days": days,
+        "month_days": month_days, "times": times, "times_enabled": on_times, "every_hours": hours,
     })
-    return settings_view(db, app_key)
+    return settings_view(db, app_key, plan_id)
 
 
 # ── running ──────────────────────────────────────────────────────────────────
 
-def _claim_run(app_key: str, trigger: str, requested_by: str | None) -> dict | None:
+def _locked_row(db: Session, app_key: str, plan_id: int | None):
+    """The settings row a run belongs to - the application's own, or its mail plan - locked for update."""
+    if plan_id is not None:
+        from app.services.debtors_mailer.models import MailPlan
+
+        row = db.query(MailPlan).filter(MailPlan.id == plan_id).with_for_update().first()
+        if row is None or row.is_deleted:
+            raise JobUserError("This mail plan does not exist (it may have been deleted).")
+        return row
+    row = (
+        db.query(ScheduledReportMail)
+        .filter(ScheduledReportMail.app_key == app_key)
+        .with_for_update()
+        .first()
+    ) or get_or_create_settings(db, app_key)
+    _retire_superseded_intro(db, row)
+    return row
+
+
+def _claim_run(app_key: str, trigger: str, requested_by: str | None, plan_id: int | None = None) -> dict | None:
     """Mark the run as started and open its log entry; None (after logging a
     "skipped" entry) when another run is still in progress."""
     db = SessionLocal()
     try:
-        row = (
-            db.query(ScheduledReportMail)
-            .filter(ScheduledReportMail.app_key == app_key)
-            .with_for_update()
-            .first()
-        ) or get_or_create_settings(db, app_key)
-        _retire_superseded_intro(db, row)
+        row = _locked_row(db, app_key, plan_id)
         now = _utcnow()
         if _is_running(row, now):
             db.add(ScheduledReportMailLog(
-                app_key=app_key, trigger=trigger, requested_by=requested_by, status="skipped",
+                app_key=app_key, plan_id=plan_id, trigger=trigger, requested_by=requested_by, status="skipped",
                 started_at=now, finished_at=now,
                 error_message="Not run: an earlier run of this mail was still in progress.",
             ))
@@ -750,7 +782,8 @@ def _claim_run(app_key: str, trigger: str, requested_by: str | None) -> dict | N
             return None
         row.running_since = now
         entry = ScheduledReportMailLog(
-            app_key=app_key, trigger=trigger, requested_by=requested_by, status="running", started_at=now,
+            app_key=app_key, plan_id=plan_id, trigger=trigger, requested_by=requested_by, status="running",
+            started_at=now,
         )
         db.add(entry)
         db.commit()
@@ -767,11 +800,16 @@ def _claim_run(app_key: str, trigger: str, requested_by: str | None) -> dict | N
 
 
 def _finish_run(app_key: str, trigger: str, status: str, error: str | None, detail: dict,
-                log_id: int, messages: list[dict], recipients: dict | None) -> None:
+                log_id: int, messages: list[dict], recipients: dict | None, plan_id: int | None = None) -> None:
     db = SessionLocal()
     try:
         now = _utcnow()
-        row = get_or_create_settings(db, app_key)
+        if plan_id is not None:
+            from app.services.debtors_mailer.models import MailPlan
+
+            row = db.get(MailPlan, plan_id)
+        else:
+            row = get_or_create_settings(db, app_key)
         row.running_since = None
         row.last_run_at = now
         row.last_trigger = trigger
@@ -794,13 +832,14 @@ def _finish_run(app_key: str, trigger: str, status: str, error: str | None, deta
 
 
 def record_manual_send(app_key: str, requested_by: str | None, started_at: datetime, status: str,
-                       error: str | None, recipients: dict, messages: list[dict], detail: dict) -> None:
+                       error: str | None, recipients: dict, messages: list[dict], detail: dict,
+                       plan_id: int | None = None) -> None:
     """Log a mail that a person previewed and sent by hand (not through
     run_mail_job), so the history shows every mail whichever way it left."""
     db = SessionLocal()
     try:
         db.add(ScheduledReportMailLog(
-            app_key=app_key, trigger="manual", requested_by=requested_by, status=status,
+            app_key=app_key, plan_id=plan_id, trigger="manual", requested_by=requested_by, status=status,
             started_at=started_at, finished_at=_utcnow(),
             to_recipients=json.dumps(recipients.get("to", [])), cc_recipients=json.dumps(recipients.get("cc", [])),
             messages=json.dumps(messages, ensure_ascii=False),
@@ -816,12 +855,14 @@ def _iso(value: datetime | None) -> str | None:
     return value.replace(tzinfo=UTC).isoformat() if value else None
 
 
-def log_view(db: Session, app_key: str, limit: int = 20, offset: int = 0) -> dict:
+def log_view(db: Session, app_key: str, limit: int = 20, offset: int = 0, plan_id: int | None = None) -> dict:
     """The newest runs first. A run still marked "running" long after it can
     possibly have finished is shown as "interrupted" (its worker died)."""
     query = db.query(ScheduledReportMailLog).filter(
         ScheduledReportMailLog.app_key == app_key, ScheduledReportMailLog.is_deleted.is_(False),
     )
+    if plan_id is not None:
+        query = query.filter(ScheduledReportMailLog.plan_id == plan_id)
     total = query.count()
     rows = (
         query.order_by(ScheduledReportMailLog.started_at.desc(), ScheduledReportMailLog.id.desc())
@@ -906,12 +947,21 @@ def compose_messages(snapshot: dict, payload: MailPayload) -> list[dict]:
     return messages
 
 
+def _recipients_of(db: Session, app_key: str, plan_id: int | None) -> dict:
+    """Who a run's mail goes to: the application's recipients, or those of its mail plan."""
+    if plan_id is None:
+        return get_report_recipient_defaults(db, app_key)
+    from app.services.debtors_mailer import plans
+
+    return plans.recipients(_plan(db, plan_id))
+
+
 def _deliver(db: Session, app_key: str, subject: str, html_body: str, attachments: list[str],
-             sender_user_id: int | None = None) -> dict:
+             sender_user_id: int | None = None, plan_id: int | None = None) -> dict:
     sender = resolve_sender(db, sender_user_id)
     if not sender["configured"]:
         raise JobUserError(sender["problem"])
-    recipients = get_report_recipient_defaults(db, app_key)
+    recipients = _recipients_of(db, app_key, plan_id)
     if not recipients["to"]:
         raise JobUserError("There is no To recipient. Add at least one under the automatic mail settings.")
     send_mail(
@@ -926,10 +976,10 @@ def _deliver(db: Session, app_key: str, subject: str, html_body: str, attachment
     return recipients
 
 
-def _recipients_snapshot(app_key: str) -> dict:
+def _recipients_snapshot(app_key: str, plan_id: int | None = None) -> dict:
     db = SessionLocal()
     try:
-        return get_report_recipient_defaults(db, app_key)
+        return _recipients_of(db, app_key, plan_id)
     finally:
         db.close()
 
@@ -946,12 +996,13 @@ def attachment_info(paths: list[str]) -> list[dict]:
 
 
 def run_mail_job(app_key: str, trigger: str, build, progress_cb=None, cancel_event=None,
-                 requested_by: str | None = None) -> dict:
+                 requested_by: str | None = None, plan_id: int | None = None) -> dict:
     """Build the report with ``build(snapshot, progress_cb, cancel_event) ->
     MailPayload``, mail it to the application's recipients, and record the
     outcome in the settings row and in the send log. ``trigger`` is
-    "scheduled" or "manual" (``requested_by`` then names the admin)."""
-    snapshot = _claim_run(app_key, trigger, requested_by)
+    "scheduled" or "manual" (``requested_by`` then names the admin). ``plan_id``: the run of one mail plan of the
+    application (its settings row, recipients and log), not of the application itself."""
+    snapshot = _claim_run(app_key, trigger, requested_by, plan_id)
     if snapshot is None:
         raise JobUserError("An automatic mail run for this report is already in progress. Try again in a few minutes.")
     log_id = snapshot["log_id"]
@@ -963,7 +1014,7 @@ def run_mail_job(app_key: str, trigger: str, build, progress_cb=None, cancel_eve
         payload = build(snapshot, progress_cb, cancel_event)
         detail = dict(payload.detail)
         if payload.hold_reason:
-            recipients_used = _recipients_snapshot(app_key)
+            recipients_used = _recipients_snapshot(app_key, plan_id)
             status, error = "held", payload.hold_reason
             return {"status": status, "message": payload.hold_reason}
 
@@ -975,7 +1026,7 @@ def run_mail_job(app_key: str, trigger: str, build, progress_cb=None, cancel_eve
             for message in messages:
                 recipients = recipients_used = _deliver(
                     db, app_key, message["subject"], message["html_body"], message["attachments"],
-                    snapshot.get("sender_user_id"),
+                    snapshot.get("sender_user_id"), plan_id,
                 )
                 sent_messages.append({
                     "subject": message["subject"],
@@ -988,7 +1039,7 @@ def run_mail_job(app_key: str, trigger: str, build, progress_cb=None, cancel_eve
         finally:
             db.close()
         status = "sent"
-        audit_middleware.log_event("scheduled_mail.sent", details={"app_key": app_key, "trigger": trigger})
+        audit_middleware.log_event("scheduled_mail.sent", details={"app_key": app_key, "plan_id": plan_id, "trigger": trigger})
         if progress_cb:
             progress_cb(1.0, "Mail sent")
         return {"status": status, "detail": detail}
@@ -1009,7 +1060,7 @@ def run_mail_job(app_key: str, trigger: str, build, progress_cb=None, cancel_eve
                     shutil.rmtree(path, ignore_errors=True)
                 else:
                     Path(path).unlink(missing_ok=True)
-        _finish_run(app_key, trigger, status, error, detail, log_id, sent_messages, recipients_used)
+        _finish_run(app_key, trigger, status, error, detail, log_id, sent_messages, recipients_used, plan_id)
 
 
 # ── scheduler hook ───────────────────────────────────────────────────────────
@@ -1020,8 +1071,6 @@ def _job_for(app_key: str):
         from app.services.untagged_invoices.auto_mail import run_auto_mail_job
     elif app_key == "debtors-reports-auto-mailer":
         from app.services.debtors_mailer.auto_mail import run_auto_mail_job
-    elif app_key == "meeting-debtors-reports-auto-mailer":
-        from app.services.meeting_debtors.auto_mail import run_auto_mail_job
     elif app_key == "rdc-sales-register-report":
         from app.services.sales_register.auto_mail import run_auto_mail_job
     elif app_key == "unidentified-entries":
@@ -1061,14 +1110,34 @@ def due_now(row: ScheduledReportMail, now: datetime) -> bool:
     return due_slot(row, now) is not None or due_every_slot(row, now) is not None
 
 
+def _start_if_due(row, now: datetime) -> bool:
+    """If a slot of this settings row is due, count it as started (so it is not started twice) and say so. The
+    caller holds the row locked and commits."""
+    slot = due_slot(row, now)
+    every_slot = due_every_slot(row, now)
+    if slot is None and every_slot is None:
+        return False
+    # both schedules can be due at once: one mail, and both count as started
+    if slot is not None:
+        row.last_attempt_date = now.date()
+        row.last_attempt_slot = slot
+    if every_slot is not None:
+        row.last_every_slot = every_slot
+    return True
+
+
 def enqueue_due_checks() -> list[str]:
     """Called by the scheduler loop. Starts the background job for every
-    application whose mail is due, once per scheduled slot."""
+    application - and every mail plan of an application that has them - whose mail is due, once per scheduled
+    slot. The result names what was started: the application's key, or "key#plan id" for a plan."""
     from app.jobs import submit_job
 
     started: list[str] = []
     for app_key, spec in SPECS.items():
         if not spec.scheduled:
+            continue
+        if spec.per_plan:
+            started.extend(_enqueue_due_plans(app_key, submit_job))
             continue
         db = SessionLocal()
         try:
@@ -1078,22 +1147,36 @@ def enqueue_due_checks() -> list[str]:
                 .with_for_update()
                 .first()
             )
-            now = now_ist()
-            if row is None:
+            if row is None or not _start_if_due(row, now_ist()):
                 continue
-            slot = due_slot(row, now)
-            every_slot = due_every_slot(row, now)
-            if slot is None and every_slot is None:
-                continue
-            # both schedules can be due at once: one mail, and both count as started
-            if slot is not None:
-                row.last_attempt_date = now.date()
-                row.last_attempt_slot = slot
-            if every_slot is not None:
-                row.last_every_slot = every_slot
             db.commit()
         finally:
             db.close()
         submit_job(_job_for(app_key), "scheduled", owner_id=0, cancel_on_disconnect=False)
         started.append(app_key)
+    return started
+
+
+def _enqueue_due_plans(app_key: str, submit_job) -> list[str]:
+    """The mail plans of an application whose mail is due now; each is its own job."""
+    from app.services.debtors_mailer.models import MailPlan
+
+    db = SessionLocal()
+    try:
+        ids = [plan_id for (plan_id,) in db.query(MailPlan.id).filter(
+            MailPlan.is_deleted.is_(False), MailPlan.enabled.is_(True)).all()]
+    finally:
+        db.close()
+    started: list[str] = []
+    for plan_id in ids:
+        db = SessionLocal()
+        try:
+            row = db.query(MailPlan).filter(MailPlan.id == plan_id).with_for_update().first()
+            if row is None or row.is_deleted or not _start_if_due(row, now_ist()):
+                continue
+            db.commit()
+        finally:
+            db.close()
+        submit_job(_job_for(app_key), "scheduled", None, plan_id=plan_id, owner_id=0, cancel_on_disconnect=False)
+        started.append(f"{app_key}#{plan_id}")
     return started

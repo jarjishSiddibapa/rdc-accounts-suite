@@ -460,10 +460,12 @@ class AccessTests(unittest.TestCase):
 
     def test_the_other_fixed_sender_mailers_follow_their_permission_too(self):
         from app.routers import debtors_mailer, unidentified_entries
-        self.assert_follows_permission("debtors-reports-auto-mailer", debtors_mailer)
+        # the Debtors mailer's mail is set up per mail plan: everything under /plans/{id} follows the permission too
+        # (and a person without it is refused, not told whether the plan exists)
+        self.assert_follows_permission("debtors-reports-auto-mailer", debtors_mailer, plan_prefix="/plans/1")
         self.assert_follows_permission("unidentified-entries", unidentified_entries)
 
-    def assert_follows_permission(self, key, routes):
+    def assert_follows_permission(self, key, routes, plan_prefix=""):
         from fastapi import FastAPI
         import asyncio
         from app import auth
@@ -492,8 +494,12 @@ class AccessTests(unittest.TestCase):
                 return None
             return next(m["status"] for m in sent if m["type"] == "http.response.start")
 
-        calls = (("GET", "/auto-mail"), ("GET", "/auto-mail/log"), ("PUT", "/auto-mail"),
-                 ("POST", "/auto-mail/send-now"), ("GET", "/mail/defaults"))
+        calls = tuple((method, plan_prefix + path) for method, path in (
+            ("GET", "/auto-mail"), ("GET", "/auto-mail/log"), ("PUT", "/auto-mail"),
+            ("POST", "/auto-mail/send-now"), ("GET", "/mail/defaults")))
+        if plan_prefix:
+            calls += (("GET", "/plans"), ("POST", "/plans"), ("GET", plan_prefix), ("DELETE", plan_prefix),
+                      ("GET", plan_prefix + "/reports"), ("PUT", plan_prefix + "/as-on"))
         for method, path in calls:               # granted: not refused
             self.assertNotEqual(status(method, path), 403, (method, path))
         user.allowed_apps = '["gst-invoice-adder"]'                      # not granted: refused everywhere

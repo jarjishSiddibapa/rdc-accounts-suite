@@ -13,7 +13,7 @@ Administrators only unless the application passes ``access``: this controls
 mail that goes out on its own. Mailing a report by hand (preview first, then send) is in report_mail_routes.py.
 """
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -22,6 +22,13 @@ from app.database import get_db
 from app.jobs import submit_job
 from app.models import User
 from app.services import scheduled_report_mail as mail
+
+
+def current_plan_id(request: Request) -> int | None:
+    """The mail plan a request is for, when the router is mounted under ``/plans/{plan_id}`` (the Debtors
+    Reports Auto Mailer); None for an application's own mail."""
+    raw = request.path_params.get("plan_id")
+    return int(raw) if raw is not None else None
 
 
 class AutoMailBody(BaseModel):
@@ -55,25 +62,28 @@ def make_auto_mail_router(app_key: str, run_job=None, access=require_admin) -> A
     router = APIRouter(prefix="/auto-mail", dependencies=[Depends(access)])
 
     @router.get("")
-    def get_settings(db: Session = Depends(get_db)):
-        return mail.settings_view(db, app_key)
+    def get_settings(db: Session = Depends(get_db), plan_id: int | None = Depends(current_plan_id)):
+        return mail.settings_view(db, app_key, plan_id)
 
     @router.put("")
-    def put_settings(body: AutoMailBody, db: Session = Depends(get_db)):
+    def put_settings(body: AutoMailBody, db: Session = Depends(get_db),
+                     plan_id: int | None = Depends(current_plan_id)):
         try:
-            return mail.save_settings(db, app_key, body.model_dump())
+            return mail.save_settings(db, app_key, body.model_dump(), plan_id)
         except ValueError as exc:
             db.rollback()
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     @router.get("/log")
-    def get_log(limit: int = 20, offset: int = 0, db: Session = Depends(get_db)):
-        return mail.log_view(db, app_key, limit=limit, offset=offset)
+    def get_log(limit: int = 20, offset: int = 0, db: Session = Depends(get_db),
+                plan_id: int | None = Depends(current_plan_id)):
+        return mail.log_view(db, app_key, limit=limit, offset=offset, plan_id=plan_id)
 
     if run_job is not None:
         @router.post("/send-now")
-        def send_now(user: User = Depends(access)):
-            job_id = submit_job(run_job, "manual", user.email, owner_id=user.id, cancel_on_disconnect=False)
+        def send_now(user: User = Depends(access), plan_id: int | None = Depends(current_plan_id)):
+            extra = {} if plan_id is None else {"plan_id": plan_id}
+            job_id = submit_job(run_job, "manual", user.email, owner_id=user.id, cancel_on_disconnect=False, **extra)
             return {"job_id": job_id}
 
     return router

@@ -247,6 +247,15 @@ def _apply_additive_schema_updates() -> None:
                         text(f"ALTER TABLE `scheduled_report_mail` ADD COLUMN `{column}` {definition}")
                     )
 
+    if "scheduled_report_mail_log" in existing_tables:
+        log_columns = {column["name"] for column in inspector.get_columns("scheduled_report_mail_log")}
+        if "plan_id" not in log_columns:
+            with engine.begin() as connection:
+                connection.execute(text("ALTER TABLE `scheduled_report_mail_log` ADD COLUMN `plan_id` INT NULL"))
+                connection.execute(text(
+                    "CREATE INDEX `ix_scheduled_report_mail_log_plan_id` ON `scheduled_report_mail_log` (`plan_id`)"
+                ))
+
     # Kept additive because the IOCL monitor was exercised against the live
     # portal during development before its daily retry-cooldown field was
     # introduced. It is harmless on a fresh install and protects any early
@@ -396,7 +405,6 @@ def _init_db_unlocked():
     from app.services.trial_balance_formatter import models as _trial_balance_formatter_models  # noqa: F401
     from app.services.untagged_invoices import models as _untagged_invoices_models  # noqa: F401
     from app.services.debtors_mailer import models as _debtors_mailer_models  # noqa: F401
-    from app.services.meeting_debtors import models as _meeting_debtors_models  # noqa: F401
     from app.services.ultrafine_fse_reminder import models as _ultrafine_fse_reminder_models  # noqa: F401
     from app.services.ultrafine_cashflow import models as _ultrafine_cashflow_models  # noqa: F401
 
@@ -414,11 +422,13 @@ def _init_db_unlocked():
     from app.services.creditors_ageing import mapping_store as creditors_ageing_mappings
     from app.services.trial_balance_formatter import mapping_store as trial_balance_formatter_mappings
     from app.services.ultrafine_cashflow import seed as ultrafine_cashflow_seed
+    from app.services.debtors_mailer import plans as debtors_plans
 
     db = SessionLocal()
     try:
         auth.seed_initial_users(db)
         seed_applications(db)
+        debtors_plans.migrate_legacy(db)
         system_mailer.seed_system_email(db)
         iocl_monitor.seed_settings(db)
         invoice_booking_monitor.seed_settings(db)

@@ -245,9 +245,11 @@ class MapperAndRegistrationTests(unittest.TestCase):
         self.assertEqual(key, "debtors-reports-auto-mailer")
         self.assertIn(key, permissions.APP_KEYS)
         self.assertEqual(permissions.APP_LABELS[key], "Debtors Reports Auto Mailer")
-        self.assertIn(key, permissions.REPORT_RECIPIENT_APP_KEYS)
+        # the recipients belong to each mail plan, not to the application (so not under Admin -> Report recipients)
+        self.assertNotIn(key, permissions.REPORT_RECIPIENT_APP_KEYS)
         spec = mail.SPECS[key]
         self.assertTrue(spec.scheduled)
+        self.assertTrue(spec.per_plan)
         mail.validate_template(spec.default_subject, spec.placeholders)
         mail.validate_template(spec.default_intro, spec.placeholders)
         self.assertIs(mail._job_for(key), auto_mail.run_auto_mail_job)

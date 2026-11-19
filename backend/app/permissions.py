@@ -22,9 +22,11 @@ APP_KEYS = [
     "gst-invoice-adder", "closing-period-report",
     "iocl-balance-monitor", "invoice-booking-tracker", "creditors-ageing-report", "trial-balance-formatter",
     "untagged-invoices-report", "debtors-reports-auto-mailer", "rdc-sales-register-report",
-    "unidentified-entries", "meeting-debtors-reports-auto-mailer",
+    "unidentified-entries",
 ]
-RETIRED_APP_KEYS = {"dms", "it-po-lookup"}
+# "meeting-debtors-reports-auto-mailer" was folded into the Debtors Reports Auto Mailer (a mail plan with its own
+# as-on date does what it did)
+RETIRED_APP_KEYS = {"dms", "it-po-lookup", "meeting-debtors-reports-auto-mailer"}
 
 APP_LABELS = {
     "erp-to-excel": "ERP to Excel Converter",
@@ -47,7 +49,6 @@ APP_LABELS = {
     "debtors-reports-auto-mailer": "Debtors Reports Auto Mailer",
     "rdc-sales-register-report": "RDC Sales Register Report",
     "unidentified-entries": "Unidentified Entries",
-    "meeting-debtors-reports-auto-mailer": "Meeting Debtors Reports Auto Mailer",
 }
 
 APP_COMPANIES = ("RDC", "Ultrafine")
@@ -77,8 +78,7 @@ _ULTRAFINE_APP_KEYS = {
 # must NOT be offered in that picker.
 REPORT_RECIPIENT_APP_KEYS = {
     "unaccounted", "untagged-invoices-report", "gst-invoice-adder", "ultrafine-cashflow",
-    "debtors-reports-auto-mailer", "rdc-sales-register-report", "unidentified-entries",
-    "meeting-debtors-reports-auto-mailer",
+    "rdc-sales-register-report", "unidentified-entries",
     "erp-to-excel", "rdc-payables", "trial-balance", "gstr2b-combinator", "unapplied-receipts",
     "closing-period-report", "creditors-ageing-report", "trial-balance-formatter",
 }

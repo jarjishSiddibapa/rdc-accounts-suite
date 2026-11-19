@@ -19,11 +19,11 @@ from pathlib import Path
 
 from app.config import SCRATCH_DIR
 from app.database import SessionLocal
-from app.jobs import JobCancelled, run_cpu_phase
+from app.jobs import JobCancelled, JobUserError, run_cpu_phase
 from app.services import attachment_fit, customer_region, erp_ageing, report_mail_preview
 from app.services import scheduled_report_mail as mail
 from app.services import xlsb_convert, xlsx_compact
-from app.services.debtors_mailer import mapping_store, report_choice
+from app.services.debtors_mailer import mapping_store, plans, report_choice
 from app.services.gst_invoice_adder import report_job as gst_job
 from app.services.mailer_shared import sheet_to_html
 from app.services.untagged_invoices import auto_mail as untagged_auto_mail
@@ -127,13 +127,13 @@ def _fit_attachments(paths: list[Path], progress_cb=None, splitters=None) -> tup
     return groups, how
 
 
-def build(snapshot: dict, progress_cb=None, cancel_event=None, *, as_on: date | None = None,
-          app_key: str = APP_KEY) -> mail.MailPayload:
-    """The mail: the reports picked for ``app_key`` (all three unless fewer were chosen), from one ageing fetch.
-    ``as_on`` (a date): everything as it stood on that date (the Meeting Debtors Reports Auto Mailer); without
-    it, the live open ageing as on today. Every sheet that has a Location also has the Accounts Incharge right
+def build(snapshot: dict, progress_cb=None, cancel_event=None) -> mail.MailPayload:
+    """The mail of one mail plan, from one ageing fetch. ``snapshot["reports"]``: the reports to build (all three
+    when not given); ``snapshot["as_on"]``: a date, so that everything is as it stood on that date - without it,
+    the live open ageing as on today. Every sheet that has a Location also has the Accounts Incharge right
     after it."""
-    selected = report_choice.current(app_key)
+    selected = tuple(snapshot.get("reports") or report_choice.ALL_REPORTS)
+    as_on = snapshot.get("as_on")
     want_ageing = report_choice.AGEING in selected
     want_unapplied = report_choice.UNAPPLIED in selected
     want_untagged = report_choice.UNTAGGED in selected
@@ -252,7 +252,7 @@ def build(snapshot: dict, progress_cb=None, cancel_event=None, *, as_on: date | 
     }
     # the mail's wording (subject, the numbered list, the "attached" sentence) follows the reports sent
     payload.reword = lambda subject, intro: (
-        report_choice.adapt_subject(subject, mail.SPECS[app_key].default_subject, selected),
+        report_choice.adapt_subject(subject, mail.SPECS[APP_KEY].default_subject, selected),
         report_choice.adapt_intro(intro, selected),
     )
     warnings = _merge_warnings(
@@ -320,18 +320,39 @@ def build(snapshot: dict, progress_cb=None, cancel_event=None, *, as_on: date | 
     return payload
 
 
-def run_auto_mail_job(trigger: str = "scheduled", requested_by: str | None = None,
+def _build_for(plan_id: int):
+    """The builder of one mail plan: the reports and the date it is set to, read fresh when the run starts."""
+    def build_plan(snapshot: dict, progress_cb=None, cancel_event=None) -> mail.MailPayload:
+        try:
+            options = plans.run_options(plan_id)
+        except plans.PlanError as exc:
+            raise JobUserError(str(exc)) from exc
+        payload = build({**snapshot, "reports": options["reports"], "as_on": options["as_on"]},
+                        progress_cb, cancel_event)
+        payload.detail["plan"] = options["plan_name"]
+        payload.detail["as_on_mode"] = options["as_on_mode"]
+        return payload
+    return build_plan
+
+
+def run_auto_mail_job(trigger: str = "scheduled", requested_by: str | None = None, plan_id: int | None = None,
                       progress_cb=None, cancel_event=None) -> dict:
+    """Build and send the mail of one mail plan (the schedule's job, and Send now)."""
+    if plan_id is None:
+        raise JobUserError("Choose the mail plan to send.")
     return mail.run_mail_job(
-        APP_KEY, trigger, build, progress_cb=progress_cb, cancel_event=cancel_event, requested_by=requested_by,
+        APP_KEY, trigger, _build_for(plan_id), progress_cb=progress_cb, cancel_event=cancel_event,
+        requested_by=requested_by, plan_id=plan_id,
     )
 
 
 def run_preview_job(user_id: int, to: list, cc: list, subject: str, intro: str,
-                    allow_unmapped: bool = False, sender: str | None = None,
+                    allow_unmapped: bool = False, sender: str | None = None, plan_id: int | None = None,
                     progress_cb=None, cancel_event=None) -> dict:
-    """Build the reports and the exact mail for review. Sends nothing."""
+    """Build the reports and the exact mail of a mail plan for review. Sends nothing."""
+    if plan_id is None:
+        raise JobUserError("Choose the mail plan to preview.")
     return report_mail_preview.build_preview(
-        APP_KEY, build, user_id, to, cc, subject, intro, allow_unmapped, sender=sender,
+        APP_KEY, _build_for(plan_id), user_id, to, cc, subject, intro, allow_unmapped, sender=sender,
         progress_cb=progress_cb, cancel_event=cancel_event,
     )

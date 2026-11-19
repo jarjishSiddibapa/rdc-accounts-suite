@@ -31,7 +31,6 @@ const CreditorsAgeing = lazy(() => import('@/pages/tools/CreditorsAgeing'))
 const TrialBalanceFormatter = lazy(() => import('@/pages/tools/TrialBalanceFormatter'))
 const UntaggedInvoicesReport = lazy(() => import('@/pages/tools/UntaggedInvoicesReport'))
 const DebtorsReportsAutoMailer = lazy(() => import('@/pages/tools/DebtorsReportsAutoMailer'))
-const MeetingDebtorsReportsAutoMailer = lazy(() => import('@/pages/tools/MeetingDebtorsReportsAutoMailer'))
 const RdcSalesRegisterReport = lazy(() => import('@/pages/tools/RdcSalesRegisterReport'))
 const UnidentifiedEntries = lazy(() => import('@/pages/tools/UnidentifiedEntries'))
 
@@ -249,12 +248,6 @@ export default function App() {
             path="/tools/debtors-reports-auto-mailer"
             element={
               protectedPage(<AppGuard appKey="debtors-reports-auto-mailer"><DebtorsReportsAutoMailer /></AppGuard>)
-            }
-          />
-          <Route
-            path="/tools/meeting-debtors-reports-auto-mailer"
-            element={
-              protectedPage(<AppGuard appKey="meeting-debtors-reports-auto-mailer"><MeetingDebtorsReportsAutoMailer /></AppGuard>)
             }
           />
           <Route

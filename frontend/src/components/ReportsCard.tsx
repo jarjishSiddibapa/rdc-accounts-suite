@@ -4,6 +4,7 @@ import { GlassCard } from '@/components/GlassCard'
 import { Button } from '@/components/Button'
 import { ErrorBanner } from '@/components/ErrorBanner'
 import { LoadingNotice } from '@/components/LoadingNotice'
+import { StepBadge } from '@/components/StepBadge'
 import { ApiError, get, put } from '@/lib/api'
 
 interface ReportOption {
@@ -19,10 +20,18 @@ interface ReportsSetting {
 }
 
 /**
- * Which of the reports go out. Saved for the application; the automatic mail, "Send now" and
+ * Which of the reports a mail plan sends. Saved for the plan; its automatic mail, "Send now" and
  * "Mail this report" all send exactly these (the mail's subject and text follow the choice).
  */
-export function ReportsCard({ baseUrl }: { baseUrl: string }) {
+export function ReportsCard({
+  baseUrl,
+  step,
+  onSaved,
+}: {
+  baseUrl: string
+  step?: number
+  onSaved?: () => void
+}) {
   const [setting, setSetting] = useState<ReportsSetting | null>(null)
   const [picked, setPicked] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
@@ -64,6 +73,7 @@ export function ReportsCard({ baseUrl }: { baseUrl: string }) {
     try {
       apply(await put<ReportsSetting>(`${baseUrl}/reports`, { reports: picked }))
       setSaved(true)
+      onSaved?.()
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Could not save the reports to send.')
     } finally {
@@ -79,14 +89,18 @@ export function ReportsCard({ baseUrl }: { baseUrl: string }) {
   return (
     <GlassCard padding="lg" className="flex flex-col gap-4">
       <div className="flex items-center gap-3">
-        <span className="icon-tile grid h-10 w-10 place-items-center rounded-xl">
-          <ListChecks className="h-5 w-5" />
-        </span>
+        {step !== undefined ? (
+          <StepBadge step={step} small />
+        ) : (
+          <span className="icon-tile grid h-10 w-10 place-items-center rounded-xl">
+            <ListChecks className="h-5 w-5" />
+          </span>
+        )}
         <div>
-          <h2 className="font-display text-lg font-semibold text-ink">Reports to send</h2>
+          <h2 className="font-display text-lg font-semibold text-ink">Which reports to send</h2>
           <p className="text-sm leading-6 text-ink-dim">
-            Pick which reports go out. Only those are built and attached, and the mail&rsquo;s subject, list and
-            tables follow your choice. It is used by the automatic mail, by Send now and by Mail this report.
+            Tick the reports this mail carries. Only those are built and attached, and the mail&rsquo;s subject,
+            list and tables follow your choice.
           </p>
         </div>
       </div>

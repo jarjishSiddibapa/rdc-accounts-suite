@@ -1,21 +1,13 @@
-"""Which reports the Debtors Reports Auto Mailer (and the Meeting Debtors Reports Auto Mailer) send.
+"""The three reports the Debtors Reports Auto Mailer builds, and the mail wording that follows the ones a plan sends.
 
-The mailer builds three reports: the ageing with the GST invoice numbers, the Unapplied Receipts report and the
-Untagged Invoices report (whose workbook also carries the Below 1k Invoices). A person picks which of them go out;
-the choice is saved per application and used by every run (the automatic mail, "send now" and a mail sent by
-hand). Nothing saved means all three, as the application has always sent. At least one must be picked.
+The reports: the ageing with the GST invoice numbers, the Unapplied Receipts report and the Untagged Invoices
+report (whose workbook also carries the Below 1k Invoices). Each mail plan (see plans.py) picks which of them it
+sends; at least one.
 """
 
 from __future__ import annotations
 
 import re
-from datetime import datetime
-
-from sqlalchemy.orm import Session
-
-from app.database import SessionLocal
-
-from .models import ReportChoice
 
 AGEING, UNAPPLIED, UNTAGGED = "ageing", "unapplied", "untagged"
 ALL_REPORTS = (AGEING, UNAPPLIED, UNTAGGED)
@@ -24,57 +16,6 @@ LABELS = {
     UNAPPLIED: "Unapplied Receipts",
     UNTAGGED: "Untagged Invoices and Below 1k Invoices",
 }
-
-
-class ReportChoiceError(ValueError):
-    """A choice that cannot be saved; the message is for the person."""
-
-
-def _view(selected: tuple[str, ...]) -> dict:
-    return {
-        "reports": [{"key": key, "label": LABELS[key], "selected": key in selected} for key in ALL_REPORTS],
-        "selected": list(selected),
-        "all_selected": len(selected) == len(ALL_REPORTS),
-    }
-
-
-def _selected(row) -> tuple[str, ...]:
-    if row is None:
-        return ALL_REPORTS
-    flags = {AGEING: row.ageing, UNAPPLIED: row.unapplied, UNTAGGED: row.untagged}
-    chosen = tuple(key for key in ALL_REPORTS if flags[key])
-    return chosen or ALL_REPORTS
-
-
-def get_setting(db: Session, app_key: str) -> dict:
-    return _view(_selected(db.query(ReportChoice).filter(ReportChoice.app_key == app_key).first()))
-
-
-def save_setting(db: Session, app_key: str, selected, updated_by: str | None) -> dict:
-    wanted = {str(key) for key in (selected or [])}
-    unknown = wanted - set(ALL_REPORTS)
-    if unknown:
-        raise ReportChoiceError("Unknown report: " + ", ".join(sorted(unknown)) + ".")
-    if not wanted:
-        raise ReportChoiceError("Pick at least one report to send.")
-    row = db.query(ReportChoice).filter(ReportChoice.app_key == app_key).first()
-    if row is None:
-        row = ReportChoice(app_key=app_key)
-        db.add(row)
-    row.ageing, row.unapplied, row.untagged = (key in wanted for key in ALL_REPORTS)
-    row.updated_at = datetime.utcnow()
-    row.updated_by = updated_by
-    db.commit()
-    return get_setting(db, app_key)
-
-
-def current(app_key: str) -> tuple[str, ...]:
-    """The reports a run starting now sends, in the mail's order."""
-    db = SessionLocal()
-    try:
-        return tuple(get_setting(db, app_key)["selected"])
-    finally:
-        db.close()
 
 
 # ── the mail's wording follows the choice ────────────────────────────────────

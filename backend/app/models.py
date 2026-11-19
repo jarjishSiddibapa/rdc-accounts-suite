@@ -453,6 +453,7 @@ class ScheduledReportMailLog(Base):
     # BIGINT on MySQL; plain INTEGER on SQLite, which only auto-numbers that
     id = Column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True)
     app_key = Column(String(64), ForeignKey("applications.key"), nullable=False, index=True)
+    plan_id = Column(Integer, nullable=True, index=True)  # the mail plan it belongs to (Debtors Reports), else None
     trigger = Column(String(20), nullable=False)  # scheduled / manual
     requested_by = Column(String(255), nullable=True)  # the admin's email for a manual run
     status = Column(String(20), nullable=False, index=True)  # running / sent / failed / held / skipped

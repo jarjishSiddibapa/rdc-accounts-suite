@@ -24,7 +24,6 @@ from app.routers import (
     invoice_booking_tracker,
     gstr2b,
     job_control,
-    meeting_debtors_mailer,
     rdc_payables,
     rdc_sales_register,
     settings_routes,
@@ -165,7 +164,6 @@ app.include_router(creditors_ageing.router)
 app.include_router(trial_balance_formatter.router)
 app.include_router(untagged_invoices_report.router)
 app.include_router(debtors_mailer.router)
-app.include_router(meeting_debtors_mailer.router)
 app.include_router(rdc_sales_register.router)
 app.include_router(unidentified_entries.router)
 

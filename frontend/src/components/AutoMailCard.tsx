@@ -3,6 +3,7 @@ import { AlertTriangle, CheckCircle2, Mail } from 'lucide-react'
 import { GlassCard } from '@/components/GlassCard'
 import { Button } from '@/components/Button'
 import { ErrorBanner } from '@/components/ErrorBanner'
+import { StepBadge } from '@/components/StepBadge'
 import { ApiError, get, put } from '@/lib/api'
 import { formatIndianDate, formatIndianDateTime } from '@/lib/regional'
 import { cn } from '@/utils/cn'
@@ -145,7 +146,13 @@ const MIN_EVERY_HOURS = 2
 const MAX_EVERY_HOURS = 23
 const EVERY_HOURS_CHOICES = Array.from({ length: MAX_EVERY_HOURS - MIN_EVERY_HOURS + 1 }, (_, index) => index + MIN_EVERY_HOURS)
 
-function repeatOf(settings: Pick<AutoMailSettings, 'mode' | 'days'>): Repeat {
+/** What the schedule sentences are worked out from (a mail plan's summary has these too). */
+export type ScheduleFields = Pick<
+  AutoMailSettings,
+  'mode' | 'days' | 'month_days' | 'times' | 'times_enabled' | 'every_hours' | 'every_start'
+>
+
+export function repeatOf(settings: Pick<AutoMailSettings, 'mode' | 'days'>): Repeat {
   if (settings.mode === 'monthly') return 'monthly'
   return settings.days.length === EVERY_DAY.length ? 'daily' : 'weekly'
 }
@@ -161,7 +168,7 @@ function listOf(items: string[]): string {
 }
 
 /** The schedule in a sentence, so what will happen is plain without reading the controls. */
-function describeEvery(settings: AutoMailSettings): string {
+function describeEvery(settings: ScheduleFields): string {
   const start = settings.every_start
   const hours = settings.every_hours
   if (!start) return 'Choose the time of the first mail.'
@@ -176,14 +183,14 @@ function describeEvery(settings: AutoMailSettings): string {
   return `Every ${hours} hours, day and night, every day: ${clock.join(', ')}${shown < Math.ceil(24 / hours) ? ' and so on' : ''} (IST), starting at ${clockTime(start)}.`
 }
 
-function describeSchedule(settings: AutoMailSettings, repeat: Repeat): string {
+export function describeSchedule(settings: ScheduleFields, repeat: Repeat): string {
   const parts: string[] = []
   if (settings.times_enabled || settings.every_hours === null) parts.push(describeTimes(settings, repeat))
   if (settings.every_hours !== null) parts.push(describeEvery(settings))
   return parts.join(' Also: ')
 }
 
-function describeTimes(settings: AutoMailSettings, repeat: Repeat): string {
+function describeTimes(settings: ScheduleFields, repeat: Repeat): string {
   const times = [...settings.times].filter(Boolean).sort().map(clockTime)
   if (times.length === 0) return 'Choose at least one send time.'
   const at = `at ${listOf(times)} IST`
@@ -214,9 +221,18 @@ export function AutoMailCard({
   baseUrl,
   reportName,
   showUnmapped = true,
+  step,
+  description,
+  onSaved,
 }: {
   baseUrl: string
   reportName: string
+  /** The step number shown in place of the mail icon, when the card is one step of a setup. */
+  step?: number
+  /** Replaces the sentence under the title. */
+  description?: string
+  /** Called after the settings were saved. */
+  onSaved?: () => void
   /** The "if a location has no mapping" choice, for a report that uses mappings. */
   showUnmapped?: boolean
 }) {
@@ -329,6 +345,7 @@ export function AutoMailCard({
       })
       apply(next)
       setMessage({ ok: true, text: 'Saved.' })
+      onSaved?.()
     } catch (err) {
       setMessage({ ok: false, text: err instanceof ApiError ? err.message : 'Could not save the settings.' })
     } finally {
@@ -341,18 +358,21 @@ export function AutoMailCard({
   return (
     <GlassCard padding="lg" className="flex flex-col gap-5">
       <div className="flex items-center gap-4">
-        <span className="icon-tile grid h-12 w-12 place-items-center rounded-xl">
-          <Mail className="h-5 w-5" />
-        </span>
+        {step !== undefined ? (
+          <StepBadge step={step} />
+        ) : (
+          <span className="icon-tile grid h-12 w-12 place-items-center rounded-xl">
+            <Mail className="h-5 w-5" />
+          </span>
+        )}
         <div>
           <p className="text-sm font-semibold text-accent">Schedule</p>
           <h2 className="mt-1.5 font-display text-xl font-semibold tracking-[-0.025em] text-ink">
-            Automatic email
+            {step !== undefined ? 'When it goes out, who gets it, what it says' : 'Automatic email'}
           </h2>
           <p className="mt-1 text-sm leading-6 text-ink-dim">
-            Mails the {reportName} to the recipients below on the days and time you choose, using the
-            latest data from the ERP. The report is built when the time arrives, so allow a few
-            minutes before it lands.
+            {description ??
+              `Mails the ${reportName} to the recipients below on the days and time you choose, using the latest data from the ERP. The report is built when the time arrives, so allow a few minutes before it lands.`}
           </p>
         </div>
       </div>
