@@ -12,7 +12,8 @@ from datetime import date
 from pathlib import Path
 
 from app.config import SCRATCH_DIR
-from app.services import attachment_fit, report_mail_preview
+from app.jobs import JobUserError
+from app.services import attachment_fit, customer_region, erp_ageing, mail_schedules, report_mail_preview
 from app.services import scheduled_report_mail as mail
 from app.services import xlsb_convert, xlsx_compact  # noqa: F401 - the tests patch them on this module
 from app.services.mailer_shared import sheet_to_html
@@ -65,12 +66,23 @@ def build(snapshot: dict, progress_cb=None, cancel_event=None) -> mail.MailPaylo
     payload = mail.MailPayload(values={"date": ""}, cleanup=[str(work_dir)])
 
     scaled = (lambda frac, msg: progress_cb(frac * 0.9, msg)) if progress_cb else None
+    # snapshot["as_on"]: a date, so that everything is as it stood on that day; None: as it is now
+    requested = snapshot.get("as_on")
     # the file name is what the recipients see on the attachment
-    as_on = date.today()
+    as_on = requested or date.today()
     report_path = work_dir / f"Untagged_Invoices_Report_As_On_{as_on.isoformat()}.xlsx"
+    past = {}
+    if requested is not None:
+        cfg = erp_ageing.oracle_config()
+        regions = customer_region.RegionFetch(cfg, cancel_event)
+        past = {
+            "as_on_date": requested, "regions": regions.result,
+            "ageing": lambda: erp_ageing.fetch_ageing_from_erp(
+                cfg, None, progress_cb=scaled, cancel_event=cancel_event, include_buckets=False, as_on=requested),
+        }
     built = report_job.build_report(
         str(report_path), allow_unmapped=snapshot["send_when_unmapped"],
-        progress_cb=scaled, cancel_event=cancel_event,
+        progress_cb=scaled, cancel_event=cancel_event, **past,
     )
     result = built.result
     as_on = built.as_on_date or as_on
@@ -106,16 +118,24 @@ def build(snapshot: dict, progress_cb=None, cancel_event=None) -> mail.MailPaylo
 
 
 def run_auto_mail_job(trigger: str = "scheduled", requested_by: str | None = None,
-                      progress_cb=None, cancel_event=None) -> dict:
+                      schedule_id: int | None = None, progress_cb=None, cancel_event=None) -> dict:
+    """Build and send the mail of one mail schedule (the scheduler's job)."""
+    if schedule_id is None:
+        raise JobUserError("Choose the mail schedule to send.")
     return mail.run_mail_job(
-        APP_KEY, trigger, build, progress_cb=progress_cb, cancel_event=cancel_event, requested_by=requested_by,
+        APP_KEY, trigger, mail_schedules.scheduled_build(build, schedule_id), progress_cb=progress_cb,
+        cancel_event=cancel_event, requested_by=requested_by, schedule_id=schedule_id,
     )
 
 
 def run_preview_job(user_id: int, to: list, cc: list, subject: str, intro: str,
-                    allow_unmapped: bool = False, progress_cb=None, cancel_event=None) -> dict:
-    """Build the report and the exact mail for review. Sends nothing."""
+                    allow_unmapped: bool = False, schedule_id: int | None = None,
+                    overrides: dict | None = None, progress_cb=None, cancel_event=None) -> dict:
+    """Build the report and the exact mail of one mail schedule for review. Sends nothing. ``overrides``: what was
+    changed for this one send."""
+    if schedule_id is None:
+        raise JobUserError("Choose the mail schedule to preview.")
     return report_mail_preview.build_preview(
-        APP_KEY, build, user_id, to, cc, subject, intro, allow_unmapped,
-        progress_cb=progress_cb, cancel_event=cancel_event,
+        APP_KEY, mail_schedules.scheduled_build(build, schedule_id, overrides), user_id, to, cc, subject, intro,
+        allow_unmapped, progress_cb=progress_cb, cancel_event=cancel_event,
     )

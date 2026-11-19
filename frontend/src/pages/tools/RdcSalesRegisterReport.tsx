@@ -1,24 +1,18 @@
-import { useState } from 'react'
 import { ReceiptText } from 'lucide-react'
 import { AppShell } from '@/components/AppShell'
 import { GlassCard } from '@/components/GlassCard'
-import { AutoMailCard } from '@/components/AutoMailCard'
-import { SendNowCard } from '@/components/SendNowCard'
-import { ReportMailPanel } from '@/components/ReportMailPanel'
+import { MailSchedules } from '@/components/MailSchedules'
 
 const BASE = '/tools/rdc-sales-register-report'
-const REPORT_NAME = 'RDC Sales Register Report'
+const REPORT_NAME = 'the RDC Sales Register Report'
 
 /**
  * The Accounts Sales Register is fetched from the ERP exactly as it is,
  * written to one Excel file per month and mailed from the system email: by
- * hand (with a preview) or automatically on a schedule. Anyone granted the
- * application sets the schedule, frequency and recipients.
+ * hand (preview first, then send) or automatically. Any number of mail schedules, each with its own
+ * timing, recipients and wording; anyone granted the application sets them.
  */
 export default function RdcSalesRegisterReport() {
-  // bumped when a send-now run finishes, so the settings card reloads its last run and send log
-  const [refreshKey, setRefreshKey] = useState(0)
-
   return (
     <AppShell title="RDC Sales Register Report">
       <div className="flex flex-col gap-6">
@@ -44,20 +38,7 @@ export default function RdcSalesRegisterReport() {
           </div>
         </GlassCard>
 
-        <ReportMailPanel
-          baseUrl={BASE}
-          reportName={REPORT_NAME}
-          title="Mail this report now"
-          description="Fetches the register from the ERP and shows you the exact mail before anything is sent. It always goes from the system email."
-        />
-
-        <SendNowCard
-          baseUrl={BASE}
-          description="Runs the scheduled mail right away: it fetches the register and sends it to the saved recipients, from the system email, with the saved subject and text. It is recorded in the send log below like any scheduled mail. To review the mail first, use Mail this report now above."
-          onFinished={() => setRefreshKey((key) => key + 1)}
-        />
-
-        <AutoMailCard key={refreshKey} baseUrl={BASE} reportName={REPORT_NAME} showUnmapped={false} />
+        <MailSchedules base={BASE} reportName={REPORT_NAME} />
       </div>
     </AppShell>
   )

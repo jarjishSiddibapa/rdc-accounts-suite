@@ -2,24 +2,17 @@
 
 One application that builds the GST-numbered ageing, the Unapplied Receipts report and the Untagged Invoices
 report from a single ERP ageing fetch and mails them (see app.services.debtors_mailer.auto_mail). It has any
-number of MAIL PLANS (see app.services.debtors_mailer.plans) - each one a scheduled mail with its own reports,
-as-on date, schedule, recipients, wording and send log:
+number of MAIL SCHEDULES (see app.services.mail_schedules and app.routers.schedule_routes) - each one a scheduled mail
+with its own reports, as-on date, timing, recipients, wording and send log:
 
-  /plans                         GET: the plans.   POST: a new plan (optionally a copy of another).
-  /plans/{id}                    GET: one plan.   PATCH: rename.   DELETE.
-  /plans/{id}/reports            which of the three reports it sends.
-  /plans/{id}/as-on              the date they are as on.
-  /plans/{id}/auto-mail ...      schedule, recipients, wording, the send log, and "send now".
-  /plans/{id}/mail/...           preview the plan's mail, then send it by hand.
-  /plans/{id}/jobs/{job}         poll / cancel the background jobs above.
-  /mappings/...                  the two mapping tables every plan's reports use (Location Name -> Location,
-                                 Location -> Accounts Incharge). Also under /plans/{id}/mappings, so a value
-                                 found missing while previewing a plan's mail can be mapped on the spot.
+  /schedules ...                 the schedules, and everything of one schedule (see schedule_routes).
+  /mappings/...                  the two mapping tables every schedule's reports use (Location Name -> Location,
+                                 Location -> Accounts Incharge). Also under /schedules/{id}/mappings, so a value
+                                 found missing while previewing a schedule's mail can be mapped on the spot.
 
 Everything is open to anyone granted the application; the mail always goes from the system email.
 """
 
-from datetime import date
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -28,12 +21,10 @@ from sqlalchemy.orm import Session
 
 from app.auth import get_current_user
 from app.database import get_db
-from app.jobs import cancel_job, get_job
 from app.models import User
 from app.permissions import require_app_access
-from app.routers.auto_mail_routes import make_auto_mail_router
-from app.routers.report_mail_routes import make_report_mail_router
-from app.services.debtors_mailer import auto_mail, mapping_store, plans
+from app.routers.schedule_routes import add_job_routes, make_schedules_router
+from app.services.debtors_mailer import auto_mail, mapping_store
 
 APP_KEY = auto_mail.APP_KEY
 
@@ -48,35 +39,6 @@ class LocationBody(BaseModel):
 class AccountsInchargeBody(BaseModel):
     location: str
     accounts_incharge: Optional[str] = None
-
-
-class NewPlanBody(BaseModel):
-    name: str
-    copy_of: Optional[int] = None       # the id of the plan to start from
-
-
-class RenameBody(BaseModel):
-    name: str
-
-
-class ReportsBody(BaseModel):
-    reports: list[str]                  # "ageing", "unapplied", "untagged"
-
-
-class AsOnBody(BaseModel):
-    mode: str                           # "today", "last_month_end" or "date"
-    as_on_date: Optional[date] = None   # the calendar date, when mode is "date"
-
-
-def _bad_request(db: Session, exc: Exception) -> HTTPException:
-    db.rollback()
-    return HTTPException(status_code=400, detail=str(exc))
-
-
-def _plan_or_404(plan_id: int, db: Session = Depends(get_db)) -> None:
-    """Every route under /plans/{plan_id}: unknown or deleted plans are a plain 404."""
-    if plans.get_plan(db, plan_id) is None:
-        raise HTTPException(status_code=404, detail="This mail plan does not exist (it may have been deleted).")
 
 
 # ── the mapping tables ──────────────────────────────────────────────────────
@@ -159,22 +121,6 @@ def _add_mapping_routes(router: APIRouter) -> None:
         return {"ok": True}
 
 
-def _add_job_routes(router: APIRouter) -> None:
-    @router.get("/jobs/{job_id}")
-    def job_status(job_id: str, user: User = Depends(get_current_user)):
-        job = get_job(job_id, owner_id=user.id)
-        if job is None:
-            raise HTTPException(status_code=404, detail="Job not found")
-        return job
-
-    @router.post("/jobs/{job_id}/cancel")
-    def cancel(job_id: str, user: User = Depends(get_current_user)):
-        job = cancel_job(job_id, owner_id=user.id)
-        if job is None:
-            raise HTTPException(status_code=404, detail="Job not found")
-        return job
-
-
 # ── the application ─────────────────────────────────────────────────────────
 
 router = APIRouter(
@@ -182,78 +128,6 @@ router = APIRouter(
     dependencies=[Depends(require_app_access(APP_KEY))],
 )
 _add_mapping_routes(router)
-_add_job_routes(router)
-
-
-@router.get("/plans")
-def list_plans(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    return plans.list_view(db)
-
-
-@router.post("/plans")
-def create_plan(body: NewPlanBody, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    try:
-        plan = plans.create(db, body.name, user.email, copy_of=body.copy_of)
-    except ValueError as exc:
-        raise _bad_request(db, exc) from exc
-    return plans.summary(db, plan)
-
-
-# ── one plan ────────────────────────────────────────────────────────────────
-
-plan_router = APIRouter(prefix="/plans/{plan_id}", dependencies=[Depends(_plan_or_404)])
-
-
-@plan_router.get("")
-def get_plan(plan_id: int, db: Session = Depends(get_db)):
-    return plans.summary(db, plans.require(db, plan_id))
-
-
-@plan_router.patch("")
-def rename_plan(plan_id: int, body: RenameBody, db: Session = Depends(get_db),
-                user: User = Depends(get_current_user)):
-    try:
-        return plans.summary(db, plans.rename(db, plans.require(db, plan_id), body.name, user.email))
-    except ValueError as exc:
-        raise _bad_request(db, exc) from exc
-
-
-@plan_router.delete("")
-def delete_plan(plan_id: int, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    plans.delete(db, plans.require(db, plan_id), user.email)
-    return {"ok": True}
-
-
-@plan_router.get("/reports")
-def get_reports(plan_id: int, db: Session = Depends(get_db)):
-    return plans.reports_view(plans.require(db, plan_id))
-
-
-@plan_router.put("/reports")
-def put_reports(plan_id: int, body: ReportsBody, db: Session = Depends(get_db),
-                user: User = Depends(get_current_user)):
-    try:
-        return plans.save_reports(db, plans.require(db, plan_id), body.reports, user.email)
-    except ValueError as exc:
-        raise _bad_request(db, exc) from exc
-
-
-@plan_router.get("/as-on")
-def get_as_on(plan_id: int, db: Session = Depends(get_db)):
-    return plans.as_on_view(plans.require(db, plan_id))
-
-
-@plan_router.put("/as-on")
-def put_as_on(plan_id: int, body: AsOnBody, db: Session = Depends(get_db), user: User = Depends(get_current_user)):
-    try:
-        return plans.save_as_on(db, plans.require(db, plan_id), body.mode, body.as_on_date, user.email)
-    except ValueError as exc:
-        raise _bad_request(db, exc) from exc
-
-
-plan_router.include_router(make_auto_mail_router(APP_KEY, run_job=auto_mail.run_auto_mail_job,
-                                                 access=require_app_access(APP_KEY)))
-plan_router.include_router(make_report_mail_router(APP_KEY, auto_mail.run_preview_job, sender_choice=True))
-_add_mapping_routes(plan_router)
-_add_job_routes(plan_router)
-router.include_router(plan_router)
+add_job_routes(router)
+router.include_router(make_schedules_router(
+    APP_KEY, auto_mail.run_preview_job, sender_choice=True, add_schedule_routes=_add_mapping_routes))

@@ -949,18 +949,16 @@ both run the open-receivables ageing query against the Oracle ERP
 so they are always as on today. Generated workbooks show `-` for a zero or empty
 cell (`app/services/report_dash.py`).
 
-Both can also be mailed automatically (`app/services/scheduled_report_mail.py`,
-table `scheduled_report_mail`, created by the app at startup - no SQL script).
-An admin picks the weekdays and time (IST), the wording and whether to hold the
-mail when mappings are missing; the To/Cc are that application's default
-recipients (Admin -> Report recipients). The scheduler process polls
-`enqueue_due_checks`; scheduled mail goes out via the system email identity and
-every run is logged (`scheduled_report_mail_log`, shown on the admin card).
+Both can also be mailed automatically, in any number of **mail schedules** (see "Mail schedules" below:
+`app/services/mail_schedules.py`, table `mail_schedule`, created by the app at startup - no SQL script). Each
+schedule has its own weekdays / times (IST), the date the report is as on, the wording, the recipients and a send log
+(`scheduled_report_mail_log`); administrators change them. The scheduler process polls
+`enqueue_due_checks`; scheduled mail goes out via the system email identity (or the person the schedule names).
 Mailing by hand is preview-first like the Unaccounted/MRN/PO mail
-(`app/routers/report_mail_routes.py`, `app/services/report_mail_preview.py`):
-"Preview email" builds the report and the exact mail, the page shows it with a
-download of the report, and only "Confirm & send" sends - from the signed-in
-person's own email identity (Settings), logged as a manual run.
+(`app/routers/report_mail_routes.py`, `app/services/report_mail_preview.py`) and is the ONLY way to send a
+schedule's mail now (there is no separate "Send now" run): "Preview mail" builds the report and the exact mail, the page
+shows it with a download of the report, and only "Confirm & send" sends - from the signed-in person's own email
+identity (Settings), logged as a manual run of that schedule.
 
 **Location comes from the customer's ERP region** (Untagged, Unapplied Receipts
 and the mailer below): `app/services/customer_region.py` reads each customer's
@@ -997,15 +995,14 @@ two Untagged summaries; the workbooks are attachments, fitted into one mail by
 compacting, then `.xlsb` for the largest, and only then several mails. It has its
 own mapping tables (`debtors_mailer_location_map` / `_incharge_map`, seeded once
 from the Untagged and Unapplied tools'), the shared automatic-mail settings and
-send log (`scheduled_report_mail*`), a preview-then-send panel, and an admin
-"Send now" (`POST /auto-mail/send-now`). Its jobs share the `oracle-gst`
-resource allowance.
+send log (`scheduled_report_mail*`) and a preview-then-send panel, per mail schedule (below). Its jobs share the
+`oracle-gst` resource allowance.
 
 **RDC Sales Register Report** (`rdc-sales-register-report`,
 `app/services/sales_register/`, `app/routers/rdc_sales_register.py`): granted like any
 application (router behind `require_app_access`; everyone granted it also
-manages the schedule, frequency and recipients - `make_auto_mail_router(...,
-access=require_app_access(APP_KEY))`; other apps' auto-mail stays admin-only). The Accounts Sales
+manages its mail schedules - `make_schedules_router(...)` without `admin_only`; the Untagged Invoices and GST Invoice
+Number schedules stay administrator-only). The Accounts Sales
 Register query (`sql.py`, verbatim; org 102 fixed; the date predicate takes an
 exclusive midnight after the end date) is streamed from the ERP straight into
 one xlsxwriter workbook (`report.build_workbook`, run on the CPU pool): every
@@ -1119,54 +1116,76 @@ own. The rows come from `processor.split_unidentified` (shared with the Unapplie
 whose "Unidentified Customers" sheet is unchanged) and are written by
 `processor.write_unidentified_workbook` in the Accounts look (no title bar, header in row 1) to one
 `Unidentified_Entries_As_On_<date>.xlsx`. It has every shared automatic-mail option (days / times,
-the every-few-hours schedule, recipients, wording, send log, "send now", "Mail this report now" with a
-preview), `fixed_sender=True` (always the system email) and, like the Sales Register, is managed by
-whoever is granted the application (`make_auto_mail_router(..., access=require_app_access(KEY))`).
+the every-few-hours schedule, recipients, wording, send log, the as-on date, "Send now" = preview then confirm),
+`fixed_sender=True` (always the system email) and, like the Sales Register, is managed by whoever is granted the
+application.
 Its jobs run on the `oracle-gst` resource allowance. The Debtors Reports Auto Mailer is a
 `fixed_sender` report too (manual and automatic mail both from the system email) and, like the Sales
-Register and Unidentified Entries, its mail plans' settings (schedule, frequency, recipients, send now,
-log) are managed by whoever is granted the application. Only the Untagged Invoices, GST Invoice Number
-and Ultrafine mailers keep administrator-only settings, because their sender can be chosen.
+Register and Unidentified Entries, its mail schedules' settings are managed by whoever is granted the application.
+Only the Untagged Invoices and GST Invoice Number mailers keep administrator-only schedules, because their sender can
+be chosen.
 
-**Debtors Reports Auto Mailer and its MAIL PLANS** (`debtors-reports-auto-mailer`, `app/services/debtors_mailer/`,
-`app/routers/debtors_mailer.py`, page `DebtorsReportsAutoMailer.tsx`): the application builds the GST-numbered ageing, the
-Unapplied Receipts report and the Untagged Invoices report (with Below 1k) from ONE ERP ageing fetch. It has any number
-(at most 20) of **mail plans** - each one scheduled mail with its own reports, as-on date, schedule, recipients, wording and
-send log. (They replaced the separate "Meeting Debtors Reports Auto Mailer" application, whose key is now in
-`RETIRED_APP_KEYS`: a plan with the as-on date "last day of last month" is the same thing.)
-* **Storage**: table `debtors_mail_plan` (`models.MailPlan`). Its schedule / run-state columns are named exactly like those
-  of `ScheduledReportMail`, so the scheduler's duck-typed functions (`due_slot`, `due_every_slot`, `next_run`, ...) work on a
-  plan row unchanged. Recipients are the plan's own `to_list` / `cc_list` (JSON), not Admin -> Report recipients (the key
-  is no longer in `REPORT_RECIPIENT_APP_KEYS`). `scheduled_report_mail_log.plan_id` (additive column) ties a send-log
-  entry to its plan. Deleting a plan is a soft delete; it is switched off and its log stays.
-* **Per plan** (`plans.py`): reports (`ageing` / `unapplied` / `untagged`, at least one; the mail's subject, numbered list,
-  section numbers and "attached" sentence follow it through `MailPayload.reword`, only the standard wording is rewritten);
-  the as-on date - `today` (the live ageing, nothing asked of the ERP's history: exactly what the application always
-  did), `last_month_end` (the last day of the month before the run, worked out at every run) or `date` (a fixed calendar
-  date, not in the future); schedule (weekly / monthly, several times a day, every-N-hours); recipients; wording;
-  "when a location has no mapping".
-* **Routes**: `/plans` (list, create / copy), `/plans/{id}` (get, PATCH rename, DELETE), and under `/plans/{id}` the
-  same `/auto-mail` (+ `/log`, `/send-now`), `/mail/...`, `/jobs/...`, `/mappings/...` shapes the other mailers have, plus
-  `/reports` and `/as-on`. This lets the existing cards (`AutoMailCard`, `ReportMailPanel`, `SendNowCard`, `ReportsCard`,
-  `AsOnCard`) work for a plan with `baseUrl = /tools/debtors-reports-auto-mailer/plans/{id}`. The shared route factories
-  (`auto_mail_routes`, `report_mail_routes`) pick the plan up from the path with the `current_plan_id` dependency (None for
-  every other application), and `scheduled_report_mail.settings_view / save_settings / log_view / run_mail_job /
-  record_manual_send` take an optional `plan_id`. Everything under `/plans/{id}` follows the application's permission
-  (checked before the plan is looked up, so a person without access cannot probe plan ids).
-* **Running**: `scheduled_report_mail.enqueue_due_checks` skips a spec with `per_plan=True` as an application and instead
-  starts one `run_auto_mail_job(trigger, requested_by, plan_id=...)` job per due enabled plan (result entries look like
-  `debtors-reports-auto-mailer#<plan id>`). `auto_mail.build(snapshot)` takes `snapshot["reports"]` and `snapshot["as_on"]`
-  (`_build_for(plan_id)` reads them fresh from the plan when the run starts). Two plans run at once (each on the
-  `oracle-gst` allowance); the same plan never runs twice at once (`running_since` per plan). Send now, the preview and a
-  scheduled run are all the same code path.
-* **Changes for one send** (the "Mail this plan by hand" panel): the reports and the as-on rule (today / last month end /
-  a date) can be changed for that one mail without touching the plan. `PreviewBody.reports / as_on_mode / as_on_date` ->
-  `plans.validate_overrides` -> `run_preview_job(..., overrides=...)` -> `plans.run_options(plan_id, overrides=...)`; the
-  run's detail records `changed_for_this_send`. Recipients, subject and text were already editable per send.
-* **Upgrading an installation**: on the first start with plans, `plans.migrate_legacy` (called from `init_db`) turns an
-  application schedule that was set up before plans (enabled, or with recipients, or already run) into a plan called
-  "Debtors Reports" - same days, times, recipients, wording, and the slot it last ran (so nothing is sent twice) - and
-  switches the old row off. It runs once (never again after a plan exists, even a deleted one).
+**Mail schedules** (every scheduled mailer: Untagged Invoices Report, GST Invoice Number Adder, Debtors Reports Auto
+Mailer, RDC Sales Register Report, Unidentified Entries; `app/services/mail_schedules.py`, routes
+`app/routers/schedule_routes.py`, UI `components/MailSchedules.tsx`). An application has any number (at most 20) of
+**mail schedules** - each one scheduled mail with its own timing, recipients, wording and send log, and where the report
+can be as on a date (`MailSpec.as_on`: Untagged, GST, Debtors, Unidentified; not the month-by-month Sales Register) its
+own as-on date, and for the Debtors Reports (`MailSpec.report_choices`) its own choice of reports. They replaced the
+separate "Meeting Debtors Reports Auto Mailer" application (its key is in `RETIRED_APP_KEYS`: a schedule with the
+as-on date "last day of last month" is the same thing). The Ultrafine Cashflow mail is manual-only and has no schedules.
+* **Storage**: table `mail_schedule` (`models.MailSchedule`; it began as `debtors_mail_plan` and is renamed at start-up
+  by `database._rename_debtors_mail_plan_table`, keeping the rows and ids; columns `app_key` and `sender_user_id` are
+  added). Its timing / run-state columns are named exactly like those of `ScheduledReportMail`, so the scheduler's
+  duck-typed functions (`due_slot`, `due_every_slot`, `next_run`, ...) work on a schedule row unchanged. Recipients are the
+  schedule's own `to_list` / `cc_list` (JSON), not Admin -> Report recipients (these applications are not in
+  `REPORT_RECIPIENT_APP_KEYS`). `scheduled_report_mail_log.schedule_id` (the DB column kept its first name, `plan_id`) ties
+  a send-log entry to its schedule. Deleting a schedule is a soft delete; it is switched off and its log stays. In the
+  code and the database "schedule" was first called "plan"; the user-facing word is "mail schedule".
+* **Saved together**: the schedule's one Save (`PUT /schedules/{id}/auto-mail`, `scheduled_report_mail.save_settings`)
+  holds the timing, the recipients, the wording AND the content choices - `as_on_mode` (`today` = the report as it is now,
+  exactly what the applications always did; `last_month_end` = the last day of the month before the run, worked out at
+  every run; `date` = a fixed date, not in the future) with `as_on_date`, and `reports` (Debtors: `ageing` / `unapplied`
+  / `untagged`, at least one; the mail's subject, numbered list, section numbers and "attached" sentence follow it through
+  `MailPayload.reword`). The date is not a separate step or card: it is part of the scheduler and of the send panel.
+  `mail_schedules.checked_content` validates, `apply_content` stores; a bad choice stops the whole save.
+* **Routes** (under `/api/tools/{app}`): `/schedules` (list, create / copy), `/schedules/{id}` (get, PATCH rename, DELETE),
+  and under it `/auto-mail` (+ `/log`), `/mail/defaults|preview|confirm-send|download`, `/jobs/{job}`, and for the Debtors
+  Reports `/mappings/...`. There is no app-level `/auto-mail` or `/mail` any more (except the Cashflow's `/mail`). Everything
+  under `/schedules/{id}` follows the application's permission (checked before the schedule is looked up, so a person
+  without access cannot probe ids); creating / renaming / deleting a schedule and its `/auto-mail` follow `admin_only`
+  (Untagged and GST: administrators) or the application permission (the others); listing, previewing and sending by hand
+  are open to anyone granted the application. `GET /schedules` returns `can_manage`. The route factories
+  (`auto_mail_routes`, `report_mail_routes`) pick the schedule up from the path with `current_schedule_id` (None for the
+  Cashflow). `scheduled_report_mail.settings_view / save_settings / log_view / run_mail_job / record_manual_send` take an
+  optional `schedule_id`.
+* **Running**: `enqueue_due_checks` starts one `run_auto_mail_job(trigger, requested_by, schedule_id=...)` job per due
+  enabled schedule of an application with `MailSpec.per_schedule` (result entries look like `<app key>#<schedule id>`).
+  Each application's `build(snapshot)` reads `snapshot["as_on"]` (a date, or None) and, for the Debtors, `snapshot["reports"]`,
+  filled in fresh when the run starts by `mail_schedules.scheduled_build(build, schedule_id, overrides)`, which also records
+  `detail["schedule"]` / `["as_on_mode"]` / `["changed_for_this_send"]`. Two schedules run at once; the same schedule never
+  runs twice at once (`running_since` per schedule). The preview and a scheduled run are the same code path.
+* **As on a date per application**: Untagged fetches `erp_ageing.fetch_ageing_from_erp(..., include_buckets=False, as_on=)`
+  and a `RegionFetch` and hands them to `report_job.build_report(ageing=, regions=, as_on_date=)`; GST passes
+  `ageing=` (`fetch_ageing_from_erp(as_on=)`); Unidentified Entries calls `fetch_register_from_erp(as_on=)`. For "today" none
+  of that is passed - the report is built exactly as before.
+* **Changes for one send** ("Send now" panel): the as-on rule (and the Debtors' reports) can be changed for that one mail
+  without touching the schedule. `PreviewBody.reports / as_on_mode / as_on_date` -> `mail_schedules.validate_overrides` ->
+  `run_preview_job(..., overrides=...)` -> `run_options(schedule_id, overrides=...)`; the run's detail records
+  `changed_for_this_send`. Recipients, subject and text are editable per send too. There is no "Send now" that skips the
+  preview: the preview-then-confirm flow is the only manual send.
+* **Upgrading an installation**: on the first start with schedules, `mail_schedules.migrate_all_legacy` (from `init_db`) turns
+  each application's single schedule that was set up before (enabled, or with recipients, or already run) into a schedule -
+  "Debtors Reports" for the Debtors, the application's name for the others - with the same days, times, recipients, sender,
+  wording and the slot it last ran (so nothing is sent twice), and switches the old row off; an application never set up
+  gets one schedule, switched off, so a mail can be sent by hand at once. It runs once per application (never again after a
+  schedule exists, even a deleted one).
+* **The page** (`MailSchedules`, used by all five pages): a schedule switcher (name, On/Off, "n of 3 reports - as on ...",
+  "New schedule": blank or a copy), then, for the selected schedule (`?schedule=<id>`), one bracketed block - a header
+  ("The schedule you are working on", its name, a one-sentence description, Rename / Duplicate / Delete), the schedule card
+  (what it sends - reports and the as-on date -, when, who, the wording, one Save, the send history) and the "Send now" panel
+  (what this mail contains, the people, subject and text; preview, then Confirm & send). Every card carries a "Schedule:
+  <name>" tag. A person who may not manage a schedule (Untagged / GST, non-administrators) sees the list and the Send now
+  panel only. The Debtors' two mapping tables are shared by every schedule and sit at the bottom of its page.
 * **As on a past date** the ERP is asked point-in-time: `erp_ageing.ageing_as_on_sql()` takes the items with GL date <=
   the date that were not closed on it; an item still open today is counted back from today's balance (applications /
   adjustments / write-offs with a later GL date are undone), an item closed since is built forward from its original
@@ -1184,10 +1203,6 @@ send log. (They replaced the separate "Meeting Debtors Reports Auto Mailer" appl
   `untagged processor.add_incharge_after_location_name`, the same Location as the Untagged report: the customer's ERP
   region, else the mapped Location Name). The summaries already carried the incharge. A Location with no incharge
   mapped shows "-" (blank in the Unapplied sheets, as ever). The Unidentified Customers sheet has no Location.
-* **The page**: a plan switcher (name, On/Off, "n of 3 reports - as on ..."), New plan (blank, or a copy of one), and for the
-  selected plan (`?plan=<id>`): a one-sentence description of what it does, Rename / Duplicate / Delete, then three
-  numbered steps (1 which reports, 2 the as-on date, 3 when / who / wording + send history), then "Mail this report" (preview,
-  then send) and "Send now". The two mapping tables are shared by every plan and sit at the bottom.
 
 ## 8. Verification and evidence
 

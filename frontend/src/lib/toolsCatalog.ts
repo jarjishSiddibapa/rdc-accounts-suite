@@ -196,7 +196,7 @@ export const TOOLS_CATALOG: ToolCatalogEntry[] = [
   {
     to: '/tools/debtors-reports-auto-mailer',
     title: 'Debtors Reports Auto Mailer',
-    description: 'Mail the GST-numbered ageing, Unapplied Receipts and Untagged Invoices reports, in as many mail plans as you need: each with its own reports, as-on date, schedule and recipients.',
+    description: 'Mail the GST-numbered ageing, Unapplied Receipts and Untagged Invoices reports, in as many mail schedules as you need: each with its own reports, as-on date, timing and recipients.',
     icon: MailCheck,
     appKey: 'debtors-reports-auto-mailer',
     category: 'AR reporting',

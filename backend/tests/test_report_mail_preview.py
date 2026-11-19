@@ -124,7 +124,7 @@ class RoutesTests(_DbCase):
 
     # defaults / preview request -------------------------------------------------
     def test_defaults_prefill_recipients_and_wording(self):
-        result = self.ep("/mail/defaults", "GET")(self.db, USER, plan_id=None)
+        result = self.ep("/mail/defaults", "GET")(self.db, USER, schedule_id=None)
         self.assertEqual((result["to"], result["cc"]), (["a@rdc.in"], ["b@rdc.in"]))
         self.assertIn("{date}", result["subject"])
         self.assertTrue(result["sender_configured"])
@@ -133,7 +133,7 @@ class RoutesTests(_DbCase):
     def test_preview_queues_a_job_for_the_person_without_sending(self):
         body = report_mail_routes.PreviewBody(to=["A@rdc.in "], cc=[], subject="S {date}", intro="Hi")
         with patch.object(report_mail_routes, "submit_job", return_value="job-1") as submit:
-            result = self.ep("/mail/preview", "POST")(body, USER, plan_id=None)
+            result = self.ep("/mail/preview", "POST")(body, USER, schedule_id=None)
         self.assertEqual(result, {"job_id": "job-1"})
         args = submit.call_args.args
         self.assertEqual(args[0], self.preview_job)
@@ -154,7 +154,7 @@ class RoutesTests(_DbCase):
                 base = {"to": ["a@rdc.in"], "cc": [], "subject": "S", "intro": "Hi"}
                 body = report_mail_routes.PreviewBody(**{**base, **change})
                 with self.assertRaises(HTTPException) as caught, patch.object(report_mail_routes, "submit_job") as submit:
-                    self.ep("/mail/preview", "POST")(body, USER, plan_id=None)
+                    self.ep("/mail/preview", "POST")(body, USER, schedule_id=None)
                 self.assertEqual(caught.exception.status_code, 400)
                 self.assertIn(expected, caught.exception.detail)
                 submit.assert_not_called()
@@ -163,7 +163,7 @@ class RoutesTests(_DbCase):
         body = report_mail_routes.PreviewBody(to=["a@rdc.in"], subject="S", intro="Hi")
         with patch.object(report_mail_routes.mailer_shared, "get_email_settings", lambda uid: {"configured": False}):
             with self.assertRaises(HTTPException) as caught:
-                self.ep("/mail/preview", "POST")(body, USER, plan_id=None)
+                self.ep("/mail/preview", "POST")(body, USER, schedule_id=None)
         self.assertIn("Settings", caught.exception.detail)
 
     # confirm-send ---------------------------------------------------------------
@@ -190,7 +190,7 @@ class RoutesTests(_DbCase):
                 patch.object(report_mail_routes, "finish_job_action", finish), \
                 patch.object(report_mail_routes.mailer_shared, "send_mail", send):
             try:
-                out = self.ep("/mail/confirm-send", "POST")(report_mail_routes.ConfirmBody(job_id="j"), USER, plan_id=None)
+                out = self.ep("/mail/confirm-send", "POST")(report_mail_routes.ConfirmBody(job_id="j"), USER, schedule_id=None)
             except HTTPException as exc:
                 return exc, send, finish
         return out, send, finish
@@ -281,7 +281,7 @@ class FixedSenderRoutesTests(_DbCase):
 
     def test_the_defaults_offer_no_choice_just_the_system_email(self):
         for key in self.KEYS:
-            result = self.ep(key, "/mail/defaults", "GET")(self.db, USER, plan_id=None)
+            result = self.ep(key, "/mail/defaults", "GET")(self.db, USER, schedule_id=None)
             self.assertTrue(result["sender_fixed"], key)
             self.assertNotIn("sender_options", result)
             self.assertEqual((result["sender_email"], result["sender_configured"]), ("no-reply@rdc.in", True))
@@ -290,7 +290,7 @@ class FixedSenderRoutesTests(_DbCase):
         for key in self.KEYS:
             body = report_mail_routes.PreviewBody(to=["a@rdc.in"], subject="S", intro="Hi", sender="me")
             with patch.object(report_mail_routes, "submit_job", return_value="job-1") as submit:
-                self.ep(key, "/mail/preview", "POST")(body, USER, self.db, plan_id=None)
+                self.ep(key, "/mail/preview", "POST")(body, USER, self.db, schedule_id=None)
             self.assertEqual(submit.call_args.kwargs["sender"], "system", key)
 
     def test_confirming_uses_the_system_email_even_if_the_preview_named_someone_else(self):
@@ -303,7 +303,7 @@ class FixedSenderRoutesTests(_DbCase):
                       "downloads": [], "detail": {}}
             send = MagicMock()
             with patch.object(report_mail_routes, "get_job", return_value={"status": "done", "result": result}),                     patch.object(report_mail_routes, "claim_job_action", return_value=("claimed", None)),                     patch.object(report_mail_routes, "finish_job_action", MagicMock()),                     patch.object(report_mail_routes.mailer_shared, "remember_recipients", lambda *args: None),                     patch.object(report_mail_routes.mailer_shared, "send_mail", send):
-                self.ep(key, "/mail/confirm-send", "POST")(report_mail_routes.ConfirmBody(job_id="j"), USER, self.db, plan_id=None)
+                self.ep(key, "/mail/confirm-send", "POST")(report_mail_routes.ConfirmBody(job_id="j"), USER, self.db, schedule_id=None)
             kwargs = send.call_args.kwargs
             self.assertEqual((kwargs["from_email"], kwargs["app_password"]), ("no-reply@rdc.in", "sys-pass"), key)
 

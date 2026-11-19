@@ -1,25 +1,19 @@
-import { useState } from 'react'
 import { UserRoundSearch } from 'lucide-react'
 import { AppShell } from '@/components/AppShell'
 import { GlassCard } from '@/components/GlassCard'
-import { AutoMailCard } from '@/components/AutoMailCard'
-import { SendNowCard } from '@/components/SendNowCard'
-import { ReportMailPanel } from '@/components/ReportMailPanel'
+import { MailSchedules } from '@/components/MailSchedules'
 
 const BASE = '/tools/unidentified-entries'
-const REPORT_NAME = 'Unidentified Entries'
+const REPORT_NAME = 'the Unidentified Entries'
 
 /**
  * The "***** Unidentified" receipts of the Unapplied Receipts Register, fetched
  * from the ERP into one Excel file (the same list as the Unidentified Customers
  * sheet of the Unapplied Receipts report) and mailed from the system email: by
- * hand (with a preview) or automatically on a schedule. Anyone granted the
- * application sets the schedule, frequency and recipients.
+ * hand (preview first, then send) or automatically. Any number of mail schedules, each with its own
+ * timing, as-on date, recipients and wording; anyone granted the application sets them.
  */
 export default function UnidentifiedEntries() {
-  // bumped when a send-now run finishes, so the settings card reloads its last run and send log
-  const [refreshKey, setRefreshKey] = useState(0)
-
   return (
     <AppShell title="Unidentified Entries">
       <div className="flex flex-col gap-6">
@@ -42,20 +36,7 @@ export default function UnidentifiedEntries() {
           </div>
         </GlassCard>
 
-        <ReportMailPanel
-          baseUrl={BASE}
-          reportName={REPORT_NAME}
-          title="Mail this report now"
-          description="Fetches the entries from the ERP and shows you the exact mail before anything is sent. It always goes from the system email."
-        />
-
-        <SendNowCard
-          baseUrl={BASE}
-          description="Runs the scheduled mail right away: it fetches the entries and sends them to the saved recipients, from the system email, with the saved subject and text. It is recorded in the send log below like any scheduled mail. To review the mail first, use Mail this report now above."
-          onFinished={() => setRefreshKey((key) => key + 1)}
-        />
-
-        <AutoMailCard key={refreshKey} baseUrl={BASE} reportName={REPORT_NAME} showUnmapped={false} />
+        <MailSchedules base={BASE} reportName={REPORT_NAME} />
       </div>
     </AppShell>
   )

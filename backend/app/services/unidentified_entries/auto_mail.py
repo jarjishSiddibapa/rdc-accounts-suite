@@ -14,9 +14,9 @@ import uuid
 from pathlib import Path
 
 from app.config import SCRATCH_DIR
-from app.jobs import run_cpu_phase
+from app.jobs import JobUserError, run_cpu_phase
 from app.regional import now_ist
-from app.services import attachment_fit, report_mail_preview
+from app.services import attachment_fit, mail_schedules, report_mail_preview
 from app.services import scheduled_report_mail as mail
 from app.services.erp_ageing import oracle_config
 from app.services.unapplied_receipts import processor, report_job
@@ -36,12 +36,15 @@ def build(snapshot: dict, progress_cb=None, cancel_event=None) -> mail.MailPaylo
         if progress_cb:
             progress_cb(min(float(frac), 1.0) * 0.9, msg)
 
-    as_on = now_ist().date()
+    # snapshot["as_on"]: a date, so that the register is as it stood on that day; None: as it is now
+    requested = snapshot.get("as_on")
+    as_on = requested or now_ist().date()
     cfg = oracle_config()
     log = report_job.LogQueue(report, start=0.1, end=0.7)
 
     report(0.02, "Fetching the Unapplied Receipts Register from the ERP...")
-    register = fetch_register_from_erp(cfg, None, cancel_event)
+    register = (fetch_register_from_erp(cfg, None, cancel_event) if requested is None
+                else fetch_register_from_erp(cfg, None, cancel_event, as_on=requested))
     _, unidentified = processor.split_unidentified(register, log, cfg, cancel_event)
 
     report(0.8, "Writing the workbook...")
@@ -73,17 +76,24 @@ def build(snapshot: dict, progress_cb=None, cancel_event=None) -> mail.MailPaylo
 
 
 def run_auto_mail_job(trigger: str = "scheduled", requested_by: str | None = None,
-                      progress_cb=None, cancel_event=None) -> dict:
+                      schedule_id: int | None = None, progress_cb=None, cancel_event=None) -> dict:
+    """Build and send the mail of one mail schedule (the scheduler's job)."""
+    if schedule_id is None:
+        raise JobUserError("Choose the mail schedule to send.")
     return mail.run_mail_job(
-        APP_KEY, trigger, build, progress_cb=progress_cb, cancel_event=cancel_event, requested_by=requested_by,
+        APP_KEY, trigger, mail_schedules.scheduled_build(build, schedule_id), progress_cb=progress_cb,
+        cancel_event=cancel_event, requested_by=requested_by, schedule_id=schedule_id,
     )
 
 
 def run_preview_job(user_id: int, to: list, cc: list, subject: str, intro: str,
-                    allow_unmapped: bool = False, sender: str | None = None,
-                    progress_cb=None, cancel_event=None) -> dict:
-    """Build the workbook and the exact mail for review. Sends nothing."""
+                    allow_unmapped: bool = False, sender: str | None = None, schedule_id: int | None = None,
+                    overrides: dict | None = None, progress_cb=None, cancel_event=None) -> dict:
+    """Build the report and the exact mail of one mail schedule for review. Sends nothing. ``overrides``: what was
+    changed for this one send."""
+    if schedule_id is None:
+        raise JobUserError("Choose the mail schedule to preview.")
     return report_mail_preview.build_preview(
-        APP_KEY, build, user_id, to, cc, subject, intro, allow_unmapped, sender=sender,
-        progress_cb=progress_cb, cancel_event=cancel_event,
+        APP_KEY, mail_schedules.scheduled_build(build, schedule_id, overrides), user_id, to, cc, subject, intro,
+        allow_unmapped, sender=sender, progress_cb=progress_cb, cancel_event=cancel_event,
     )

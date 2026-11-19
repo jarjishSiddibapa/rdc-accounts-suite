@@ -1,7 +1,7 @@
-"""The three reports the Debtors Reports Auto Mailer builds, and the mail wording that follows the ones a plan sends.
+"""The three reports the Debtors Reports Auto Mailer builds, and the mail wording that follows the ones a schedule sends.
 
 The reports: the ageing with the GST invoice numbers, the Unapplied Receipts report and the Untagged Invoices
-report (whose workbook also carries the Below 1k Invoices). Each mail plan (see plans.py) picks which of them it
+report (whose workbook also carries the Below 1k Invoices). Each mail schedule (see mail_schedules.py) picks which of them it
 sends; at least one.
 """
 

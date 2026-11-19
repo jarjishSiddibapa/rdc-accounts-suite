@@ -23,7 +23,8 @@ from app.jobs import JobCancelled, JobUserError, run_cpu_phase
 from app.services import attachment_fit, customer_region, erp_ageing, report_mail_preview
 from app.services import scheduled_report_mail as mail
 from app.services import xlsb_convert, xlsx_compact
-from app.services.debtors_mailer import mapping_store, plans, report_choice
+from app.services import mail_schedules
+from app.services.debtors_mailer import mapping_store, report_choice
 from app.services.gst_invoice_adder import report_job as gst_job
 from app.services.mailer_shared import sheet_to_html
 from app.services.untagged_invoices import auto_mail as untagged_auto_mail
@@ -128,7 +129,7 @@ def _fit_attachments(paths: list[Path], progress_cb=None, splitters=None) -> tup
 
 
 def build(snapshot: dict, progress_cb=None, cancel_event=None) -> mail.MailPayload:
-    """The mail of one mail plan, from one ageing fetch. ``snapshot["reports"]``: the reports to build (all three
+    """The mail of one mail schedule, from one ageing fetch. ``snapshot["reports"]``: the reports to build (all three
     when not given); ``snapshot["as_on"]``: a date, so that everything is as it stood on that date - without it,
     the live open ageing as on today. Every sheet that has a Location also has the Accounts Incharge right
     after it."""
@@ -320,43 +321,25 @@ def build(snapshot: dict, progress_cb=None, cancel_event=None) -> mail.MailPaylo
     return payload
 
 
-def _build_for(plan_id: int, overrides: dict | None = None):
-    """The builder of one mail plan: the reports and the date it is set to, read fresh when the run starts.
-    ``overrides``: what a person changed for one mail sent by hand (reports, as-on rule); see plans.validate_overrides."""
-    def build_plan(snapshot: dict, progress_cb=None, cancel_event=None) -> mail.MailPayload:
-        try:
-            options = plans.run_options(plan_id, overrides=overrides)
-        except plans.PlanError as exc:
-            raise JobUserError(str(exc)) from exc
-        payload = build({**snapshot, "reports": options["reports"], "as_on": options["as_on"]},
-                        progress_cb, cancel_event)
-        payload.detail["plan"] = options["plan_name"]
-        payload.detail["as_on_mode"] = options["as_on_mode"]
-        if options["one_off"]:
-            payload.detail["changed_for_this_send"] = sorted(overrides or {})
-        return payload
-    return build_plan
-
-
-def run_auto_mail_job(trigger: str = "scheduled", requested_by: str | None = None, plan_id: int | None = None,
+def run_auto_mail_job(trigger: str = "scheduled", requested_by: str | None = None, schedule_id: int | None = None,
                       progress_cb=None, cancel_event=None) -> dict:
-    """Build and send the mail of one mail plan (the schedule's job, and Send now)."""
-    if plan_id is None:
-        raise JobUserError("Choose the mail plan to send.")
+    """Build and send the mail of one mail schedule (the scheduler's job)."""
+    if schedule_id is None:
+        raise JobUserError("Choose the mail schedule to send.")
     return mail.run_mail_job(
-        APP_KEY, trigger, _build_for(plan_id), progress_cb=progress_cb, cancel_event=cancel_event,
-        requested_by=requested_by, plan_id=plan_id,
+        APP_KEY, trigger, mail_schedules.scheduled_build(build, schedule_id), progress_cb=progress_cb,
+        cancel_event=cancel_event, requested_by=requested_by, schedule_id=schedule_id,
     )
 
 
 def run_preview_job(user_id: int, to: list, cc: list, subject: str, intro: str,
-                    allow_unmapped: bool = False, sender: str | None = None, plan_id: int | None = None,
+                    allow_unmapped: bool = False, sender: str | None = None, schedule_id: int | None = None,
                     overrides: dict | None = None, progress_cb=None, cancel_event=None) -> dict:
-    """Build the reports and the exact mail of a mail plan for review. Sends nothing. ``overrides``: the reports
+    """Build the reports and the exact mail of a mail schedule for review. Sends nothing. ``overrides``: the reports
     and as-on rule changed for this one send."""
-    if plan_id is None:
-        raise JobUserError("Choose the mail plan to preview.")
+    if schedule_id is None:
+        raise JobUserError("Choose the mail schedule to preview.")
     return report_mail_preview.build_preview(
-        APP_KEY, _build_for(plan_id, overrides), user_id, to, cc, subject, intro, allow_unmapped, sender=sender,
-        progress_cb=progress_cb, cancel_event=cancel_event,
+        APP_KEY, mail_schedules.scheduled_build(build, schedule_id, overrides), user_id, to, cc, subject, intro,
+        allow_unmapped, sender=sender, progress_cb=progress_cb, cancel_event=cancel_event,
     )

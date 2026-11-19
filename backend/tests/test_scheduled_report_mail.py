@@ -1,6 +1,7 @@
 """Automatic report mail: settings validation, the weekday/time schedule, the
 send-and-record flow, and the Untagged / GST mail builders."""
 
+import dataclasses
 import datetime as dt
 import random
 import shutil
@@ -22,7 +23,7 @@ from app.models import (
 )
 from app.regional import IST
 from app.services import scheduled_report_mail as mail
-from app.services.debtors_mailer.models import MailPlan
+from app.models import MailSchedule
 from app.services import xlsb_convert, xlsb_writer, xlsx_compact
 from app.services.gst_invoice_adder import auto_mail as gst_mail
 from app.services.mailer_shared import sheet_to_html
@@ -53,7 +54,7 @@ class _DbCase(unittest.TestCase):
     def setUp(self):
         engine = create_engine("sqlite://")
         Base.metadata.create_all(
-            engine, tables=[Application.__table__, ApplicationEmailRecipient.__table__, ScheduledReportMail.__table__, MailPlan.__table__,
+            engine, tables=[Application.__table__, ApplicationEmailRecipient.__table__, ScheduledReportMail.__table__, MailSchedule.__table__,
                     SystemEmailSettings.__table__, ScheduledReportMailLog.__table__,
                     User.__table__, EmailSettings.__table__],
         )
@@ -152,6 +153,15 @@ class SaveSettingsTests(_DbCase):
 
 
 class ScheduleTests(_DbCase):
+    """The due-slot logic on an application's own single settings row (an application without mail schedules; the
+    applications that have them are covered by test_mail_schedules)."""
+
+    def setUp(self):
+        super().setUp()
+        patcher = patch.dict(mail.SPECS, {APP: dataclasses.replace(mail.SPECS[APP], per_schedule=False)})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def _enabled(self):
         # saved on a Sunday morning, so no day's slot has been skipped yet
         with patch.object(mail, "now_ist", return_value=dt.datetime(2026, 10, 18, 7, 0, tzinfo=IST)):
@@ -817,8 +827,8 @@ class AutoMailRouteTests(_DbCase):
 
     def test_save_then_read_back(self):
         body = self.routes_module.AutoMailBody(**GOOD)
-        saved = self.endpoint("/auto-mail", "PUT")(body, self.db, plan_id=None)
-        read = self.endpoint("/auto-mail", "GET")(self.db, plan_id=None)
+        saved = self.endpoint("/auto-mail", "PUT")(body, self.db, schedule_id=None)
+        read = self.endpoint("/auto-mail", "GET")(self.db, schedule_id=None)
         self.assertEqual(saved["days"], read["days"])
         self.assertEqual(read["to"], ["a@rdc.in"])
 
@@ -826,7 +836,7 @@ class AutoMailRouteTests(_DbCase):
         from fastapi import HTTPException
         body = self.routes_module.AutoMailBody(**{**GOOD, "days": []})
         with self.assertRaises(HTTPException) as caught:
-            self.endpoint("/auto-mail", "PUT")(body, self.db, plan_id=None)
+            self.endpoint("/auto-mail", "PUT")(body, self.db, schedule_id=None)
         self.assertEqual(caught.exception.status_code, 400)
         self.assertIn("at least one day", caught.exception.detail)
 
@@ -834,7 +844,7 @@ class AutoMailRouteTests(_DbCase):
         self.db.add(ScheduledReportMailLog(app_key=APP, trigger="manual", status="sent", requested_by="a@rdc.in",
                                            started_at=dt.datetime(2026, 10, 19, 3, 0)))
         self.db.commit()
-        result = self.endpoint("/auto-mail/log", "GET")(20, 0, self.db, plan_id=None)
+        result = self.endpoint("/auto-mail/log", "GET")(20, 0, self.db, schedule_id=None)
         self.assertEqual(result["total"], 1)
         self.assertEqual(result["items"][0]["requested_by"], "a@rdc.in")
         self.assertTrue(result["items"][0]["started_at"].startswith("2026-10-19T03:00"))
@@ -851,17 +861,19 @@ class RegistrationTests(unittest.TestCase):
         ):
             self.assertIn(task, jobs._ALLOWED_TASKS)
 
-    def test_both_applications_appear_in_the_admin_recipient_list(self):
+    def test_both_applications_keep_their_recipients_on_each_schedule_not_in_the_admin_list(self):
         from app.permissions import REPORT_RECIPIENT_APP_KEYS
-        self.assertLessEqual({"untagged-invoices-report", "gst-invoice-adder"}, REPORT_RECIPIENT_APP_KEYS)
+        self.assertFalse({"untagged-invoices-report", "gst-invoice-adder"} & REPORT_RECIPIENT_APP_KEYS)
 
     def test_both_applications_expose_the_preview_and_the_admin_routes(self):
         from app.main import app
         paths = app.openapi()["paths"]
         for key in ("untagged-invoices-report", "gst-invoice-adder"):
+            one = f"/api/tools/{key}/schedules/{{schedule_id}}"
             for suffix in ("/mail/preview", "/mail/confirm-send", "/mail/defaults", "/auto-mail", "/auto-mail/log"):
-                self.assertIn(f"/api/tools/{key}{suffix}", paths)
-            self.assertNotIn(f"/api/tools/{key}/auto-mail/send-now", paths)
+                self.assertIn(one + suffix, paths)
+            for gone in (f"/api/tools/{key}/auto-mail", f"/api/tools/{key}/mail/preview", one + "/auto-mail/send-now"):
+                self.assertNotIn(gone, paths)       # the one way to send now is the preview, then confirm
 
 
 if __name__ == "__main__":

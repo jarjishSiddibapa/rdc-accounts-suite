@@ -5,6 +5,7 @@ import { GlassCard } from '@/components/GlassCard'
 import { Button } from '@/components/Button'
 import { ErrorBanner } from '@/components/ErrorBanner'
 import { CreatableCombobox } from '@/components/CreatableCombobox'
+import { ScheduleTag } from '@/components/ScheduleChoices'
 import { Pagination } from '@/components/Pagination'
 import { usePagination } from '@/hooks/usePagination'
 import { ProgressPanel, type JobState, type JobStatus } from '@/components/ProgressPanel'
@@ -207,6 +208,9 @@ export function ReportMailPanel({
   reportName,
   month,
   title = 'Mail this report',
+  eyebrow = 'Email',
+  scheduleName,
+  blocked = false,
   description,
   unmappedHint,
   mappingFixes,
@@ -217,6 +221,12 @@ export function ReportMailPanel({
 }: {
   baseUrl: string
   reportName: string
+  /** Names the mail schedule this mail belongs to, so it is never in doubt which one is being sent. */
+  scheduleName?: string
+  /** The small heading above the title. */
+  eyebrow?: string
+  /** Something in the choices for this send is incomplete: nothing can be previewed yet. */
+  blocked?: boolean
   /** Controls shown above the recipients (for choices that belong to this one send). */
   extraControls?: ReactNode
   /** Sent with the preview request; changing it discards a preview that was already built. */
@@ -395,12 +405,12 @@ export function ReportMailPanel({
 
   return (
     <GlassCard padding="lg" className="flex flex-col gap-5">
-      <div className="flex items-center gap-4">
-        <span className="icon-tile grid h-12 w-12 place-items-center rounded-xl">
+      <div className="flex flex-wrap items-start gap-4">
+        <span className="icon-tile grid h-12 w-12 shrink-0 place-items-center rounded-xl">
           <Mail className="h-5 w-5" />
         </span>
-        <div>
-          <p className="text-sm font-semibold text-accent">Email</p>
+        <div className="min-w-0 flex-1 basis-56">
+          <p className="text-sm font-semibold text-accent">{eyebrow}</p>
           <h2 className="mt-1.5 font-display text-xl font-semibold tracking-[-0.025em] text-ink">
             {title}
           </h2>
@@ -414,6 +424,7 @@ export function ReportMailPanel({
             )}
           </p>
         </div>
+        {scheduleName && <span className="max-w-full sm:ml-auto"><ScheduleTag name={scheduleName} /></span>}
         {onClose && (
           <Button variant="ghost" className="ml-auto" onClick={onClose}>
             Close
@@ -495,10 +506,10 @@ export function ReportMailPanel({
         <Button
           icon={<Eye className="h-4 w-4" />}
           loading={busy}
-          disabled={busy || confirming || !defaults.sender_configured}
+          disabled={busy || confirming || blocked || !defaults.sender_configured}
           onClick={() => void handlePreview()}
         >
-          Preview email
+          Preview mail
         </Button>
       </div>
 

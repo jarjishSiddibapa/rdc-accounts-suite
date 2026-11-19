@@ -75,10 +75,11 @@ _ULTRAFINE_APP_KEYS = {
 # ultrafine-payment-reminder, ultrafine-fse-reminder), or monitors with their
 # own saved recipient lists (iocl-balance-monitor, invoice-booking-tracker) -
 # so the admin "default recipients" concept doesn't apply to them and they
-# must NOT be offered in that picker.
+# must NOT be offered in that picker. The applications with MAIL SCHEDULES (untagged-invoices-report,
+# gst-invoice-adder, debtors-reports-auto-mailer, rdc-sales-register-report, unidentified-entries) are not here
+# either: each schedule keeps its own recipients.
 REPORT_RECIPIENT_APP_KEYS = {
-    "unaccounted", "untagged-invoices-report", "gst-invoice-adder", "ultrafine-cashflow",
-    "rdc-sales-register-report", "unidentified-entries",
+    "unaccounted", "ultrafine-cashflow",
     "erp-to-excel", "rdc-payables", "trial-balance", "gstr2b-combinator", "unapplied-receipts",
     "closing-period-report", "creditors-ageing-report", "trial-balance-formatter",
 }

@@ -28,8 +28,8 @@ from sqlalchemy.orm import Session
 from app.auth import get_current_user
 from app.database import get_db
 from app.jobs import claim_job_action, finish_job_action, get_job, submit_job
-from app.routers.auto_mail_routes import current_plan_id
-from app.services import mailer_shared
+from app.routers.auto_mail_routes import current_schedule_id
+from app.services import mail_schedules, mailer_shared
 from app.services import scheduled_report_mail as mail
 from app.validation import normalize_email
 
@@ -45,7 +45,8 @@ class PreviewBody(BaseModel):
     allow_unmapped: bool = False
     sender: str | None = None   # only where the application lets the person choose: "me", "system" or a person's id
     month: str | None = None    # only for a report built per month (the cashflow)
-    # only for a mail plan (Debtors Reports), what is changed for this one send; the plan's own choices fill the rest
+    # only for a mail schedule: what is changed for this one send (the date the report is as on, and for the
+    # Debtors Reports which reports); the schedule's own choices fill the rest
     reports: list[str] | None = None
     as_on_mode: str | None = None       # "today", "last_month_end" or "date"
     as_on_date: date | None = None
@@ -89,17 +90,15 @@ def make_report_mail_router(app_key: str, preview_job, per_month: bool = False,
 
     @router.get("/defaults")
     def get_defaults(db: Session = Depends(get_db), user=Depends(get_current_user),
-                     plan_id: int | None = Depends(current_plan_id)):
-        if plan_id is None:
+                     schedule_id: int | None = Depends(current_schedule_id)):
+        if schedule_id is None:
             settings = mail.get_or_create_settings(db, app_key)
             # To / Cc start from the last mail that was sent, else the admin defaults
             recipients = mailer_shared.get_prefill_recipients(db, app_key)
         else:
-            # a mail plan: the plan's own wording and recipients
-            from app.services.debtors_mailer import plans
-
-            settings = plans.require(db, plan_id)
-            recipients = plans.recipients(settings)
+            # a mail schedule: its own wording and recipients
+            settings = mail_schedules.require(db, app_key, schedule_id)
+            recipients = mail_schedules.recipients(settings)
         sender = mailer_shared.get_email_settings(user.id)
         defaults = {
             "to": recipients["to"],
@@ -127,7 +126,7 @@ def make_report_mail_router(app_key: str, preview_job, per_month: bool = False,
 
     @router.post("/preview")
     def start_preview(body: PreviewBody, user=Depends(get_current_user), db: Session = Depends(get_db),
-                      plan_id: int | None = Depends(current_plan_id)):
+                      schedule_id: int | None = Depends(current_schedule_id)):
         if fixed_sender:
             body.sender = "system"
         if sender_choice:
@@ -150,15 +149,14 @@ def make_report_mail_router(app_key: str, preview_job, per_month: bool = False,
             mail.validate_template(subject, spec.placeholders)
             mail.validate_template(intro, spec.placeholders)
             overrides = None
-            if plan_id is not None:
-                from app.services.debtors_mailer import plans
-
-                overrides = plans.validate_overrides(body.reports, body.as_on_mode, body.as_on_date)
+            if schedule_id is not None:
+                overrides = mail_schedules.validate_overrides(
+                    app_key, body.reports, body.as_on_mode, body.as_on_date)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         extra = {}
-        if plan_id is not None:
-            extra["plan_id"] = plan_id
+        if schedule_id is not None:
+            extra["schedule_id"] = schedule_id
             if overrides:
                 extra["overrides"] = overrides
         if sender_choice:
@@ -186,7 +184,7 @@ def make_report_mail_router(app_key: str, preview_job, per_month: bool = False,
 
     @router.post("/confirm-send")
     def confirm_send(body: ConfirmBody, user=Depends(get_current_user), db: Session = Depends(get_db),
-                     plan_id: int | None = Depends(current_plan_id)):
+                     schedule_id: int | None = Depends(current_schedule_id)):
         result = _finished_preview(body.job_id, user)
         if sender_choice:
             # the sender that was previewed (what the person saw as "From") is the one that sends
@@ -245,12 +243,12 @@ def make_report_mail_router(app_key: str, preview_job, per_month: bool = False,
             if sent:
                 problem += f" {len(sent)} of {len(result['messages'])} mails had already gone out."
             mail.record_manual_send(app_key, user.email, started, "failed", problem, recipients, sent, detail_log,
-                                    plan_id)
+                                    schedule_id)
             raise HTTPException(status_code=502, detail=problem) from exc
 
         finish_job_action(body.job_id, owner_id=user.id, action="confirm-send", succeeded=True)
-        mail.record_manual_send(app_key, user.email, started, "sent", None, recipients, sent, detail_log, plan_id)
-        if plan_id is None:         # a mail plan keeps its own saved recipients; they are not replaced by a one-off send
+        mail.record_manual_send(app_key, user.email, started, "sent", None, recipients, sent, detail_log, schedule_id)
+        if schedule_id is None:     # a mail schedule keeps its own saved recipients; they are not replaced by a one-off send
             mailer_shared.remember_recipients(app_key, result["to"], result["cc"])
         return {"status": "sent", "to": result["to"], "cc": result["cc"], "messages": sent}
 

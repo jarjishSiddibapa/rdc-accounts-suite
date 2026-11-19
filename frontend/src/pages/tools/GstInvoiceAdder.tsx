@@ -7,9 +7,7 @@ import { ErrorBanner } from '@/components/ErrorBanner'
 import { ProgressPanel, type JobState, type JobStatus } from '@/components/ProgressPanel'
 import { ApiError, apiUrl, get, post } from '@/lib/api'
 import { formatIndianNumber } from '@/lib/regional'
-import { AutoMailCard } from '@/components/AutoMailCard'
-import { ReportMailPanel } from '@/components/ReportMailPanel'
-import { useAuth } from '@/lib/auth-context'
+import { MailSchedules } from '@/components/MailSchedules'
 
 const BASE = '/tools/gst-invoice-adder'
 
@@ -42,8 +40,6 @@ async function pollEnrichJob(jobId: string): Promise<JobState<EnrichResult>> {
 }
 
 export default function GstInvoiceAdder() {
-  const { user } = useAuth()
-  const isAdmin = user?.role === 'admin'
   const [submitting, setSubmitting] = useState(false)
   const [jobId, setJobId] = useState<string | null>(null)
   const [result, setResult] = useState<EnrichResult | null>(null)
@@ -185,9 +181,7 @@ export default function GstInvoiceAdder() {
           </GlassCard>
         )}
 
-        <ReportMailPanel baseUrl={BASE} reportName="GST Invoice Number report" />
-
-        {isAdmin && <AutoMailCard baseUrl={BASE} reportName="GST Invoice Number report" />}
+        <MailSchedules base={BASE} reportName="the GST Invoice Number report" />
       </div>
     </AppShell>
   )

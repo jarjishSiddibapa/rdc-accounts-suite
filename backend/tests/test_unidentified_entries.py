@@ -49,9 +49,11 @@ class RegistrationTests(unittest.TestCase):
     def test_it_is_an_application_with_the_shared_automatic_mail(self):
         self.assertIn(KEY, permissions.APP_KEYS)
         self.assertEqual(permissions.APP_LABELS[KEY], "Unidentified Entries")
-        self.assertIn(KEY, permissions.REPORT_RECIPIENT_APP_KEYS)
+        self.assertNotIn(KEY, permissions.REPORT_RECIPIENT_APP_KEYS)      # each mail schedule has its own
         spec = mail.SPECS[KEY]
         self.assertTrue(spec.scheduled)
+        self.assertTrue(spec.per_schedule)
+        self.assertTrue(spec.as_on)                  # the register as it stood on a date
         self.assertTrue(spec.allow_hourly)           # the every-few-hours schedule, like the others
         self.assertTrue(spec.fixed_sender)           # always the system email
         mail.validate_template(spec.default_subject, spec.placeholders)
@@ -98,8 +100,9 @@ class RegistrationTests(unittest.TestCase):
                 return None
             return next(m["status"] for m in sent if m["type"] == "http.response.start")
 
-        calls = (("GET", "/auto-mail"), ("PUT", "/auto-mail"), ("POST", "/auto-mail/send-now"),
-                 ("GET", "/mail/defaults"), ("POST", "/mail/preview"))
+        calls = (("GET", "/schedules"), ("POST", "/schedules"), ("GET", "/schedules/1"),
+                 ("GET", "/schedules/1/auto-mail"), ("PUT", "/schedules/1/auto-mail"),
+                 ("GET", "/schedules/1/mail/defaults"), ("POST", "/schedules/1/mail/preview"))
         for method, path in calls:
             self.assertEqual(status(method, path), 403, (method, path))
         user.allowed_apps = '["%s"]' % KEY                                              # granted: not refused

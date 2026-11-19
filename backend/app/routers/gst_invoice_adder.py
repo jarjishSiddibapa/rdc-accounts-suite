@@ -9,7 +9,7 @@ for the ported business logic and why it must not be "simplified".
 Nothing is uploaded: the ageing is always the latest, as on today.
 
 No mapping tables in the original desktop app, so none are added here. The
-report can also be mailed automatically (see auto_mail_routes.py).
+report can also be mailed automatically (see schedule_routes.py).
 
 Oracle connectivity reuses the SAME ORACLE_* env vars (same actual Oracle
 server) already wired up for services/unapplied_receipts - see app.config.
@@ -26,8 +26,7 @@ from app.auth import get_current_user
 from app.config import SCRATCH_DIR
 from app.jobs import cancel_job, submit_job, get_job
 from app.permissions import require_app_access
-from app.routers.auto_mail_routes import make_auto_mail_router
-from app.routers.report_mail_routes import make_report_mail_router
+from app.routers.schedule_routes import make_schedules_router
 from app.services.gst_invoice_adder import auto_mail, report_job
 
 router = APIRouter(
@@ -35,8 +34,8 @@ router = APIRouter(
     dependencies=[Depends(require_app_access("gst-invoice-adder"))],
 )
 
-router.include_router(make_auto_mail_router("gst-invoice-adder"))
-router.include_router(make_report_mail_router("gst-invoice-adder", auto_mail.run_preview_job))
+# several mail schedules; only administrators change them, anyone with the application previews and sends
+router.include_router(make_schedules_router("gst-invoice-adder", auto_mail.run_preview_job, admin_only=True))
 
 _XLSX_MEDIA_TYPE = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 

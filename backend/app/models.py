@@ -443,6 +443,61 @@ class ScheduledReportMail(Base):
     is_deleted = Column(Boolean, default=False, nullable=False)
 
 
+class MailSchedule(Base):
+    """One scheduled mail of an application that can have several (see app.services.mail_schedules): when it goes out,
+    to whom, the wording, the date its report is as on (where the report can be as on a date) and - for the Debtors
+    Reports - which of its three reports it sends. The schedule and run-state columns are named exactly like those of
+    ScheduledReportMail, so the scheduler's functions work on either. The table was called debtors_mail_plan while
+    only the Debtors Reports had them."""
+
+    __tablename__ = "mail_schedule"
+
+    id         = Column(Integer, primary_key=True)
+    app_key    = Column(String(64), nullable=False, index=True, default="debtors-reports-auto-mailer")
+    name       = Column(String(60), nullable=False)
+    # the date the report is as on: "today", "last_month_end" or a fixed "date" (only for reports that have one)
+    as_on_mode = Column(String(20), default="today", nullable=False)
+    as_on_date = Column(Date, nullable=True)
+    # the Debtors Reports only: which of its three reports it sends
+    ageing     = Column(Boolean, default=True, nullable=False)      # the ageing with the GST invoice numbers
+    unapplied  = Column(Boolean, default=True, nullable=False)      # the Unapplied Receipts report
+    untagged   = Column(Boolean, default=True, nullable=False)      # the Untagged Invoices report (with Below 1k)
+    # who gets it (JSON lists of addresses)
+    to_list    = Column(Text, nullable=True)
+    cc_list    = Column(Text, nullable=True)
+    # whose own email sends it; None = the system email (always, for a report with a fixed sender)
+    sender_user_id = Column(Integer, nullable=True)
+    # when
+    enabled    = Column(Boolean, default=False, nullable=False)
+    send_mode  = Column(String(10), default="weekly", nullable=False)
+    send_days  = Column(String(20), default="0,1,2,3,4,5", nullable=False)
+    send_month_days = Column(String(100), nullable=True)
+    send_time  = Column(String(5), default="08:30", nullable=False)
+    send_times = Column(String(100), nullable=True)
+    send_times_enabled = Column(Boolean, default=True, nullable=False)
+    send_every_hours   = Column(Integer, nullable=True)
+    send_every_start   = Column(String(5), nullable=True)
+    last_every_slot    = Column(String(16), nullable=True)
+    # the wording
+    subject_template = Column(Text, nullable=False)
+    intro_template   = Column(Text, nullable=False)
+    signature        = Column(Text, nullable=True)
+    send_when_unmapped = Column(Boolean, default=True, nullable=False)
+    # the state of the runs
+    last_attempt_date = Column(Date, nullable=True)
+    last_attempt_slot = Column(String(16), nullable=True)
+    running_since     = Column(DateTime, nullable=True)
+    last_run_at       = Column(DateTime, nullable=True)
+    last_trigger      = Column(String(20), nullable=True)
+    last_status       = Column(String(20), nullable=True)
+    last_error        = Column(Text, nullable=True)
+    last_detail       = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_by = Column(String(255), nullable=True)
+    is_deleted = Column(Boolean, default=False, nullable=False)
+
+
 class ScheduledReportMailLog(Base):
     """Append-only history of every automatic or on-demand report mail run:
     when it started and finished, who asked, what happened, who it went to and
@@ -453,7 +508,7 @@ class ScheduledReportMailLog(Base):
     # BIGINT on MySQL; plain INTEGER on SQLite, which only auto-numbers that
     id = Column(BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True)
     app_key = Column(String(64), ForeignKey("applications.key"), nullable=False, index=True)
-    plan_id = Column(Integer, nullable=True, index=True)  # the mail plan it belongs to (Debtors Reports), else None
+    schedule_id = Column("plan_id", Integer, nullable=True, index=True)  # the mail schedule it belongs to, else None (the column kept its first name)
     trigger = Column(String(20), nullable=False)  # scheduled / manual
     requested_by = Column(String(255), nullable=True)  # the admin's email for a manual run
     status = Column(String(20), nullable=False, index=True)  # running / sent / failed / held / skipped

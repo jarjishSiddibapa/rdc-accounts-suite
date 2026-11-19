@@ -439,9 +439,11 @@ class AccessTests(unittest.TestCase):
     def test_it_is_a_registered_application_for_the_report_mail(self):
         self.assertIn(self.KEY, permissions.APP_KEYS)
         self.assertEqual(permissions.APP_LABELS[self.KEY], "RDC Sales Register Report")
-        self.assertIn(self.KEY, permissions.REPORT_RECIPIENT_APP_KEYS)
+        self.assertNotIn(self.KEY, permissions.REPORT_RECIPIENT_APP_KEYS)      # each mail schedule has its own
         spec = mail.SPECS[self.KEY]
         self.assertTrue(spec.scheduled)
+        self.assertTrue(spec.per_schedule)
+        self.assertFalse(spec.as_on)                                              # a month-by-month register
         mail.validate_template(spec.default_subject, spec.placeholders)
         mail.validate_template(spec.default_intro, spec.placeholders)
         self.assertIs(mail._job_for(self.KEY), auto_mail.run_auto_mail_job)
@@ -456,16 +458,16 @@ class AccessTests(unittest.TestCase):
 
     def test_everything_under_it_follows_its_permission_not_admin_only(self):
         from app.routers import rdc_sales_register as routes
-        self.assert_follows_permission(self.KEY, routes)
+        self.assert_follows_permission(self.KEY, routes, schedule_prefix="/schedules/1")
 
     def test_the_other_fixed_sender_mailers_follow_their_permission_too(self):
         from app.routers import debtors_mailer, unidentified_entries
-        # the Debtors mailer's mail is set up per mail plan: everything under /plans/{id} follows the permission too
-        # (and a person without it is refused, not told whether the plan exists)
-        self.assert_follows_permission("debtors-reports-auto-mailer", debtors_mailer, plan_prefix="/plans/1")
-        self.assert_follows_permission("unidentified-entries", unidentified_entries)
+        # the mail is set up per mail schedule: everything under /schedules/{id} follows the permission too
+        # (and a person without it is refused, not told whether the schedule exists)
+        self.assert_follows_permission("debtors-reports-auto-mailer", debtors_mailer, schedule_prefix="/schedules/1")
+        self.assert_follows_permission("unidentified-entries", unidentified_entries, schedule_prefix="/schedules/1")
 
-    def assert_follows_permission(self, key, routes, plan_prefix=""):
+    def assert_follows_permission(self, key, routes, schedule_prefix):
         from fastapi import FastAPI
         import asyncio
         from app import auth
@@ -494,12 +496,10 @@ class AccessTests(unittest.TestCase):
                 return None
             return next(m["status"] for m in sent if m["type"] == "http.response.start")
 
-        calls = tuple((method, plan_prefix + path) for method, path in (
+        calls = tuple((method, schedule_prefix + path) for method, path in (
             ("GET", "/auto-mail"), ("GET", "/auto-mail/log"), ("PUT", "/auto-mail"),
-            ("POST", "/auto-mail/send-now"), ("GET", "/mail/defaults")))
-        if plan_prefix:
-            calls += (("GET", "/plans"), ("POST", "/plans"), ("GET", plan_prefix), ("DELETE", plan_prefix),
-                      ("GET", plan_prefix + "/reports"), ("PUT", plan_prefix + "/as-on"))
+            ("GET", "/mail/defaults"), ("POST", "/mail/preview"), ("DELETE", "")))
+        calls += (("GET", "/schedules"), ("POST", "/schedules"), ("GET", schedule_prefix))
         for method, path in calls:               # granted: not refused
             self.assertNotEqual(status(method, path), 403, (method, path))
         user.allowed_apps = '["gst-invoice-adder"]'                      # not granted: refused everywhere

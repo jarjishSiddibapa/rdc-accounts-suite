@@ -3,7 +3,7 @@ import { AlertTriangle, CheckCircle2, Mail } from 'lucide-react'
 import { GlassCard } from '@/components/GlassCard'
 import { Button } from '@/components/Button'
 import { ErrorBanner } from '@/components/ErrorBanner'
-import { StepBadge } from '@/components/StepBadge'
+import { AsOnChoice, ReportsChoice, ScheduleTag, type AsOnMode, type AsOnSetting, type ReportOption } from '@/components/ScheduleChoices'
 import { ApiError, get, put } from '@/lib/api'
 import { formatIndianDate, formatIndianDateTime } from '@/lib/regional'
 import { cn } from '@/utils/cn'
@@ -18,6 +18,12 @@ interface LastRun {
 }
 
 interface AutoMailSettings {
+  /** The schedule's name, when this is one of an application's mail schedules. */
+  name?: string
+  /** The date the report is as on (only for a report that can be). */
+  as_on?: AsOnSetting
+  /** Which reports the mail carries (the Debtors Reports). */
+  reports?: ReportOption[]
   enabled: boolean
   mode: 'weekly' | 'monthly'
   /** The days / times schedule is on (it can be off for a report sent only every few hours). */
@@ -146,7 +152,7 @@ const MIN_EVERY_HOURS = 2
 const MAX_EVERY_HOURS = 23
 const EVERY_HOURS_CHOICES = Array.from({ length: MAX_EVERY_HOURS - MIN_EVERY_HOURS + 1 }, (_, index) => index + MIN_EVERY_HOURS)
 
-/** What the schedule sentences are worked out from (a mail plan's summary has these too). */
+/** What the schedule sentences are worked out from (a mail schedule's summary has these too). */
 export type ScheduleFields = Pick<
   AutoMailSettings,
   'mode' | 'days' | 'month_days' | 'times' | 'times_enabled' | 'every_hours' | 'every_start'
@@ -221,14 +227,11 @@ export function AutoMailCard({
   baseUrl,
   reportName,
   showUnmapped = true,
-  step,
   description,
   onSaved,
 }: {
   baseUrl: string
   reportName: string
-  /** The step number shown in place of the mail icon, when the card is one step of a setup. */
-  step?: number
   /** Replaces the sentence under the title. */
   description?: string
   /** Called after the settings were saved. */
@@ -249,10 +252,17 @@ export function AutoMailCard({
   // Daily and Weekly are both "weekly" on the server (Daily = all seven days); remembered here so
   // picking every weekday by hand does not flip the screen to Daily under the person's hands
   const [repeatChoice, setRepeatChoice] = useState<Repeat | null>(null)
+  // what the schedule's report contains: the date it is as on and (Debtors Reports) which reports
+  const [asOnMode, setAsOnMode] = useState<AsOnMode>('today')
+  const [asOnDate, setAsOnDate] = useState('')
+  const [reportKeys, setReportKeys] = useState<string[]>([])
 
   const apply = useCallback((data: AutoMailSettings) => {
     setSaved(data)
     setForm(data)
+    setAsOnMode(data.as_on?.mode ?? 'today')
+    setAsOnDate(data.as_on?.as_on_date ?? '')
+    setReportKeys((data.reports ?? []).filter((option) => option.selected).map((option) => option.key))
     setRepeatChoice(null)
     setToText(data.to.join(', '))
     setCcText(data.cc.join(', '))
@@ -289,8 +299,15 @@ export function AutoMailCard({
   const dirty = useMemo(() => {
     if (!saved || !current) return false
     const keys = ['enabled', 'mode', 'times_enabled', 'every_hours', 'every_start', 'days', 'month_days', 'times', 'to', 'cc', 'subject_template', 'intro_template', 'signature', 'send_when_unmapped', 'sender_user_id'] as const
-    return keys.some((key) => JSON.stringify(saved[key]) !== JSON.stringify(current[key]))
-  }, [saved, current])
+    const contentChanged =
+      (saved.as_on !== undefined &&
+        (asOnMode !== saved.as_on.mode || (asOnMode === 'date' && asOnDate !== (saved.as_on.as_on_date ?? '')))) ||
+      (saved.reports !== undefined &&
+        JSON.stringify(reportKeys) !== JSON.stringify(saved.reports.filter((o) => o.selected).map((o) => o.key)))
+    return contentChanged || keys.some((key) => JSON.stringify(saved[key]) !== JSON.stringify(current[key]))
+  }, [saved, current, asOnMode, asOnDate, reportKeys])
+  const contentIncomplete = (asOnMode === 'date' && !asOnDate && saved?.as_on !== undefined) ||
+    (saved?.reports !== undefined && reportKeys.length === 0)
 
   if (loadError) return <ErrorBanner>{loadError}</ErrorBanner>
   if (!form || !saved || !current) return null
@@ -342,6 +359,8 @@ export function AutoMailCard({
         signature: current.signature,
         send_when_unmapped: current.send_when_unmapped,
         sender_user_id: current.sender_user_id,
+        ...(saved?.as_on ? { as_on_mode: asOnMode, as_on_date: asOnMode === 'date' ? asOnDate || null : null } : {}),
+        ...(saved?.reports ? { reports: reportKeys } : {}),
       })
       apply(next)
       setMessage({ ok: true, text: 'Saved.' })
@@ -357,25 +376,49 @@ export function AutoMailCard({
 
   return (
     <GlassCard padding="lg" className="flex flex-col gap-5">
-      <div className="flex items-center gap-4">
-        {step !== undefined ? (
-          <StepBadge step={step} />
-        ) : (
-          <span className="icon-tile grid h-12 w-12 place-items-center rounded-xl">
-            <Mail className="h-5 w-5" />
-          </span>
-        )}
-        <div>
-          <p className="text-sm font-semibold text-accent">Schedule</p>
+      <div className="flex flex-wrap items-start gap-4">
+        <span className="icon-tile grid h-12 w-12 shrink-0 place-items-center rounded-xl">
+          <Mail className="h-5 w-5" />
+        </span>
+        <div className="min-w-0 flex-1 basis-56">
+          <p className="text-sm font-semibold text-accent">Automatic mail</p>
           <h2 className="mt-1.5 font-display text-xl font-semibold tracking-[-0.025em] text-ink">
-            {step !== undefined ? 'When it goes out, who gets it, what it says' : 'Automatic email'}
+            {saved.name ? 'Set up this schedule' : 'Automatic email'}
           </h2>
           <p className="mt-1 text-sm leading-6 text-ink-dim">
             {description ??
               `Mails the ${reportName} to the recipients below on the days and time you choose, using the latest data from the ERP. The report is built when the time arrives, so allow a few minutes before it lands.`}
           </p>
         </div>
+        {saved.name && <span className="max-w-full sm:ml-auto"><ScheduleTag name={saved.name} /></span>}
       </div>
+
+      {(saved.as_on || saved.reports) && (
+        <div className="flex flex-col gap-4 rounded-2xl border border-stroke/70 bg-surface/40 p-4">
+          <h3 className="text-sm font-semibold text-ink">What it sends</h3>
+          {saved.reports && (
+            <div className="flex flex-col gap-2">
+              <span className="text-xs font-medium text-ink-faint">Reports</span>
+              <ReportsChoice
+                options={saved.reports}
+                selected={reportKeys}
+                onChange={(keys) => { setReportKeys(keys); setMessage(null) }}
+              />
+            </div>
+          )}
+          {saved.as_on && (
+            <div className="flex flex-col gap-2">
+              <span className="text-xs font-medium text-ink-faint">The date the report is as on</span>
+              <AsOnChoice
+                mode={asOnMode}
+                date={asOnDate}
+                setting={saved.as_on}
+                onChange={(mode, date) => { setAsOnMode(mode); setAsOnDate(date); setMessage(null) }}
+              />
+            </div>
+          )}
+        </div>
+      )}
 
       {!saved.sender_configured && (
         <div className="flex items-start gap-3 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-700">
@@ -455,7 +498,7 @@ export function AutoMailCard({
         <>
       <div className="flex flex-col gap-2">
         <span className="text-sm font-medium text-ink-dim">Repeat</span>
-        <div className="segmented-control self-start">
+        <div className="segmented-control max-w-full self-start">
           {([
             ['daily', 'Daily: every day'],
             ['weekly', 'Weekly: on days of the week'],
@@ -742,8 +785,8 @@ export function AutoMailCard({
       )}
 
       <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
-        <Button loading={saving} disabled={!dirty} onClick={() => void handleSave()}>
-          Save
+        <Button loading={saving} disabled={!dirty || contentIncomplete} onClick={() => void handleSave()}>
+          {saved.name ? 'Save this schedule' : 'Save'}
         </Button>
       </div>
 

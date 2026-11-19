@@ -179,22 +179,23 @@ class PointInTimeQueryTests(unittest.TestCase):
 
 
 class RoutesTests(unittest.TestCase):
-    def test_the_mail_is_set_up_per_plan_and_the_application_has_no_schedule_of_its_own(self):
+    def test_the_mail_is_set_up_per_schedule_and_the_application_has_no_schedule_of_its_own(self):
         from app.main import app
 
         prefix = "/api/tools/debtors-reports-auto-mailer"
         paths = {(path[len(prefix):], method)
                  for path, item in app.openapi()["paths"].items() if path.startswith(prefix) for method in item}
-        for route in (("/plans", "get"), ("/plans", "post"), ("/plans/{plan_id}", "get"), ("/plans/{plan_id}", "patch"),
-                      ("/plans/{plan_id}", "delete"), ("/plans/{plan_id}/reports", "put"),
-                      ("/plans/{plan_id}/as-on", "put"), ("/plans/{plan_id}/auto-mail", "put"),
-                      ("/plans/{plan_id}/auto-mail/log", "get"), ("/plans/{plan_id}/auto-mail/send-now", "post"),
-                      ("/plans/{plan_id}/mail/preview", "post"), ("/plans/{plan_id}/mail/confirm-send", "post"),
+        one = "/schedules/{schedule_id}"
+        for route in (("/schedules", "get"), ("/schedules", "post"), (one, "get"), (one, "patch"), (one, "delete"),
+                      (one + "/auto-mail", "get"), (one + "/auto-mail", "put"), (one + "/auto-mail/log", "get"),
+                      (one + "/mail/defaults", "get"), (one + "/mail/preview", "post"),
+                      (one + "/mail/confirm-send", "post"), (one + "/mappings/locations", "get"),
                       ("/mappings/locations", "get"), ("/mappings/accounts-incharge", "get")):
             self.assertIn(route, paths)
-        # nothing is sent without saying which plan
+        # nothing is sent without saying which schedule, and the only way to send one now is the preview
         for route in (("/auto-mail", "get"), ("/auto-mail", "put"), ("/auto-mail/send-now", "post"),
-                      ("/mail/preview", "post"), ("/reports", "get"), ("/as-on", "get")):
+                      ("/mail/preview", "post"), (one + "/auto-mail/send-now", "post"),
+                      (one + "/reports", "get"), (one + "/as-on", "get")):
             self.assertNotIn(route, paths)
 
     def test_the_retired_meeting_application_has_no_routes_and_no_access_key(self):

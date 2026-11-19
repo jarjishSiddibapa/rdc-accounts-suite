@@ -70,6 +70,15 @@ def get_db():
         db.close()
 
 
+def _rename_debtors_mail_plan_table() -> None:
+    """The Debtors Reports' "mail plans" table is now every application's mail schedules: rename it, keeping its
+    rows (and so their ids, which the send log refers to)."""
+    tables = set(inspect(engine).get_table_names())
+    if "debtors_mail_plan" in tables and "mail_schedule" not in tables:
+        with engine.begin() as connection:
+            connection.execute(text("ALTER TABLE `debtors_mail_plan` RENAME TO `mail_schedule`"))
+
+
 def _apply_additive_schema_updates() -> None:
     """Add non-destructive columns/constraints missing from older installs."""
     inspector = inspect(engine)
@@ -247,6 +256,19 @@ def _apply_additive_schema_updates() -> None:
                         text(f"ALTER TABLE `scheduled_report_mail` ADD COLUMN `{column}` {definition}")
                     )
 
+    if "mail_schedule" in existing_tables:
+        schedule_columns = {column["name"] for column in inspector.get_columns("mail_schedule")}
+        # the table began as the Debtors Reports' "mail plans": its rows keep that application
+        for column, definition in (
+            ("app_key", "VARCHAR(64) NOT NULL DEFAULT 'debtors-reports-auto-mailer'"),
+            ("sender_user_id", "INT NULL"),
+        ):
+            if column not in schedule_columns:
+                with engine.begin() as connection:
+                    connection.execute(text(f"ALTER TABLE `mail_schedule` ADD COLUMN `{column}` {definition}"))
+                    if column == "app_key":
+                        connection.execute(text("CREATE INDEX `ix_mail_schedule_app_key` ON `mail_schedule` (`app_key`)"))
+
     if "scheduled_report_mail_log" in existing_tables:
         log_columns = {column["name"] for column in inspector.get_columns("scheduled_report_mail_log")}
         if "plan_id" not in log_columns:
@@ -408,6 +430,7 @@ def _init_db_unlocked():
     from app.services.ultrafine_fse_reminder import models as _ultrafine_fse_reminder_models  # noqa: F401
     from app.services.ultrafine_cashflow import models as _ultrafine_cashflow_models  # noqa: F401
 
+    _rename_debtors_mail_plan_table()
     Base.metadata.create_all(bind=engine)
     _apply_additive_schema_updates()
 
@@ -422,13 +445,13 @@ def _init_db_unlocked():
     from app.services.creditors_ageing import mapping_store as creditors_ageing_mappings
     from app.services.trial_balance_formatter import mapping_store as trial_balance_formatter_mappings
     from app.services.ultrafine_cashflow import seed as ultrafine_cashflow_seed
-    from app.services.debtors_mailer import plans as debtors_plans
+    from app.services import mail_schedules
 
     db = SessionLocal()
     try:
         auth.seed_initial_users(db)
         seed_applications(db)
-        debtors_plans.migrate_legacy(db)
+        mail_schedules.migrate_all_legacy(db)
         system_mailer.seed_system_email(db)
         iocl_monitor.seed_settings(db)
         invoice_booking_monitor.seed_settings(db)
