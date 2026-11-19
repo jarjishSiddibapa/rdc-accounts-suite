@@ -196,6 +196,63 @@ class SuppliedTrialBalanceParityTests(unittest.TestCase):
                         )
 
 
+class DrCrSignTests(unittest.TestCase):
+    """Dr is always positive and Cr always negative, in every amount column."""
+
+    def build_raw(self, path: Path) -> None:
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "June26"
+        for row, text in enumerate(
+            ["Some Co", "Address 1", "Address 2", "GSTIN 123", "Trial Balance", "1-Apr-26 to 30-Jun-26"], start=1
+        ):
+            ws.cell(row, 1, text)
+        ws.cell(7, 1, "Particulars")
+        ws.cell(8, 3, "Transactions")
+        ws.cell(9, 2, "Balance")
+        ws.cell(9, 3, "Debit")
+        ws.cell(9, 4, "Credit")
+        ws.cell(9, 5, "Balance")
+        for row, values in enumerate(
+            [
+                ("Fixed Assets", 100.0, 50.0, 10.0, 140.0),       # a Dr ledger
+                ("Capital Account", 500.0, 0.0, 100.0, 600.0),    # a Cr ledger
+                ("Grand Total", None, 50.0, 110.0, None),
+            ],
+            start=10,
+        ):
+            for column, value in enumerate(values, start=1):
+                ws.cell(row, column, value)
+        wb.save(path)
+
+    def test_amounts_carry_their_dr_cr_sign(self):
+        with tempfile.TemporaryDirectory() as directory:
+            raw, output = Path(directory) / "raw.xlsx", Path(directory) / "out.xlsx"
+            self.build_raw(raw)
+            result = processor.generate_report(
+                str(raw), str(output), {"FIXED ASSETS": "Dr", "CAPITAL ACCOUNT": "Cr"}
+            )
+            self.assertFalse(result["needs_mapping_fix"])
+            sheet = openpyxl.load_workbook(output, data_only=False)["June26"]
+            values = openpyxl.load_workbook(output, data_only=True)["June26"]
+
+            # Dr ledger: everything positive except the Credit amount.
+            self.assertEqual([sheet.cell(14, c).value for c in (3, 4, 5, 6)], [100.0, 50.0, -10.0, 140.0])
+            # Cr ledger: Opening, Credit and Closing negative; its (nil) Debit stays 0.
+            self.assertEqual([sheet.cell(15, c).value for c in (3, 4, 5, 6)], [-500.0, 0.0, -100.0, -600.0])
+            # Opening + Debit + Credit = Closing, signed, on every ledger.
+            for row in (14, 15):
+                opening, debit, credit, closing = (sheet.cell(row, c).value for c in (3, 4, 5, 6))
+                self.assertAlmostEqual(opening + debit + credit, closing)
+            # Grand Total: Debits positive, Credits negative.
+            self.assertEqual([sheet.cell(16, c).value for c in (4, 5)], [50.0, -110.0])
+            # The TB Balance column is the signed Closing Balance.
+            self.assertEqual(sheet["G14"].value, "=F14")
+            self.assertEqual(sheet["G15"].value, "=F15")
+            self.assertEqual([values["G14"].value, values["G15"].value, values["G12"].value], [140.0, -600.0, -460.0])
+            self.assertAlmostEqual(result["tb_balance"], -460.0)
+
+
 class PreflightMappingCheckTests(unittest.TestCase):
     """generate_report must return needs_mapping_fix=True and skip the
     (expensive) formatted-workbook build entirely when any ledger has no

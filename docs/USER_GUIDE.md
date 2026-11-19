@@ -56,7 +56,8 @@ truth for every user; archived mappings remain restorable.
 Upload the raw Tally trial-balance workbook and choose **Format trial balance**.
 The application detects the report period, reproduces the approved Ultrafine
 letterhead and report structure, preserves the original ledger figures and
-formatting, adds the signed TB Balance formula column, highlights primary groups
+formatting, shows every amount with its Dr/Cr sign (Dr positive, Cr negative),
+adds the signed TB Balance formula column, highlights primary groups
 in yellow and subgroup totals in orange, and downloads a date-based workbook.
 Formula results are cached so totals are visible immediately without Excel COM.
 

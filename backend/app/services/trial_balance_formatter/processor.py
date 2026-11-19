@@ -27,10 +27,13 @@ one signal drives everything else here:
 - indent > 0, nothing      an ordinary ledger account - no highlight.
   deeper follows
 
-The "TB Balance" column is the Closing Balance with its natural Dr/Cr sign
-restored: positive for a Debit-natured ledger, negative (parenthesised, via
-Excel's Accounting number format) for a Credit-natured one. Tally's raw export
-flattens the figures into unsigned magnitudes. The 202 classifications proven
+Every amount carries its Dr/Cr sign - Dr positive, Cr negative. Tally's raw export
+flattens the figures into unsigned magnitudes, so they are restored here: the Debit
+column stays positive, the Credit column is negative, and Opening and Closing take the
+sign of the ledger's nature (positive for a Debit-natured ledger, negative for a
+Credit-natured one). Opening + Debit + Credit = Closing then holds for every row. The
+"TB Balance" column is that signed Closing Balance (parenthesised when negative, via
+Excel's Accounting number format). The 202 classifications proven
 by the supplied reference workbook therefore live centrally in MySQL and are
 authoritative for every user and worker. For a newly encountered ledger, the
 processor proposes a provisional classification from the arithmetic identity:
@@ -390,6 +393,42 @@ def _classify_rows(rows: list[dict], nature_map: dict[str, dict | str]):
     return warnings, needs_review
 
 
+def _negate_cell(ws, coordinate: str, cached_values: dict[str, float]) -> None:
+    """Flip the sign of one amount cell: a number, or a formula (wrapped so any
+    arithmetic inside it is negated as a whole). Blank/text cells and zero are left alone."""
+    cell = ws[coordinate]
+    value = cell.value
+    if isinstance(value, bool):
+        return
+    if isinstance(value, (int, float)):
+        if value:
+            cell.value = -value
+    elif isinstance(value, str) and value.startswith("="):
+        cell.value = f"=-({value[1:]})"
+    else:
+        return
+    if coordinate in cached_values and cached_values[coordinate]:
+        cached_values[coordinate] = -cached_values[coordinate]
+
+
+def _apply_dr_cr_signs(ws, rows: list[dict], grand_total_row: int, cached_values: dict[str, float]) -> None:
+    """Give every amount its Dr/Cr sign: Dr positive, Cr negative.
+
+    Tally exports unsigned magnitudes. A Debit is a Dr amount (kept positive) and a
+    Credit is a Cr amount (made negative). Opening and Closing balances take the side
+    of the ledger's nature - positive for a Dr-natured ledger, negative for a Cr one -
+    so Opening + Debit + Credit = Closing holds for every row, signed.
+    """
+    for index, row in enumerate(rows):
+        row_number = 14 + index
+        _negate_cell(ws, f"E{row_number}", cached_values)
+        if row["nature"] == "Cr":
+            _negate_cell(ws, f"C{row_number}", cached_values)
+            _negate_cell(ws, f"F{row_number}", cached_values)
+    # The Grand Total row: total Debits stay positive, total Credits are negative.
+    _negate_cell(ws, f"E{grand_total_row}", cached_values)
+
+
 def _set_fill(cell, rgb: str | None):
     if rgb:
         cell.fill = PatternFill(fill_type="solid", fgColor=rgb)
@@ -612,7 +651,9 @@ def generate_report(
         tb_cell.number_format = _ACCOUNTING_FORMAT
         tb_cell.border = Border(right=_THIN)
         if row["gets_balance"]:
-            tb_cell.value = f"=-F{row_number}" if row["nature"] == "Cr" else f"=F{row_number}"
+            # Column F already carries the sign (see _apply_dr_cr_signs), so the
+            # TB Balance is simply that signed closing balance.
+            tb_cell.value = f"=F{row_number}"
             signed_value = row["closing"] if row["nature"] == "Dr" else -row["closing"]
             cached_values[tb_cell.coordinate] = signed_value
             subtotal_total += signed_value
@@ -651,6 +692,8 @@ def generate_report(
             ws[f"E{grand_total_row}"] = "=3169173038.24+2500000+2475000"
             cached_values[f"E{grand_total_row}"] = raw["grand_total_credit"]
             reference_adjustments_applied = True
+
+    _apply_dr_cr_signs(ws, rows, grand_total_row, cached_values)
 
     # Preserve the small reference cross-check block too when all of its
     # named ledgers exist.  It is kept outside the formatted report area just
