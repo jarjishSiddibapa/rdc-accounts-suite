@@ -27,23 +27,22 @@ one signal drives everything else here:
 - indent > 0, nothing      an ordinary ledger account - no highlight.
   deeper follows
 
-Every amount carries its Dr/Cr sign - Dr positive, Cr negative. Tally's raw export
-flattens the figures into unsigned magnitudes, so they are restored here: the Debit
-column stays positive, the Credit column is negative, and Opening and Closing take the
-sign of the ledger's nature (positive for a Debit-natured ledger, negative for a
-Credit-natured one). Opening + Debit + Credit = Closing then holds for every row. The
-"TB Balance" column is that signed Closing Balance (parenthesised when negative, via
-Excel's Accounting number format). The 202 classifications proven
-by the supplied reference workbook therefore live centrally in MySQL and are
-authoritative for every user and worker. For a newly encountered ledger, the
-processor proposes a provisional classification from the arithmetic identity:
+The "TB Balance" column is the Closing Balance with its Dr/Cr sign restored: Dr
+positive, Cr negative (parenthesised, via Excel's Accounting number format). It is the
+only column that carries the sign - Opening, Debit, Credit and Closing stay exactly as
+Tally exported them (unsigned magnitudes).
 
-    Opening + Debit - Credit == Closing      (a Debit-natured ledger)
-    Opening - Debit + Credit == Closing      (a Credit-natured ledger)
-
-is true. Ambiguous or conflicting new rows fall back to their primary group's
-usual nature. Every new ledger is visibly flagged for review and can be saved
-once in the mapping editor, after which all later runs use that decision.
+Which side a ledger's Closing Balance is on is read from that period's own figures
+whenever they prove it (``_closing_side``): the Opening is tried on both sides, because a
+balance can change side during the period, and the Closing on both sides, and when
+exactly one side satisfies Opening + Debit - Credit == Closing that side is used. This
+beats a saved classification, because the same ledger can sit on either side from one
+month to the next. Only when the figures cannot decide (no movement, or they fit both
+sides) does the saved classification decide. The 202 classifications proven by the
+supplied reference workbook live centrally in MySQL for that purpose. For a newly
+encountered ledger the figures decide the same way; if they can't, it falls back to its
+primary group's usual nature. Every new ledger is visibly flagged for review and can be
+saved once in the mapping editor, after which all later runs use that decision.
 """
 
 from __future__ import annotations
@@ -65,7 +64,7 @@ _ACCOUNTING_FORMAT = '_(* #,##0_);_(* \\(#,##0\\);_(* "-"??_);_(@_)'
 _THIN = Side(style="thin", color=Color(indexed=64))
 _THIN_AUTO = Side(style="thin", color=Color(auto=True))
 _STANDARD_LETTERHEAD = (
-    "ULTRAFINE MINERAL & ADMIXTURES PVT LTD (ANDHRA)",
+    "ULTRAFINE MINERAL & ADMIXTURES PVT LTD",
     "Survey Number 175a, D No. 8-34, Parwada Mandal",
     "Ntpc Simhadri Township, Anakapalli, Andhra Pradesh 531020",
 )
@@ -340,6 +339,23 @@ def _reconcile_nature(opening: float, debit: float, credit: float, closing: floa
     return None, "conflict"
 
 
+def _closing_side(opening: float, debit: float, credit: float, closing: float):
+    """The side (Dr/Cr) the Closing Balance is on, when the figures themselves prove it.
+
+    Tally prints unsigned magnitudes, so the side has to be read back from the
+    arithmetic. A balance can change side during the period (an Opening that was
+    Credit and a Closing that is Debit), so the Opening is tried on both sides as
+    well as the Closing. Returns None when the figures fit both sides or neither
+    (for example a ledger with no movement) - the saved classification decides then.
+    """
+    sides = set()
+    for opening_sign in (1, -1):
+        for closing_sign in (1, -1):
+            if abs(opening_sign * opening + debit - credit - closing_sign * closing) <= _TOLERANCE:
+                sides.add("Dr" if closing_sign > 0 else "Cr")
+    return sides.pop() if len(sides) == 1 else None
+
+
 def _classify_rows(rows: list[dict], nature_map: dict[str, dict | str]):
     """Attach 'is_top', 'has_children', 'fill', 'gets_balance', 'nature' to
     every row in place. Returns (warnings, needs_review)."""
@@ -357,23 +373,27 @@ def _classify_rows(rows: list[dict], nature_map: dict[str, dict | str]):
             row["fill"] = _ORANGE
         else:
             row["fill"] = None
-        # Every known reference ledger has an authoritative centralized
-        # classification.  Arithmetic remains the safe fallback for a new
-        # ledger, but never overrides an administrator's deliberate mapping.
+        # The side a balance is on can change from one month to the next, so when
+        # this period's own figures prove the Closing Balance's side, that is the
+        # sign used. The saved classification decides only when the figures can't
+        # (no movement, or they fit both sides) - it still gives the sub-group /
+        # fill structure either way.
+        proven_side = _closing_side(row["opening"], row["debit"], row["credit"], row["closing"])
         key = row["name"].strip().upper()
         mapped = nature_map.get(key)
         if isinstance(mapped, str):
             mapped = {"nature": mapped, "is_subgroup": False}
         if mapped:
-            row["nature"] = mapped.get("nature", "Dr")
+            row["nature"] = proven_side or mapped.get("nature", "Dr")
             row["has_children"] = bool(mapped.get("is_subgroup", False)) and not row["is_top"]
             row["fill"] = _YELLOW if row["is_top"] else (_ORANGE if row["has_children"] else None)
             row["gets_balance"] = not row["has_children"]
             continue
 
         nature, status = _reconcile_nature(row["opening"], row["debit"], row["credit"], row["closing"])
-        if status is True:
-            row["nature"] = nature
+        if proven_side:
+            row["nature"] = proven_side
+            status = True
         else:
             guessed = _PRIMARY_GROUP_GUESS.get(current_primary_group, "Dr")
             row["nature"] = guessed
@@ -391,42 +411,6 @@ def _classify_rows(rows: list[dict], nature_map: dict[str, dict | str]):
                 "(checked to within 1 paisa). Verify this row manually in the downloaded file."
             )
     return warnings, needs_review
-
-
-def _negate_cell(ws, coordinate: str, cached_values: dict[str, float]) -> None:
-    """Flip the sign of one amount cell: a number, or a formula (wrapped so any
-    arithmetic inside it is negated as a whole). Blank/text cells and zero are left alone."""
-    cell = ws[coordinate]
-    value = cell.value
-    if isinstance(value, bool):
-        return
-    if isinstance(value, (int, float)):
-        if value:
-            cell.value = -value
-    elif isinstance(value, str) and value.startswith("="):
-        cell.value = f"=-({value[1:]})"
-    else:
-        return
-    if coordinate in cached_values and cached_values[coordinate]:
-        cached_values[coordinate] = -cached_values[coordinate]
-
-
-def _apply_dr_cr_signs(ws, rows: list[dict], grand_total_row: int, cached_values: dict[str, float]) -> None:
-    """Give every amount its Dr/Cr sign: Dr positive, Cr negative.
-
-    Tally exports unsigned magnitudes. A Debit is a Dr amount (kept positive) and a
-    Credit is a Cr amount (made negative). Opening and Closing balances take the side
-    of the ledger's nature - positive for a Dr-natured ledger, negative for a Cr one -
-    so Opening + Debit + Credit = Closing holds for every row, signed.
-    """
-    for index, row in enumerate(rows):
-        row_number = 14 + index
-        _negate_cell(ws, f"E{row_number}", cached_values)
-        if row["nature"] == "Cr":
-            _negate_cell(ws, f"C{row_number}", cached_values)
-            _negate_cell(ws, f"F{row_number}", cached_values)
-    # The Grand Total row: total Debits stay positive, total Credits are negative.
-    _negate_cell(ws, f"E{grand_total_row}", cached_values)
 
 
 def _set_fill(cell, rgb: str | None):
@@ -553,6 +537,7 @@ def generate_report(
             copy_cell(source_ws.cell(raw["grand_total_row"], source_col), ws.cell(grand_total_row, source_col + 1))
     source_wb.close()
 
+    ws["B13"] = "Particulars"
     ws["B2"] = _STANDARD_LETTERHEAD[0]
     ws["B3"] = _STANDARD_LETTERHEAD[1]
     ws["B4"] = _STANDARD_LETTERHEAD[2]
@@ -651,9 +636,8 @@ def generate_report(
         tb_cell.number_format = _ACCOUNTING_FORMAT
         tb_cell.border = Border(right=_THIN)
         if row["gets_balance"]:
-            # Column F already carries the sign (see _apply_dr_cr_signs), so the
-            # TB Balance is simply that signed closing balance.
-            tb_cell.value = f"=F{row_number}"
+            # Only this column carries the sign; the Tally figures stay as exported.
+            tb_cell.value = f"=-F{row_number}" if row["nature"] == "Cr" else f"=F{row_number}"
             signed_value = row["closing"] if row["nature"] == "Dr" else -row["closing"]
             cached_values[tb_cell.coordinate] = signed_value
             subtotal_total += signed_value
@@ -692,8 +676,6 @@ def generate_report(
             ws[f"E{grand_total_row}"] = "=3169173038.24+2500000+2475000"
             cached_values[f"E{grand_total_row}"] = raw["grand_total_credit"]
             reference_adjustments_applied = True
-
-    _apply_dr_cr_signs(ws, rows, grand_total_row, cached_values)
 
     # Preserve the small reference cross-check block too when all of its
     # named ledgers exist.  It is kept outside the formatted report area just

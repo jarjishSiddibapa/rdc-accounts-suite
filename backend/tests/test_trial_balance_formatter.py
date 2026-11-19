@@ -197,7 +197,18 @@ class SuppliedTrialBalanceParityTests(unittest.TestCase):
 
 
 class DrCrSignTests(unittest.TestCase):
-    """Dr is always positive and Cr always negative, in every amount column."""
+    """Only the TB Balance column is signed (Dr positive, Cr negative); the side comes from
+    that month's own figures whenever they prove it, the saved classification otherwise."""
+
+    ROWS = [
+        # name, opening, debit, credit, closing, saved nature
+        ("Fixed Assets", 100.0, 50.0, 10.0, 140.0, "Dr"),
+        ("Capital Account", 500.0, 0.0, 100.0, 600.0, "Cr"),
+        ("Stores & Spares", 0.0, 300.0, 100.0, 200.0, "Cr"),   # saved Cr, but the figures prove Dr
+        ("TDS Payable", 28.0, 661.0, 185.0, 448.0, "Cr"),      # Opening was Cr, Closing is Dr
+        ("Round Off", 0.0, 20.0, 40.0, 20.0, "Dr"),            # saved Dr, but the figures prove Cr
+        ("Dormant", 0.0, 0.0, 0.0, 0.0, "Cr"),                 # no movement: the saved nature stands
+    ]
 
     def build_raw(self, path: Path) -> None:
         wb = openpyxl.Workbook()
@@ -213,44 +224,47 @@ class DrCrSignTests(unittest.TestCase):
         ws.cell(9, 3, "Debit")
         ws.cell(9, 4, "Credit")
         ws.cell(9, 5, "Balance")
-        for row, values in enumerate(
-            [
-                ("Fixed Assets", 100.0, 50.0, 10.0, 140.0),       # a Dr ledger
-                ("Capital Account", 500.0, 0.0, 100.0, 600.0),    # a Cr ledger
-                ("Grand Total", None, 50.0, 110.0, None),
-            ],
-            start=10,
-        ):
-            for column, value in enumerate(values, start=1):
+        for row, (name, opening, debit, credit, closing, _nature) in enumerate(self.ROWS, start=10):
+            for column, value in enumerate((name, opening, debit, credit, closing), start=1):
                 ws.cell(row, column, value)
+        total_row = 10 + len(self.ROWS)
+        ws.cell(total_row, 1, "Grand Total")
+        ws.cell(total_row, 3, sum(r[2] for r in self.ROWS))
+        ws.cell(total_row, 4, sum(r[3] for r in self.ROWS))
         wb.save(path)
 
-    def test_amounts_carry_their_dr_cr_sign(self):
+    def test_only_tb_balance_is_signed_and_the_side_follows_the_figures(self):
         with tempfile.TemporaryDirectory() as directory:
             raw, output = Path(directory) / "raw.xlsx", Path(directory) / "out.xlsx"
             self.build_raw(raw)
-            result = processor.generate_report(
-                str(raw), str(output), {"FIXED ASSETS": "Dr", "CAPITAL ACCOUNT": "Cr"}
-            )
+            nature_map = {name.upper(): nature for name, *_rest, nature in self.ROWS}
+            result = processor.generate_report(str(raw), str(output), nature_map)
             self.assertFalse(result["needs_mapping_fix"])
             sheet = openpyxl.load_workbook(output, data_only=False)["June26"]
             values = openpyxl.load_workbook(output, data_only=True)["June26"]
 
-            # Dr ledger: everything positive except the Credit amount.
-            self.assertEqual([sheet.cell(14, c).value for c in (3, 4, 5, 6)], [100.0, 50.0, -10.0, 140.0])
-            # Cr ledger: Opening, Credit and Closing negative; its (nil) Debit stays 0.
-            self.assertEqual([sheet.cell(15, c).value for c in (3, 4, 5, 6)], [-500.0, 0.0, -100.0, -600.0])
-            # Opening + Debit + Credit = Closing, signed, on every ledger.
-            for row in (14, 15):
-                opening, debit, credit, closing = (sheet.cell(row, c).value for c in (3, 4, 5, 6))
-                self.assertAlmostEqual(opening + debit + credit, closing)
-            # Grand Total: Debits positive, Credits negative.
-            self.assertEqual([sheet.cell(16, c).value for c in (4, 5)], [50.0, -110.0])
-            # The TB Balance column is the signed Closing Balance.
-            self.assertEqual(sheet["G14"].value, "=F14")
-            self.assertEqual(sheet["G15"].value, "=F15")
-            self.assertEqual([values["G14"].value, values["G15"].value, values["G12"].value], [140.0, -600.0, -460.0])
-            self.assertAlmostEqual(result["tb_balance"], -460.0)
+            # Opening / Debit / Credit / Closing stay exactly as Tally exported them.
+            for index, (_name, opening, debit, credit, closing, _nature) in enumerate(self.ROWS):
+                self.assertEqual([sheet.cell(14 + index, c).value for c in (3, 4, 5, 6)],
+                                 [opening, debit, credit, closing])
+            # TB Balance: Dr positive, Cr negative.
+            self.assertEqual(
+                [sheet.cell(14 + i, 7).value for i in range(len(self.ROWS))],
+                ["=F14", "=-F15", "=F16", "=F17", "=-F18", "=-F19"],
+            )
+            expected = [140.0, -600.0, 200.0, 448.0, -20.0, 0.0]
+            for index, want in enumerate(expected):
+                self.assertAlmostEqual(values.cell(14 + index, 7).value, want)
+            self.assertAlmostEqual(values["G12"].value, sum(expected))
+            self.assertAlmostEqual(result["tb_balance"], sum(expected))
+
+    def test_closing_side_reads_the_figures(self):
+        side = processor._closing_side
+        self.assertEqual(side(100, 50, 10, 140), "Dr")
+        self.assertEqual(side(500, 0, 100, 600), "Cr")
+        self.assertEqual(side(28.13, 661.79, 185.01, 448.65), "Dr")   # opening Cr, closing Dr
+        self.assertIsNone(side(0, 0, 0, 0))                            # no movement: undecided
+        self.assertIsNone(side(0, 5, 5, 0))                            # nets to nil: undecided
 
 
 class PreflightMappingCheckTests(unittest.TestCase):
