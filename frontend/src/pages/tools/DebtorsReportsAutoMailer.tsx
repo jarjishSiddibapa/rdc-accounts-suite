@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { Copy, MailCheck, Pencil, Plus, Trash2 } from 'lucide-react'
 import { AppShell } from '@/components/AppShell'
@@ -9,7 +9,8 @@ import { Modal } from '@/components/Modal'
 import { MappingTable, type MappingColumn, type MappingRow } from '@/components/MappingTable'
 import { LoadingNotice } from '@/components/LoadingNotice'
 import { AutoMailCard, describeSchedule, repeatOf, type ScheduleFields } from '@/components/AutoMailCard'
-import { AsOnCard, describeAsOn, type AsOnSetting } from '@/components/AsOnCard'
+import { AsOnCard, describeAsOn, type AsOnMode, type AsOnSetting } from '@/components/AsOnCard'
+import { DatePicker } from '@/components/TemporalPicker'
 import { SendNowCard } from '@/components/SendNowCard'
 import { ReportsCard } from '@/components/ReportsCard'
 import { ReportMailPanel, type MappingFix } from '@/components/ReportMailPanel'
@@ -19,6 +20,16 @@ import { cn } from '@/utils/cn'
 import { segmentClass } from '@/utils/segment'
 
 const BASE = '/tools/debtors-reports-auto-mailer'
+const REPORT_LABELS: Record<string, string> = {
+  ageing: 'Ageing with GST Invoice Numbers',
+  unapplied: 'Unapplied Receipts',
+  untagged: 'Untagged Invoices and Below 1k Invoices',
+}
+const AS_ON_CHOICES: { mode: AsOnMode; label: string }[] = [
+  { mode: 'today', label: 'Today' },
+  { mode: 'last_month_end', label: 'Last day of last month' },
+  { mode: 'date', label: 'A date I pick' },
+]
 const REPORT_NAMES: Record<string, string> = {
   ageing: 'the ageing with GST invoice numbers',
   unapplied: 'the Unapplied Receipts report',
@@ -395,6 +406,126 @@ function DeleteDialog({
   )
 }
 
+/**
+ * The preview-and-send panel of a plan, with the choices of a single send: which reports and the as-on date
+ * (everything else - recipients, subject, text - is editable in the panel itself). They start from what the plan
+ * has saved and change nothing on the plan.
+ */
+function PlanMailPanel({ plan, base }: { plan: PlanSummary; base: string }) {
+  const [reports, setReports] = useState<string[]>(plan.reports)
+  const [mode, setMode] = useState<AsOnMode>(plan.as_on.mode)
+  const [date, setDate] = useState(plan.as_on.as_on_date ?? '')
+
+  // the plan's saved choices changed (a Save above): start from them again
+  const savedKey = JSON.stringify([plan.reports, plan.as_on.mode, plan.as_on.as_on_date])
+  useEffect(() => {
+    setReports(plan.reports)
+    setMode(plan.as_on.mode)
+    setDate(plan.as_on.as_on_date ?? '')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [savedKey])
+
+  const changed =
+    reports.length !== plan.reports.length ||
+    !reports.every((key) => plan.reports.includes(key)) ||
+    mode !== plan.as_on.mode ||
+    (mode === 'date' && date !== (plan.as_on.as_on_date ?? ''))
+  const asOnShown = mode === 'today' ? plan.as_on.today : mode === 'last_month_end' ? plan.as_on.last_month_end : date
+
+  const extraBody = useMemo(
+    () => ({ reports, as_on_mode: mode, as_on_date: mode === 'date' ? date || null : null }),
+    [reports, mode, date],
+  )
+
+  const controls = (
+    <div className="flex flex-col gap-4 rounded-2xl border border-stroke/70 bg-surface/40 p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h3 className="text-sm font-semibold text-ink">For this send only</h3>
+          <p className="text-xs leading-5 text-ink-dim">
+            Starts from what this plan has saved. Change anything here and only this mail is affected; the plan
+            keeps its own settings.
+          </p>
+        </div>
+        {changed && (
+          <Button
+            variant="ghost"
+            onClick={() => {
+              setReports(plan.reports)
+              setMode(plan.as_on.mode)
+              setDate(plan.as_on.as_on_date ?? '')
+            }}
+          >
+            Back to the plan&rsquo;s settings
+          </Button>
+        )}
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <span className="text-xs font-medium text-ink-faint">Reports</span>
+        {Object.entries(REPORT_LABELS).map(([key, label]) => (
+          <label key={key} className="flex items-center gap-3 text-sm font-medium text-ink">
+            <input
+              type="checkbox"
+              className="h-4 w-4 accent-accent"
+              checked={reports.includes(key)}
+              onChange={(event) =>
+                setReports((current) =>
+                  event.target.checked
+                    ? Object.keys(REPORT_LABELS).filter((item) => item === key || current.includes(item))
+                    : current.filter((item) => item !== key),
+                )
+              }
+            />
+            {label}
+          </label>
+        ))}
+        {reports.length === 0 && <ErrorBanner>Pick at least one report to send.</ErrorBanner>}
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <span className="text-xs font-medium text-ink-faint">The date the reports are as on</span>
+        <div className="segmented-control self-start">
+          {AS_ON_CHOICES.map((choice) => (
+            <button
+              key={choice.mode}
+              type="button"
+              onClick={() => setMode(choice.mode)}
+              className={segmentClass(mode === choice.mode)}
+              aria-pressed={mode === choice.mode}
+            >
+              {choice.label}
+            </button>
+          ))}
+        </div>
+        {mode === 'date' && (
+          <div className="max-w-xs">
+            <DatePicker value={date} max={plan.as_on.today} onValueChange={setDate} aria-label="As on date for this send" />
+          </div>
+        )}
+        <p className="text-sm font-semibold text-ink">
+          {mode === 'date' && !date
+            ? 'Pick the date.'
+            : `This mail: ${listOf(reports.map((key) => REPORT_LABELS[key] ?? key))}, as on ${formatIndianDate(asOnShown)}${mode === 'today' ? ' (the ERP as it is now)' : ''}.`}
+        </p>
+      </div>
+    </div>
+  )
+
+  return (
+    <ReportMailPanel
+      baseUrl={base}
+      reportName="Debtors Reports"
+      title="Mail this plan by hand"
+      description="Send this plan's mail once, outside its schedule, with whatever you change below: the reports, the as-on date, the people, the subject and the text. It builds the reports, shows you the exact mail, and sends it only when you confirm. It always goes from the system email, and the plan and its schedule are not affected."
+      unmappedHint='Map each value below and preview again, or preview anyway - they show as "-".'
+      mappingFixes={MAIL_MAPPING_FIXES}
+      extraControls={controls}
+      extraBody={extraBody}
+    />
+  )
+}
+
 /** One plan: its name and what it does in a sentence, then the steps that set it up, then ways to try it. */
 function PlanPanel({
   plan,
@@ -456,13 +587,7 @@ function PlanPanel({
         onSaved={onChanged}
       />
 
-      <ReportMailPanel
-        baseUrl={base}
-        reportName="Debtors Reports"
-        description="Try this plan, or send it once outside its schedule: builds the reports above as on the date above, shows you the exact mail, and sends it only when you confirm. It always goes from the system email, and the schedule is not affected."
-        unmappedHint='Map each value below and preview again, or preview anyway - they show as "-".'
-        mappingFixes={MAIL_MAPPING_FIXES}
-      />
+      <PlanMailPanel plan={plan} base={base} />
 
       <SendNowCard
         baseUrl={base}

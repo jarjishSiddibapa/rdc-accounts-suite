@@ -386,6 +386,70 @@ class BuilderWiringTests(_PlanCase):
                     job(1, ["a@rdc.in"], [], "s", "i")
 
 
+class ChangesForOneSendTests(_PlanCase):
+    """A mail sent by hand can change the reports and the as-on rule for that send only."""
+    TODAY = date(2026, 11, 13)
+
+    def setUp(self):
+        super().setUp()
+        self.plan = plans.create(self.db, "Meeting", None)
+        plans.save_reports(self.db, self.plan, ["ageing"], None)
+        plans.save_as_on(self.db, self.fresh(self.plan), "last_month_end", None, None, self.TODAY)
+
+    def test_nothing_changed_means_the_plan_as_saved(self):
+        self.assertIsNone(plans.validate_overrides(None, None, None, self.TODAY))
+        options = plans.run_options(self.plan.id, self.TODAY)
+        self.assertEqual((options["reports"], options["as_on"], options["one_off"]),
+                         (("ageing",), date(2026, 10, 31), False))
+
+    def test_the_reports_can_be_changed_for_one_send(self):
+        overrides = plans.validate_overrides(["untagged", "unapplied"], None, None, self.TODAY)
+        self.assertEqual(overrides, {"reports": ["unapplied", "untagged"]})              # the mail's order
+        options = plans.run_options(self.plan.id, self.TODAY, overrides)
+        self.assertEqual((options["reports"], options["as_on"], options["one_off"]),
+                         (("unapplied", "untagged"), date(2026, 10, 31), True))          # the date stays the plan's
+
+    def test_each_as_on_rule_can_be_chosen_for_one_send(self):
+        for mode, picked, expected_mode, expected in (
+            ("today", None, "today", None),                                  # the live ageing
+            ("last_month_end", None, "last_month_end", date(2026, 10, 31)),
+            ("date", date(2026, 9, 15), "date", date(2026, 9, 15)),
+        ):
+            with self.subTest(mode=mode):
+                overrides = plans.validate_overrides(None, mode, picked, self.TODAY)
+                options = plans.run_options(self.plan.id, self.TODAY, overrides)
+                self.assertEqual((options["as_on_mode"], options["as_on"]), (expected_mode, expected))
+                self.assertEqual(options["reports"], ("ageing",))              # the reports stay the plan's
+
+    def test_nothing_is_saved_on_the_plan(self):
+        plans.run_options(self.plan.id, self.TODAY, plans.validate_overrides(["untagged"], "date", date(2026, 9, 15), self.TODAY))
+        saved = self.fresh(self.plan)
+        self.assertEqual((plans.selected(saved), saved.as_on_mode, saved.as_on_date), (("ageing",), "last_month_end", None))
+
+    def test_bad_choices_are_refused_with_a_plain_message(self):
+        for args, message in (
+            (([], None, None), "at least one"), ((["nope"], None, None), "Unknown"),
+            ((None, "yesterday", None), "Choose"), ((None, "date", None), "Pick the date"),
+            ((None, "date", date(2026, 11, 14)), "future"), ((None, "date", date(1999, 1, 1)), "too far back"),
+        ):
+            with self.subTest(args=args), self.assertRaisesRegex(plans.PlanError, message):
+                plans.validate_overrides(*args, self.TODAY)
+
+    def test_the_builder_gets_them_and_the_log_says_what_was_changed(self):
+        seen = {}
+
+        def fake_build(snapshot, progress_cb=None, cancel_event=None):
+            seen.update(snapshot)
+            return mail.MailPayload(values={"date": "x"})
+
+        overrides = plans.validate_overrides(["unapplied"], "date", date(2026, 9, 30), self.TODAY)
+        with patch.object(auto_mail, "build", fake_build):
+            payload = auto_mail._build_for(self.plan.id, overrides)({"send_when_unmapped": True})
+        self.assertEqual((seen["reports"], seen["as_on"]), (("unapplied",), date(2026, 9, 30)))
+        self.assertEqual(payload.detail["changed_for_this_send"], ["as_on_date", "as_on_mode", "reports"])
+        self.assertEqual(payload.detail["as_on_mode"], "date")
+
+
 class BringingAnInstallationAcrossTests(_PlanCase):
     def _legacy(self, **overrides):
         row = mail.get_or_create_settings(self.db, APP)

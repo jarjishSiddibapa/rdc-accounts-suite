@@ -1159,6 +1159,10 @@ send log. (They replaced the separate "Meeting Debtors Reports Auto Mailer" appl
   (`_build_for(plan_id)` reads them fresh from the plan when the run starts). Two plans run at once (each on the
   `oracle-gst` allowance); the same plan never runs twice at once (`running_since` per plan). Send now, the preview and a
   scheduled run are all the same code path.
+* **Changes for one send** (the "Mail this plan by hand" panel): the reports and the as-on rule (today / last month end /
+  a date) can be changed for that one mail without touching the plan. `PreviewBody.reports / as_on_mode / as_on_date` ->
+  `plans.validate_overrides` -> `run_preview_job(..., overrides=...)` -> `plans.run_options(plan_id, overrides=...)`; the
+  run's detail records `changed_for_this_send`. Recipients, subject and text were already editable per send.
 * **Upgrading an installation**: on the first start with plans, `plans.migrate_legacy` (called from `init_db`) turns an
   application schedule that was set up before plans (enabled, or with recipients, or already run) into a plan called
   "Debtors Reports" - same days, times, recipients, wording, and the slot it last ran (so nothing is sent twice) - and

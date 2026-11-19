@@ -274,15 +274,55 @@ def list_view(db: Session) -> dict:
 
 # ── what a run needs ────────────────────────────────────────────────────────
 
-def run_options(plan_id: int, today: date | None = None) -> dict:
-    """Read fresh when a run starts: the plan's name, the reports, and the date for the ERP."""
+def validate_overrides(reports, as_on_mode: str | None, as_on_date: date | None,
+                       today: date | None = None) -> dict | None:
+    """What a person changed for ONE send (the preview-and-send panel), checked: the reports, and/or the as-on rule
+    (``today`` / ``last_month_end`` / ``date`` + the date). None when nothing was changed. Nothing is saved on the
+    plan; the plan's own choices fill in whatever is left out."""
+    today = today or today_ist()
+    out: dict = {}
+    if reports is not None:
+        wanted = {str(key) for key in reports}
+        unknown = wanted - set(report_choice.ALL_REPORTS)
+        if unknown:
+            raise PlanError("Unknown report: " + ", ".join(sorted(unknown)) + ".")
+        if not wanted:
+            raise PlanError("Pick at least one report to send.")
+        out["reports"] = [key for key in report_choice.ALL_REPORTS if key in wanted]
+    if as_on_mode is not None:
+        if as_on_mode not in AS_ON_MODES:
+            raise PlanError("Choose today, the last day of last month, or a date.")
+        if as_on_mode == AS_ON_DATE:
+            if as_on_date is None:
+                raise PlanError("Pick the date the reports are as on.")
+            if as_on_date < EARLIEST:
+                raise PlanError("That date is too far back.")
+        resolve_as_on(as_on_mode, as_on_date, today)          # a future date is refused here
+        out["as_on_mode"] = as_on_mode
+        out["as_on_date"] = as_on_date.isoformat() if as_on_mode == AS_ON_DATE and as_on_date else None
+    return out or None
+
+
+def run_options(plan_id: int, today: date | None = None, overrides: dict | None = None) -> dict:
+    """Read fresh when a run starts: the plan's name, the reports, and the date for the ERP. ``overrides``: the
+    one-off changes of a mail sent by hand (see validate_overrides); they win over what the plan has saved."""
     from app.database import SessionLocal
 
+    today = today or today_ist()
     db = SessionLocal()
     try:
         plan = require(db, plan_id)
-        return {"plan_name": plan.name, "reports": selected(plan), "as_on": as_on_for_run(plan, today),
-                "as_on_mode": plan.as_on_mode}
+        overrides = overrides or {}
+        reports = tuple(overrides["reports"]) if overrides.get("reports") else selected(plan)
+        if "as_on_mode" in overrides:
+            mode = overrides["as_on_mode"]
+            picked = date.fromisoformat(overrides["as_on_date"]) if overrides.get("as_on_date") else None
+            as_on = None if mode == AS_ON_TODAY else resolve_as_on(mode, picked, today)
+        else:
+            mode = plan.as_on_mode
+            as_on = as_on_for_run(plan, today)
+        return {"plan_name": plan.name, "reports": reports, "as_on": as_on, "as_on_mode": mode,
+                "one_off": bool(overrides)}
     finally:
         db.close()
 

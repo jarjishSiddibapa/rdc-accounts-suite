@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { Link } from 'react-router-dom'
 import { AlertTriangle, ArrowRight, CheckCircle2, Download, Eye, Mail } from 'lucide-react'
 import { GlassCard } from '@/components/GlassCard'
@@ -212,9 +212,15 @@ export function ReportMailPanel({
   mappingFixes,
   onClose,
   onChanged,
+  extraControls,
+  extraBody,
 }: {
   baseUrl: string
   reportName: string
+  /** Controls shown above the recipients (for choices that belong to this one send). */
+  extraControls?: ReactNode
+  /** Sent with the preview request; changing it discards a preview that was already built. */
+  extraBody?: Record<string, unknown>
   /** For a report built per month (the cashflow): the month, sent with the preview request. */
   month?: string
   title?: string
@@ -285,6 +291,15 @@ export function ReportMailPanel({
     void load()
   }, [load])
 
+  const extraKey = JSON.stringify(extraBody ?? null)
+  useEffect(() => {
+    // what was previewed no longer matches the choices made for this send
+    setResult(null)
+    setJobId(null)
+    setSent(null)
+    setError(null)
+  }, [extraKey])
+
   function edited(setter: (value: string) => void) {
     return (value: string) => {
       setter(value)
@@ -312,6 +327,7 @@ export function ReportMailPanel({
         allow_unmapped: allowUnmapped,
         ...(defaults?.sender_options ? { sender } : {}),
         ...(month ? { month } : {}),
+        ...(extraBody ?? {}),
       })
       setJobId(res.job_id)
     } catch (err) {
@@ -446,6 +462,8 @@ export function ReportMailPanel({
           </span>
         </label>
       )}
+
+      {extraControls}
 
       <div className="grid gap-4 sm:grid-cols-2">
         <label className="flex flex-col gap-1.5 text-sm">

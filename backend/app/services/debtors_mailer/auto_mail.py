@@ -320,17 +320,20 @@ def build(snapshot: dict, progress_cb=None, cancel_event=None) -> mail.MailPaylo
     return payload
 
 
-def _build_for(plan_id: int):
-    """The builder of one mail plan: the reports and the date it is set to, read fresh when the run starts."""
+def _build_for(plan_id: int, overrides: dict | None = None):
+    """The builder of one mail plan: the reports and the date it is set to, read fresh when the run starts.
+    ``overrides``: what a person changed for one mail sent by hand (reports, as-on rule); see plans.validate_overrides."""
     def build_plan(snapshot: dict, progress_cb=None, cancel_event=None) -> mail.MailPayload:
         try:
-            options = plans.run_options(plan_id)
+            options = plans.run_options(plan_id, overrides=overrides)
         except plans.PlanError as exc:
             raise JobUserError(str(exc)) from exc
         payload = build({**snapshot, "reports": options["reports"], "as_on": options["as_on"]},
                         progress_cb, cancel_event)
         payload.detail["plan"] = options["plan_name"]
         payload.detail["as_on_mode"] = options["as_on_mode"]
+        if options["one_off"]:
+            payload.detail["changed_for_this_send"] = sorted(overrides or {})
         return payload
     return build_plan
 
@@ -348,11 +351,12 @@ def run_auto_mail_job(trigger: str = "scheduled", requested_by: str | None = Non
 
 def run_preview_job(user_id: int, to: list, cc: list, subject: str, intro: str,
                     allow_unmapped: bool = False, sender: str | None = None, plan_id: int | None = None,
-                    progress_cb=None, cancel_event=None) -> dict:
-    """Build the reports and the exact mail of a mail plan for review. Sends nothing."""
+                    overrides: dict | None = None, progress_cb=None, cancel_event=None) -> dict:
+    """Build the reports and the exact mail of a mail plan for review. Sends nothing. ``overrides``: the reports
+    and as-on rule changed for this one send."""
     if plan_id is None:
         raise JobUserError("Choose the mail plan to preview.")
     return report_mail_preview.build_preview(
-        APP_KEY, _build_for(plan_id), user_id, to, cc, subject, intro, allow_unmapped, sender=sender,
+        APP_KEY, _build_for(plan_id, overrides), user_id, to, cc, subject, intro, allow_unmapped, sender=sender,
         progress_cb=progress_cb, cancel_event=cancel_event,
     )

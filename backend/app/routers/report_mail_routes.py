@@ -17,7 +17,7 @@ with access to that application - exactly like the Unaccounted / MRN / PO mail:
 
 import re
 import smtplib
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -45,6 +45,10 @@ class PreviewBody(BaseModel):
     allow_unmapped: bool = False
     sender: str | None = None   # only where the application lets the person choose: "me", "system" or a person's id
     month: str | None = None    # only for a report built per month (the cashflow)
+    # only for a mail plan (Debtors Reports), what is changed for this one send; the plan's own choices fill the rest
+    reports: list[str] | None = None
+    as_on_mode: str | None = None       # "today", "last_month_end" or "date"
+    as_on_date: date | None = None
 
 
 class ConfirmBody(BaseModel):
@@ -145,11 +149,18 @@ def make_report_mail_router(app_key: str, preview_job, per_month: bool = False,
                 raise ValueError("The mail text cannot be empty.")
             mail.validate_template(subject, spec.placeholders)
             mail.validate_template(intro, spec.placeholders)
+            overrides = None
+            if plan_id is not None:
+                from app.services.debtors_mailer import plans
+
+                overrides = plans.validate_overrides(body.reports, body.as_on_mode, body.as_on_date)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         extra = {}
         if plan_id is not None:
             extra["plan_id"] = plan_id
+            if overrides:
+                extra["overrides"] = overrides
         if sender_choice:
             extra["sender"] = (body.sender or "me").strip()
         if per_month:
