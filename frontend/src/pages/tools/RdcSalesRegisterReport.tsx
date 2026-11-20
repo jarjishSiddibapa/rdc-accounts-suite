@@ -29,9 +29,11 @@ export default function RdcSalesRegisterReport() {
               <p className="mt-1 text-sm leading-6 text-ink-dim">
                 The Accounts Sales Register straight from the ERP, laid out as the ERP’s RDC Sales Invoice
                 Details report (same columns, headings and order), with every value exactly as the ERP holds it,
-                in Excel. It covers the first of the month through yesterday. Through the first eight days of a month
-                the whole previous month is included as well, each month as a file of its own (never two months
-                in one file). If a file is too large for an email it is written more compactly and, if needed,
+                in Excel, with real Excel dates. Automatically it covers the first of the month through yesterday;
+                through the first eight days of a month the whole previous month is included as well. Each schedule
+                (and each mail sent by hand) can instead cover last month, or any month or days you pick, up to one
+                complete month plus the first eight days of the next. Each month is a file of its own (never two
+                months in one file). If a file is too large for an email it is written more compactly and, if needed,
                 as .xlsb; a month is never split into several files.
               </p>
             </div>

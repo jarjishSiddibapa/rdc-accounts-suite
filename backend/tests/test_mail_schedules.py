@@ -646,3 +646,144 @@ class BringingAnInstallationAcrossTests(_Case):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PeriodTests(_Case):
+    """The Sales Register's report covers the automatic period, last month, or days a person picks - never more than
+    one complete month plus the first 8 days of the next."""
+
+    def set_period(self, row, mode, first=None, last=None):
+        return self.save(row, enabled=False, period_mode=mode, period_from=first, period_to=last)["period"]
+
+    def test_only_the_sales_register_has_a_period_choice(self):
+        self.assertTrue(ms.list_view(self.db, SALES)["has_period"])
+        for app_key in (APP, UNTAGGED, GST, UNIDENTIFIED):
+            self.assertFalse(ms.list_view(self.db, app_key)["has_period"], app_key)
+        row = ms.create(self.db, GST, "P", None)
+        self.save(row, enabled=False, period_mode="range", period_from="2026-10-01", period_to="2026-10-31")
+        self.assertIsNone(ms.summary(self.db, self.fresh(row))["period"])        # ignored, nothing stored
+        self.assertEqual(self.fresh(row).period_mode, "auto")
+
+    def test_automatic_is_the_report_as_it_always_was(self):
+        row = ms.create(self.db, SALES, "Daily", None)
+        self.assertIsNone(ms.period_for_run(row, self.TODAY))
+        view = ms.period_view(row, self.TODAY)
+        self.assertEqual((view["mode"], [c["label"] for c in view["covers"]]), ("auto", ["Current Month MTD"]))
+        self.assertEqual(view["extra_days"], 8)
+
+    def test_last_month_is_the_whole_previous_month_and_follows_the_run_date(self):
+        row = ms.create(self.db, SALES, "Month end", None)
+        self.set_period(row, "last_month")
+        self.assertEqual(ms.period_for_run(self.fresh(row), self.TODAY), (date(2026, 10, 1), date(2026, 10, 31)))
+        self.assertEqual(ms.period_for_run(self.fresh(row), date(2027, 1, 5)), (date(2026, 12, 1), date(2026, 12, 31)))
+
+    def test_a_picked_month_or_days_are_used_as_picked(self):
+        row = ms.create(self.db, SALES, "October", None)
+        view = self.set_period(row, "range", "2026-10-01", "2026-10-31")
+        self.assertEqual([c["label"] for c in view["covers"]], ["October 2026"])
+        self.assertEqual(ms.period_for_run(self.fresh(row), self.TODAY), (date(2026, 10, 1), date(2026, 10, 31)))
+        view = self.set_period(row, "range", "2026-10-10", "2026-10-20")
+        self.assertEqual([c["label"] for c in view["covers"]], ["October 2026 (10 to 20)"])
+
+    def test_a_complete_month_plus_eight_days_is_the_most_that_can_be_picked(self):
+        row = ms.create(self.db, SALES, "October", None)
+        view = self.set_period(row, "range", "2026-10-01", "2026-11-08")                 # exactly the limit
+        self.assertEqual([c["label"] for c in view["covers"]], ["October 2026", "November 2026 (1 to 8)"])
+        with self.assertRaisesRegex(ValueError, "one complete month plus the first 8 days"):
+            self.set_period(row, "range", "2026-10-01", "2026-11-09")                    # a day too many
+        with self.assertRaisesRegex(ValueError, "08-Nov-2026"):                          # and it says what is allowed
+            self.set_period(row, "range", "2026-10-01", "2026-11-12")
+        self.set_period(row, "range", "2026-10-15", "2026-11-08")                        # from mid-month: fine, shorter
+        with self.assertRaises(ValueError):
+            self.set_period(row, "range", "2026-10-15", "2026-11-09")
+        with self.assertRaises(ValueError):                                              # two whole months
+            self.set_period(row, "range", "2026-09-01", "2026-10-31")
+
+    def test_the_limit_follows_the_length_of_the_month(self):
+        today = date(2027, 3, 20)
+        self.assertEqual(ms.report_periods.latest_end(date(2027, 2, 1), today), date(2027, 3, 8))   # February: 28 + 8
+        self.assertEqual(ms.report_periods.latest_end(date(2028, 2, 1), date(2028, 4, 1)), date(2028, 3, 8))  # leap year
+        self.assertEqual(ms.report_periods.latest_end(date(2026, 12, 1), date(2027, 3, 1)), date(2027, 1, 8))
+        # never past yesterday
+        self.assertEqual(ms.report_periods.latest_end(date(2026, 11, 1), self.TODAY), date(2026, 11, 12))
+
+    def test_only_completed_days_and_sensible_days_can_be_picked(self):
+        row = ms.create(self.db, SALES, "P", None)
+        with self.assertRaisesRegex(ValueError, "completed days"):
+            self.set_period(row, "range", "2026-11-01", "2026-11-13")                    # today is not complete
+        with self.assertRaisesRegex(ValueError, "before the first"):
+            self.set_period(row, "range", "2026-10-20", "2026-10-10")
+        with self.assertRaisesRegex(ValueError, "Pick the first and the last day"):
+            self.set_period(row, "range", "2026-10-01", None)
+        with self.assertRaisesRegex(ValueError, "Pick the first and the last day"):
+            self.set_period(row, "range", "not a date", "2026-10-31")
+        with self.assertRaises(ValueError):
+            self.set_period(row, "forever")
+        self.set_period(row, "range", "2026-11-12", "2026-11-12")                        # yesterday alone is fine
+
+    def test_a_refused_period_stops_the_whole_save(self):
+        row = ms.create(self.db, SALES, "P", None)
+        with self.assertRaises(ValueError):
+            self.save(row, enabled=False, subject_template="Changed {date}", period_mode="range",
+                      period_from="2026-09-01", period_to="2026-10-31")
+        self.assertNotEqual(self.fresh(row).subject_template, "Changed {date}")
+
+    def test_the_picked_days_are_kept_when_switching_to_another_choice(self):
+        row = ms.create(self.db, SALES, "P", None)
+        self.set_period(row, "range", "2026-10-01", "2026-10-31")
+        view = self.set_period(row, "auto")
+        self.assertEqual((view["mode"], view["from"], view["to"]), ("auto", "2026-10-01", "2026-10-31"))
+
+    def test_each_schedule_has_its_own_period_and_a_copy_starts_with_it(self):
+        one, two = ms.create(self.db, SALES, "Daily", None), ms.create(self.db, SALES, "October pack", None)
+        self.set_period(two, "range", "2026-10-01", "2026-10-31")
+        self.assertIsNone(ms.period_for_run(self.fresh(one), self.TODAY))
+        self.assertEqual(ms.period_for_run(self.fresh(two), self.TODAY), (date(2026, 10, 1), date(2026, 10, 31)))
+        copy = ms.create(self.db, SALES, "October pack 2", None, copy_of=two.id)
+        self.assertEqual(ms.period_for_run(copy, self.TODAY), (date(2026, 10, 1), date(2026, 10, 31)))
+
+    def test_a_saved_period_that_can_no_longer_run_is_reported_not_guessed(self):
+        row = ms.create(self.db, SALES, "P", None)
+        row.period_mode, row.period_from, row.period_to = "range", date(2026, 9, 1), date(2026, 10, 31)
+        self.db.commit()
+        self.assertIn("one complete month", ms.period_view(row, self.TODAY)["problem"])
+        with self.assertRaises(ms.ScheduleError):
+            ms.period_for_run(row, self.TODAY)
+
+    def test_the_period_reaches_the_builder_and_the_runs_detail(self):
+        seen = {}
+
+        def fake_build(snapshot, progress_cb=None, cancel_event=None):
+            seen.clear()
+            seen.update(snapshot)
+            return mail.MailPayload(values={"date": "x"})
+
+        row = ms.create(self.db, SALES, "October", None)
+        with patch.object(ms, "today_ist", lambda: self.TODAY):
+            payload = ms.scheduled_build(fake_build, row.id)({"send_when_unmapped": True})
+            self.assertIsNone(seen["period"])
+            self.assertEqual(payload.detail["period_mode"], "auto")
+            self.set_period(row, "range", "2026-10-01", "2026-10-31")
+            payload = ms.scheduled_build(fake_build, row.id)({"send_when_unmapped": True})
+            self.assertEqual(seen["period"], (date(2026, 10, 1), date(2026, 10, 31)))
+            self.assertEqual(payload.detail["period_mode"], "range")
+            # an application without a period is never given one
+            other = ms.create(self.db, GST, "G", None)
+            ms.scheduled_build(fake_build, other.id)({"send_when_unmapped": True})
+            self.assertNotIn("period", seen)
+
+    def test_a_mail_sent_by_hand_can_use_other_days_without_touching_the_schedule(self):
+        row = ms.create(self.db, SALES, "Daily", None)
+        overrides = ms.validate_overrides(SALES, None, None, None, self.TODAY, period_mode="range",
+                                          period_from=date(2026, 9, 1), period_to=date(2026, 9, 30))
+        self.assertEqual(overrides, {"period_mode": "range", "period_from": "2026-09-01", "period_to": "2026-09-30"})
+        with patch.object(ms, "today_ist", lambda: self.TODAY):
+            self.assertEqual(ms.run_options(row.id, self.TODAY, overrides)["period"], (date(2026, 9, 1), date(2026, 9, 30)))
+            self.assertIsNone(ms.run_options(row.id, self.TODAY)["period"])
+        self.assertEqual(self.fresh(row).period_mode, "auto")                                # nothing saved
+        self.assertIsNone(ms.validate_overrides(SALES, None, None, None, self.TODAY))        # nothing changed
+        with self.assertRaisesRegex(ValueError, "one complete month plus the first 8 days"):
+            ms.validate_overrides(SALES, None, None, None, self.TODAY, period_mode="range",
+                                  period_from=date(2026, 8, 1), period_to=date(2026, 9, 30))
+        self.assertIsNone(ms.validate_overrides(GST, None, None, None, self.TODAY, period_mode="range",
+                                                period_from=date(2026, 8, 1), period_to=date(2026, 9, 30)))

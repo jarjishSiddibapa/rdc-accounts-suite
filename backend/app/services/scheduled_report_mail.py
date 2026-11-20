@@ -78,6 +78,7 @@ class MailSpec:
     per_schedule: bool = False  # has several mail schedules (each its own timing, recipients, wording), not one
     as_on: bool = False         # its report can be as on a date (a schedule picks: today, last month end, a date)
     report_choices: tuple = ()  # ((key, label), ...) when a schedule picks which of several reports it sends
+    period: bool = False        # a schedule picks the days its report covers (automatic, last month, or a range)
 
 
 SPECS: dict[str, MailSpec] = {
@@ -141,6 +142,7 @@ SPECS: dict[str, MailSpec] = {
         placeholders=("date", "report", "period", "from_date", "to_date", "rows"),
         fixed_sender=True,
         per_schedule=True,
+        period=True,
     ),
     "unidentified-entries": MailSpec(
         app_key="unidentified-entries",
@@ -588,6 +590,8 @@ def schedule_settings_view(db: Session, row: MailSchedule) -> dict:
     spec = SPECS[row.app_key]
     if spec.as_on:
         view["as_on"] = mail_schedules.as_on_view(row)
+    if spec.period:
+        view["period"] = mail_schedules.period_view(row)
     if spec.report_choices:
         chosen = mail_schedules.reports_selected(row)
         view["reports"] = [{"key": key, "label": label, "selected": key in chosen} for key, label in spec.report_choices]

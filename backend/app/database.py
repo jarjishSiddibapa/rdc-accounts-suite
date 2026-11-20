@@ -262,6 +262,10 @@ def _apply_additive_schema_updates() -> None:
         for column, definition in (
             ("app_key", "VARCHAR(64) NOT NULL DEFAULT 'debtors-reports-auto-mailer'"),
             ("sender_user_id", "INT NULL"),
+            # the days the Sales Register's report covers
+            ("period_mode", "VARCHAR(20) NOT NULL DEFAULT 'auto'"),
+            ("period_from", "DATE NULL"),
+            ("period_to", "DATE NULL"),
         ):
             if column not in schedule_columns:
                 with engine.begin() as connection:

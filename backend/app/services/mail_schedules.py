@@ -32,6 +32,7 @@ from app.models import MailSchedule, ScheduledReportMail
 from app.regional import today_ist
 from app.services import scheduled_report_mail as mail
 from app.services.mailer_shared import get_report_recipient_defaults
+from app.services.sales_register import periods as report_periods
 
 MAX_SCHEDULES = 20
 MAX_NAME = 60
@@ -41,7 +42,8 @@ AS_ON_MODES = (AS_ON_TODAY, AS_ON_LAST_MONTH_END, AS_ON_DATE)
 EARLIEST = date(2000, 1, 1)
 
 # the columns a copy of a schedule starts with
-_COPIED = ("ageing", "unapplied", "untagged", "as_on_mode", "as_on_date", "to_list", "cc_list", "sender_user_id",
+_COPIED = ("ageing", "unapplied", "untagged", "as_on_mode", "as_on_date", "period_mode", "period_from", "period_to",
+           "to_list", "cc_list", "sender_user_id",
            "send_mode", "send_days", "send_month_days", "send_time", "send_times", "send_times_enabled",
            "send_every_hours", "send_every_start", "subject_template", "intro_template", "signature",
            "send_when_unmapped")
@@ -164,6 +166,73 @@ def as_on_view(row: MailSchedule, today: date | None = None) -> dict:
     }
 
 
+# ── the days the report covers (the Sales Register) ─────────────────────────
+
+PERIOD_AUTO, PERIOD_LAST_MONTH, PERIOD_RANGE = (
+    report_periods.PERIOD_AUTO, report_periods.PERIOD_LAST_MONTH, report_periods.PERIOD_RANGE)
+PERIOD_MODES = report_periods.PERIOD_MODES
+
+
+def _period_dates(data: dict) -> tuple[date | None, date | None]:
+    out = []
+    for key in ("period_from", "period_to"):
+        value = data.get(key)
+        if isinstance(value, str):
+            try:
+                value = date.fromisoformat(value) if value else None
+            except ValueError as exc:
+                raise ScheduleError("Pick the first and the last day the report covers.") from exc
+        out.append(value)
+    return out[0], out[1]
+
+
+def check_period(mode: str, start: date | None, end: date | None, today: date) -> None:
+    """Refuse a period that cannot be run (a bad choice, missing days, the future, or more than a complete month plus
+    the first 8 days of the next)."""
+    try:
+        report_periods.check_period(mode, start, end, today)
+    except report_periods.PeriodError as exc:
+        raise ScheduleError(str(exc)) from exc
+
+
+def period_for_run(row: MailSchedule, today: date | None = None) -> tuple[date, date] | None:
+    """What the ERP is asked for: the first and last day, or None for the automatic period."""
+    try:
+        return report_periods.resolve_period(
+            row.period_mode or PERIOD_AUTO, row.period_from, row.period_to, today or today_ist())
+    except report_periods.PeriodError as exc:
+        raise ScheduleError(str(exc)) from exc
+
+
+def period_view(row: MailSchedule, today: date | None = None) -> dict:
+    """The schedule's period for the page: the choice, the days that were picked, what a run today would cover, and
+    the limits the page works with (the same ones check_period enforces)."""
+    today = today or today_ist()
+    mode = row.period_mode if row.period_mode in PERIOD_MODES else PERIOD_AUTO
+    try:
+        picked = report_periods.resolve_period(mode, row.period_from, row.period_to, today)
+        problem = None
+    except report_periods.PeriodError as exc:
+        picked, problem = None, str(exc)
+    covers = [
+        {"label": label, "from": first.isoformat(), "to": last.isoformat()}
+        for label, first, last in (report_periods.get_report_periods(today, picked) if problem is None else [])
+    ]
+    last_from, last_to = report_periods.last_month_range(today)
+    return {
+        "mode": mode,
+        "from": row.period_from.isoformat() if row.period_from else None,
+        "to": row.period_to.isoformat() if row.period_to else None,
+        "covers": covers,
+        "problem": problem,
+        "today": today.isoformat(),
+        "yesterday": (today - timedelta(days=1)).isoformat(),
+        "last_month_from": last_from.isoformat(),
+        "last_month_to": last_to.isoformat(),
+        "extra_days": report_periods.PREVIOUS_MONTH_THROUGH_DAY,
+    }
+
+
 # ── the choices a schedule makes about its content ──────────────────────────
 
 def reports_selected(row: MailSchedule) -> tuple[str, ...]:
@@ -203,6 +272,12 @@ def checked_content(spec: mail.MailSpec, data: dict, today: date | None = None) 
         check_as_on(mode, picked, today)
         out["as_on_mode"] = mode
         out["as_on_date"] = picked if mode == AS_ON_DATE else None
+    if spec.period and data.get("period_mode") is not None:
+        mode = str(data["period_mode"])
+        start, end = _period_dates(data)
+        check_period(mode, start, end, today)
+        out["period_mode"] = mode
+        out["period_from"], out["period_to"] = (start, end) if mode == PERIOD_RANGE else (None, None)
     if spec.report_choices and data.get("reports") is not None:
         out["reports"] = _checked_reports(spec, data["reports"])
     return out
@@ -214,6 +289,10 @@ def apply_content(row: MailSchedule, content: dict) -> None:
         row.as_on_mode = content["as_on_mode"]
         if content["as_on_date"] is not None:
             row.as_on_date = content["as_on_date"]
+    if "period_mode" in content:
+        row.period_mode = content["period_mode"]
+        if content["period_from"] is not None:         # the picked days are kept when the person switches rule
+            row.period_from, row.period_to = content["period_from"], content["period_to"]
     if "reports" in content:
         from app.services.debtors_mailer import report_choice
 
@@ -302,6 +381,7 @@ def summary(db: Session, row: MailSchedule) -> dict:
         "last": {"at": view["last"]["at"], "status": view["last"]["status"], "trigger": view["last"]["trigger"]},
         "reports": list(reports_selected(row)) if spec.report_choices else None,
         "as_on": as_on_view(row) if spec.as_on else None,
+        "period": period_view(row) if spec.period else None,
         "to_count": len(view["to"]),
         "cc_count": len(view["cc"]),
     }
@@ -314,24 +394,33 @@ def list_view(db: Session, app_key: str) -> dict:
         "max_schedules": MAX_SCHEDULES,
         "report_labels": dict(spec.report_choices) or None,
         "has_as_on": spec.as_on,
+        "has_period": spec.period,
     }
 
 
 # ── what a run needs ────────────────────────────────────────────────────────
 
 def validate_overrides(app_key: str, reports, as_on_mode: str | None, as_on_date: date | None,
-                       today: date | None = None) -> dict | None:
-    """What a person changed for ONE send (the preview-and-send panel), checked: the reports and/or the as-on rule
-    (``today`` / ``last_month_end`` / ``date`` + the date). None when nothing was changed. Nothing is saved on the
+                       today: date | None = None, period_mode: str | None = None,
+                       period_from: date | None = None, period_to: date | None = None) -> dict | None:
+    """What a person changed for ONE send (the preview-and-send panel), checked: the reports, the as-on rule
+    (``today`` / ``last_month_end`` / ``date`` + the date) and/or the days the report covers (``auto`` /
+    ``last_month`` / ``range`` + the first and last day). None when nothing was changed. Nothing is saved on the
     schedule; its own choices fill in whatever is left out."""
     spec = mail.SPECS[app_key]
-    content = checked_content(spec, {"reports": reports, "as_on_mode": as_on_mode, "as_on_date": as_on_date}, today)
+    content = checked_content(spec, {
+        "reports": reports, "as_on_mode": as_on_mode, "as_on_date": as_on_date,
+        "period_mode": period_mode, "period_from": period_from, "period_to": period_to}, today)
     out: dict = {}
     if "reports" in content:
         out["reports"] = content["reports"]
     if "as_on_mode" in content:
         out["as_on_mode"] = content["as_on_mode"]
         out["as_on_date"] = content["as_on_date"].isoformat() if content["as_on_date"] else None
+    if "period_mode" in content:
+        out["period_mode"] = content["period_mode"]
+        out["period_from"] = content["period_from"].isoformat() if content["period_from"] else None
+        out["period_to"] = content["period_to"].isoformat() if content["period_to"] else None
     return out or None
 
 
@@ -357,7 +446,20 @@ def run_options(schedule_id: int, today: date | None = None, overrides: dict | N
         if not spec.as_on:
             mode, as_on = AS_ON_TODAY, None
         options = {"schedule_name": row.name, "as_on": as_on, "as_on_mode": mode, "has_as_on": spec.as_on,
-                   "one_off": bool(overrides)}
+                   "one_off": bool(overrides), "has_period": spec.period}
+        if spec.period:
+            if "period_mode" in overrides:
+                period_mode = overrides["period_mode"]
+                picked = [date.fromisoformat(overrides[key]) if overrides.get(key) else None
+                          for key in ("period_from", "period_to")]
+                try:
+                    options["period"] = report_periods.resolve_period(period_mode, picked[0], picked[1], today)
+                except report_periods.PeriodError as exc:
+                    raise ScheduleError(str(exc)) from exc
+            else:
+                period_mode = row.period_mode
+                options["period"] = period_for_run(row, today)
+            options["period_mode"] = period_mode
         if spec.report_choices:
             options["reports"] = tuple(overrides["reports"]) if overrides.get("reports") else reports_selected(row)
         return options
@@ -379,10 +481,14 @@ def scheduled_build(build, schedule_id: int, overrides: dict | None = None):
         extra = {"as_on": options["as_on"]}
         if "reports" in options:
             extra["reports"] = options["reports"]
+        if options["has_period"]:
+            extra["period"] = options["period"]
         payload = build({**snapshot, **extra}, progress_cb, cancel_event)
         payload.detail["schedule"] = options["schedule_name"]
         if options["has_as_on"]:
             payload.detail["as_on_mode"] = options["as_on_mode"]
+        if options["has_period"]:
+            payload.detail["period_mode"] = options["period_mode"]
         if options["one_off"]:
             payload.detail["changed_for_this_send"] = sorted(overrides or {})
         return payload

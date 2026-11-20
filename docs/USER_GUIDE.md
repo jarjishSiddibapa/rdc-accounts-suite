@@ -68,6 +68,18 @@ workbook is still produced with an explicit provisional classification. Review
 and save it in the result panel or the searchable **Ledger mappings** tab. An
 edited or archived mapping remains centralized for every user and worker.
 
+### RDC Sales Register Report
+
+The register is mailed (by hand, or automatically on a mail schedule) as one Excel file per calendar month, with real
+Excel dates in every date column. Each schedule - and each mail you send by hand - sets **The days the report covers**:
+
+- **Automatic** - the month so far, through yesterday; through the first eight days of a month the whole of the month
+  before as well.
+- **Last month** - the whole of the previous month, worked out again for every mail.
+- **A month or days I pick** - choose a whole month, or a first and last day. A report can cover at most one complete
+  month plus the first eight days of the next (never past yesterday); anything longer is refused with the latest last
+  day allowed.
+
 ## IOCL monitor
 
 Assigned users can select **Ultrafine IOCL Balance Monitor**, choose **Check

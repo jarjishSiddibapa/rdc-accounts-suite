@@ -50,6 +50,10 @@ class AutoMailBody(BaseModel):
     # a schedule's report: the date it is as on, and (Debtors Reports) which reports it sends
     as_on_mode: str | None = None                          # "today", "last_month_end" or "date"
     as_on_date: date | None = None
+    # the Sales Register: the days it covers - "auto", "last_month", or a "range" from period_from to period_to
+    period_mode: str | None = None
+    period_from: date | None = None
+    period_to: date | None = None
     reports: list[str] | None = None
 
 

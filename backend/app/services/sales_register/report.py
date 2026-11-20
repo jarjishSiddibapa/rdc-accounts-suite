@@ -58,8 +58,8 @@ _TEXT_DATE_FORMATS = (
 _UNWRITABLE = re.compile("[\ud800-\udfff￾￿]")
 
 
-# the previous month stays in the report through this day of the new month (inclusive)
-PREVIOUS_MONTH_THROUGH_DAY = 8
+# which days a report covers is decided in periods.py (kept importable from here)
+from app.services.sales_register.periods import PREVIOUS_MONTH_THROUGH_DAY, get_report_periods  # noqa: E402,F401
 
 
 # The columns of the ERP report, as its RDC Sales Invoice Details template
@@ -133,23 +133,6 @@ def _column_picker(names: list[str]) -> tuple[list[str], "callable"]:
     if len(picks) == 1:                      # itemgetter then returns the bare value, not a tuple
         return headings, lambda row: (get((*row, None)),)
     return headings, lambda row: get((*row, None))
-
-
-def get_report_periods(run_date: date) -> list[tuple[str, date, date]]:
-    """(label, inclusive_start, inclusive_end) of what this run reports, one entry
-    per calendar month and so one file per month: just the month so far on a normal
-    day, but through the first ``PREVIOUS_MONTH_THROUGH_DAY`` days of a month the
-    whole previous month (its own file) and then the month so far (its own file;
-    there is none yet on the 1st)."""
-    yesterday = run_date - timedelta(days=1)
-    month_start = run_date.replace(day=1)
-    if run_date.day <= PREVIOUS_MONTH_THROUGH_DAY:
-        previous_month_end = month_start - timedelta(days=1)
-        periods = [("Previous Month", previous_month_end.replace(day=1), previous_month_end)]
-        if yesterday >= month_start:
-            periods.append(("Current Month MTD", month_start, yesterday))
-        return periods
-    return [("Current Month MTD", month_start, yesterday)]
 
 
 def report_file_stem(start: date, end: date) -> str:

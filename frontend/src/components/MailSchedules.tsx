@@ -8,7 +8,8 @@ import { Modal } from '@/components/Modal'
 import { LoadingNotice } from '@/components/LoadingNotice'
 import { AutoMailCard, describeSchedule, repeatOf, type ScheduleFields } from '@/components/AutoMailCard'
 import {
-  AsOnChoice, ReportsChoice, asOnShownDate, describeAsOn, shortAsOn, type AsOnMode, type AsOnSetting,
+  AsOnChoice, PeriodChoice, ReportsChoice, asOnShownDate, describeAsOn, describePeriod, periodProblem, shortAsOn,
+  shortPeriod, type AsOnMode, type AsOnSetting, type PeriodMode, type PeriodSetting,
 } from '@/components/ScheduleChoices'
 import { ReportMailPanel, type MappingFix } from '@/components/ReportMailPanel'
 import { ApiError, del, get, patch, post } from '@/lib/api'
@@ -26,6 +27,8 @@ interface ScheduleSummary extends ScheduleFields {
   reports: string[] | null
   /** Only for a report that can be as on a date. */
   as_on: AsOnSetting | null
+  /** Only for a report whose days can be chosen (the Sales Register). */
+  period: PeriodSetting | null
   to_count: number
   cc_count: number
 }
@@ -49,7 +52,8 @@ function describeSchedulePlan(schedule: ScheduleSummary, list: ScheduleList, rep
   const what = schedule.reports && labels
     ? listOf(schedule.reports.map((key) => labels[key] ?? key))
     : reportName
-  const asOn = schedule.as_on ? `, ${describeAsOn(schedule.as_on)}` : ''
+  const asOn = (schedule.as_on ? `, ${describeAsOn(schedule.as_on)}` : '') +
+    (schedule.period ? `, ${describePeriod(schedule.period)}` : '')
   const people = schedule.to_count + schedule.cc_count
   const who = schedule.to_count === 0
     ? 'No one is set to receive it yet.'
@@ -89,6 +93,7 @@ function ScheduleChip({
     parts.push(`${schedule.reports.length} of ${Object.keys(list.report_labels).length} reports`)
   }
   if (schedule.as_on) parts.push(shortAsOn(schedule.as_on))
+  if (schedule.period) parts.push(shortPeriod(schedule.period))
   if (parts.length === 0) parts.push(schedule.enabled ? 'sends automatically' : 'sends by hand only')
   return (
     <button
@@ -341,33 +346,59 @@ function SendNowPanel({
   const [reports, setReports] = useState<string[]>(savedReports ?? [])
   const [mode, setMode] = useState<AsOnMode>(savedMode)
   const [date, setDate] = useState(savedDate)
+  // the days the report covers (the Sales Register)
+  const savedPeriodMode: PeriodMode = schedule.period?.mode ?? 'auto'
+  const savedPeriodFrom = schedule.period?.from ?? ''
+  const savedPeriodTo = schedule.period?.to ?? ''
+  const [periodMode, setPeriodMode] = useState<PeriodMode>(savedPeriodMode)
+  const [periodFrom, setPeriodFrom] = useState(savedPeriodFrom)
+  const [periodTo, setPeriodTo] = useState(savedPeriodTo)
 
   // the schedule's saved choices changed (a Save above): start from them again
-  const savedKey = JSON.stringify([savedReports, savedMode, savedDate])
-  useEffect(() => {
+  const savedKey = JSON.stringify([savedReports, savedMode, savedDate, savedPeriodMode, savedPeriodFrom, savedPeriodTo])
+  const startAgain = () => {
     setReports(savedReports ?? [])
     setMode(savedMode)
     setDate(savedDate)
+    setPeriodMode(savedPeriodMode)
+    setPeriodFrom(savedPeriodFrom)
+    setPeriodTo(savedPeriodTo)
+  }
+  useEffect(() => {
+    startAgain()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [savedKey])
 
   const changed =
     (savedReports !== null &&
       (reports.length !== savedReports.length || !reports.every((key) => savedReports.includes(key)))) ||
-    (schedule.as_on !== null && (mode !== savedMode || (mode === 'date' && date !== savedDate)))
+    (schedule.as_on !== null && (mode !== savedMode || (mode === 'date' && date !== savedDate))) ||
+    (schedule.period !== null &&
+      (periodMode !== savedPeriodMode ||
+        (periodMode === 'range' && (periodFrom !== savedPeriodFrom || periodTo !== savedPeriodTo))))
 
   const extraBody = useMemo(
     () => ({
       ...(savedReports !== null ? { reports } : {}),
       ...(schedule.as_on !== null ? { as_on_mode: mode, as_on_date: mode === 'date' ? date || null : null } : {}),
+      ...(schedule.period !== null
+        ? {
+            period_mode: periodMode,
+            period_from: periodMode === 'range' ? periodFrom || null : null,
+            period_to: periodMode === 'range' ? periodTo || null : null,
+          }
+        : {}),
     }),
-    [savedReports, schedule.as_on, reports, mode, date],
+    [savedReports, schedule.as_on, schedule.period, reports, mode, date, periodMode, periodFrom, periodTo],
   )
 
   const labels = list.report_labels
   const reportOptions = labels ? Object.entries(labels).map(([key, label]) => ({ key, label })) : []
-  const hasChoices = schedule.as_on !== null || savedReports !== null
-  const incomplete = (savedReports !== null && reports.length === 0) || (schedule.as_on !== null && mode === 'date' && !date)
+  const hasChoices = schedule.as_on !== null || schedule.period !== null || savedReports !== null
+  const incomplete =
+    (savedReports !== null && reports.length === 0) ||
+    (schedule.as_on !== null && mode === 'date' && !date) ||
+    (schedule.period !== null && periodProblem(periodMode, periodFrom, periodTo, schedule.period) !== null)
 
   const controls = hasChoices ? (
     <div className="flex flex-col gap-4 rounded-2xl border border-stroke/70 bg-surface/40 p-4">
@@ -380,14 +411,7 @@ function SendNowPanel({
           </p>
         </div>
         {changed && (
-          <Button
-            variant="ghost"
-            onClick={() => {
-              setReports(savedReports ?? [])
-              setMode(savedMode)
-              setDate(savedDate)
-            }}
-          >
+          <Button variant="ghost" onClick={startAgain}>
             Back to the schedule&rsquo;s settings
           </Button>
         )}
@@ -411,6 +435,23 @@ function SendNowPanel({
             onChange={(nextMode, nextDate) => {
               setMode(nextMode)
               setDate(nextDate)
+            }}
+          />
+        </div>
+      )}
+      {schedule.period && (
+        <div className="flex flex-col gap-2">
+          <span className="text-xs font-medium text-ink-faint">The days the report covers</span>
+          <PeriodChoice
+            mode={periodMode}
+            from={periodFrom}
+            to={periodTo}
+            setting={schedule.period}
+            forThisMail
+            onChange={(nextMode, nextFrom, nextTo) => {
+              setPeriodMode(nextMode)
+              setPeriodFrom(nextFrom)
+              setPeriodTo(nextTo)
             }}
           />
         </div>

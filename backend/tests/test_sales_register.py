@@ -878,3 +878,33 @@ class SaveScheduleTests(_Db):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PickedPeriodTests(unittest.TestCase):
+    def test_a_picked_range_is_one_file_per_calendar_month(self):
+        got = report.get_report_periods(date(2026, 11, 13), (date(2026, 10, 1), date(2026, 11, 8)))
+        self.assertEqual(got, [("October 2026", date(2026, 10, 1), date(2026, 10, 31)),
+                               ("November 2026 (1 to 8)", date(2026, 11, 1), date(2026, 11, 8))])
+        self.assertEqual(report.get_report_periods(date(2026, 11, 13), (date(2026, 9, 5), date(2026, 9, 9))),
+                         [("September 2026 (5 to 9)", date(2026, 9, 5), date(2026, 9, 9))])
+
+    def test_without_a_picked_range_it_is_the_automatic_period(self):
+        self.assertEqual(report.get_report_periods(date(2026, 10, 9), None), report.get_report_periods(date(2026, 10, 9)))
+
+    def test_the_mail_is_built_for_the_period_the_schedule_asks_for(self):
+        asked = []
+
+        def periods(run_date, period=None):
+            asked.append(period)
+            return []                                   # nothing to report: the build stops before the ERP
+
+        with patch.object(auto_mail.report, "get_report_periods", periods), patch.object(auto_mail, "SCRATCH_DIR", Path(tempfile.mkdtemp())):
+            with self.assertRaises(Exception):
+                auto_mail.build({"period": (date(2026, 10, 1), date(2026, 10, 31))})
+            with self.assertRaises(Exception):
+                auto_mail.build({})
+        self.assertEqual(asked, [(date(2026, 10, 1), date(2026, 10, 31)), None])
+
+    def test_a_single_day_is_labelled_as_that_day(self):
+        self.assertEqual(report.get_report_periods(date(2026, 11, 20), (date(2026, 11, 18), date(2026, 11, 18))),
+                         [("18 November 2026", date(2026, 11, 18), date(2026, 11, 18))])

@@ -3,7 +3,10 @@ import { AlertTriangle, CheckCircle2, Mail } from 'lucide-react'
 import { GlassCard } from '@/components/GlassCard'
 import { Button } from '@/components/Button'
 import { ErrorBanner } from '@/components/ErrorBanner'
-import { AsOnChoice, ReportsChoice, ScheduleTag, type AsOnMode, type AsOnSetting, type ReportOption } from '@/components/ScheduleChoices'
+import {
+  AsOnChoice, PeriodChoice, ReportsChoice, ScheduleTag, periodProblem, type AsOnMode, type AsOnSetting,
+  type PeriodMode, type PeriodSetting, type ReportOption,
+} from '@/components/ScheduleChoices'
 import { ApiError, get, put } from '@/lib/api'
 import { formatIndianDate, formatIndianDateTime } from '@/lib/regional'
 import { cn } from '@/utils/cn'
@@ -22,6 +25,8 @@ interface AutoMailSettings {
   name?: string
   /** The date the report is as on (only for a report that can be). */
   as_on?: AsOnSetting
+  /** The days the report covers (only for a report whose days can be chosen: the Sales Register). */
+  period?: PeriodSetting
   /** Which reports the mail carries (the Debtors Reports). */
   reports?: ReportOption[]
   enabled: boolean
@@ -256,12 +261,18 @@ export function AutoMailCard({
   const [asOnMode, setAsOnMode] = useState<AsOnMode>('today')
   const [asOnDate, setAsOnDate] = useState('')
   const [reportKeys, setReportKeys] = useState<string[]>([])
+  const [periodMode, setPeriodMode] = useState<PeriodMode>('auto')
+  const [periodFrom, setPeriodFrom] = useState('')
+  const [periodTo, setPeriodTo] = useState('')
 
   const apply = useCallback((data: AutoMailSettings) => {
     setSaved(data)
     setForm(data)
     setAsOnMode(data.as_on?.mode ?? 'today')
     setAsOnDate(data.as_on?.as_on_date ?? '')
+    setPeriodMode(data.period?.mode ?? 'auto')
+    setPeriodFrom(data.period?.from ?? '')
+    setPeriodTo(data.period?.to ?? '')
     setReportKeys((data.reports ?? []).filter((option) => option.selected).map((option) => option.key))
     setRepeatChoice(null)
     setToText(data.to.join(', '))
@@ -302,11 +313,15 @@ export function AutoMailCard({
     const contentChanged =
       (saved.as_on !== undefined &&
         (asOnMode !== saved.as_on.mode || (asOnMode === 'date' && asOnDate !== (saved.as_on.as_on_date ?? '')))) ||
+      (saved.period !== undefined &&
+        (periodMode !== saved.period.mode ||
+          (periodMode === 'range' && (periodFrom !== (saved.period.from ?? '') || periodTo !== (saved.period.to ?? ''))))) ||
       (saved.reports !== undefined &&
         JSON.stringify(reportKeys) !== JSON.stringify(saved.reports.filter((o) => o.selected).map((o) => o.key)))
     return contentChanged || keys.some((key) => JSON.stringify(saved[key]) !== JSON.stringify(current[key]))
-  }, [saved, current, asOnMode, asOnDate, reportKeys])
+  }, [saved, current, asOnMode, asOnDate, periodMode, periodFrom, periodTo, reportKeys])
   const contentIncomplete = (asOnMode === 'date' && !asOnDate && saved?.as_on !== undefined) ||
+    (saved?.period !== undefined && periodProblem(periodMode, periodFrom, periodTo, saved.period) !== null) ||
     (saved?.reports !== undefined && reportKeys.length === 0)
 
   if (loadError) return <ErrorBanner>{loadError}</ErrorBanner>
@@ -360,6 +375,13 @@ export function AutoMailCard({
         send_when_unmapped: current.send_when_unmapped,
         sender_user_id: current.sender_user_id,
         ...(saved?.as_on ? { as_on_mode: asOnMode, as_on_date: asOnMode === 'date' ? asOnDate || null : null } : {}),
+        ...(saved?.period
+          ? {
+              period_mode: periodMode,
+              period_from: periodMode === 'range' ? periodFrom || null : null,
+              period_to: periodMode === 'range' ? periodTo || null : null,
+            }
+          : {}),
         ...(saved?.reports ? { reports: reportKeys } : {}),
       })
       apply(next)
@@ -393,7 +415,7 @@ export function AutoMailCard({
         {saved.name && <span className="max-w-full sm:ml-auto"><ScheduleTag name={saved.name} /></span>}
       </div>
 
-      {(saved.as_on || saved.reports) && (
+      {(saved.as_on || saved.period || saved.reports) && (
         <div className="flex flex-col gap-4 rounded-2xl border border-stroke/70 bg-surface/40 p-4">
           <h3 className="text-sm font-semibold text-ink">What it sends</h3>
           {saved.reports && (
@@ -414,6 +436,23 @@ export function AutoMailCard({
                 date={asOnDate}
                 setting={saved.as_on}
                 onChange={(mode, date) => { setAsOnMode(mode); setAsOnDate(date); setMessage(null) }}
+              />
+            </div>
+          )}
+          {saved.period && (
+            <div className="flex flex-col gap-2">
+              <span className="text-xs font-medium text-ink-faint">The days the report covers</span>
+              <PeriodChoice
+                mode={periodMode}
+                from={periodFrom}
+                to={periodTo}
+                setting={saved.period}
+                onChange={(mode, from, to) => {
+                  setPeriodMode(mode)
+                  setPeriodFrom(from)
+                  setPeriodTo(to)
+                  setMessage(null)
+                }}
               />
             </div>
           )}

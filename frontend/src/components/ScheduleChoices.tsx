@@ -1,6 +1,6 @@
 import { CalendarClock } from 'lucide-react'
 import { ErrorBanner } from '@/components/ErrorBanner'
-import { DatePicker } from '@/components/TemporalPicker'
+import { DatePicker, MonthYearPicker } from '@/components/TemporalPicker'
 import { formatIndianDate } from '@/lib/regional'
 import { segmentClass } from '@/utils/segment'
 
@@ -121,6 +121,222 @@ export function AsOnChoice({
           : `If sent today, the report will be as on ${formatIndianDate(shown)}.`}
       </p>
       {setting.problem && <ErrorBanner>{setting.problem}</ErrorBanner>}
+    </div>
+  )
+}
+
+// ── the days a report covers (the Sales Register) ─────────────────────────────────────────────────
+
+export type PeriodMode = 'auto' | 'last_month' | 'range'
+
+/** The days a schedule's report covers, as the server describes them (and the limits it enforces). */
+export interface PeriodSetting {
+  mode: PeriodMode
+  from: string | null
+  to: string | null
+  /** What a run today would cover: one entry per month, each a file of its own. */
+  covers: { label: string; from: string; to: string }[]
+  problem: string | null
+  today: string
+  yesterday: string
+  last_month_from: string
+  last_month_to: string
+  /** A picked range may run this many days into the month after its first day's month. */
+  extra_days: number
+}
+
+type PeriodLimits = Pick<PeriodSetting, 'yesterday' | 'last_month_from' | 'last_month_to' | 'extra_days'> & {
+  problem?: string | null
+  covers?: PeriodSetting['covers']
+}
+
+const PERIOD_CHOICES: { mode: PeriodMode; label: string }[] = [
+  { mode: 'auto', label: 'Automatic' },
+  { mode: 'last_month', label: 'Last month' },
+  { mode: 'range', label: 'A month or days I pick' },
+]
+
+function isoDay(date: Date): string {
+  return date.toISOString().slice(0, 10)
+}
+
+function addDays(iso: string, days: number): string {
+  const [year, month, day] = iso.split('-').map(Number)
+  return isoDay(new Date(Date.UTC(year, month - 1, day + days)))
+}
+
+function lastDayOfMonth(iso: string): string {
+  const [year, month] = iso.split('-').map(Number)
+  return isoDay(new Date(Date.UTC(year, month, 0)))
+}
+
+/** The last day a range starting on ``from`` may end on: the end of that month and ``extra_days`` beyond it, never past yesterday. */
+export function periodLatestEnd(from: string, setting: Pick<PeriodLimits, 'yesterday' | 'extra_days'>): string {
+  const limit = addDays(lastDayOfMonth(from), setting.extra_days)
+  return limit < setting.yesterday ? limit : setting.yesterday
+}
+
+/** Why the picked days cannot be reported (the same rules the server enforces), or null when they can. */
+export function periodProblem(mode: PeriodMode, from: string, to: string, setting: PeriodLimits): string | null {
+  if (mode !== 'range') return null
+  if (!from || !to) return 'Pick the first and the last day the report covers.'
+  if (to < from) return 'The last day cannot be before the first day.'
+  if (from > setting.yesterday || to > setting.yesterday) {
+    return `Only completed days can be reported. The last day can be ${formatIndianDate(setting.yesterday)} at the latest.`
+  }
+  const latest = periodLatestEnd(from, setting)
+  if (to > latest) {
+    return `A report can cover at most one complete month plus the first ${setting.extra_days} days of the next. From ${formatIndianDate(from)} the last day can be ${formatIndianDate(latest)} at the latest.`
+  }
+  return null
+}
+
+/** The days the choice amounts to when the mail goes out now, written out (empty while a range is incomplete). */
+function periodShownDays(mode: PeriodMode, from: string, to: string, setting: PeriodLimits): string {
+  if (mode === 'last_month') return `${formatIndianDate(setting.last_month_from)} to ${formatIndianDate(setting.last_month_to)}`
+  if (mode === 'range') return from && to ? `${formatIndianDate(from)} to ${formatIndianDate(to)}` : ''
+  const covers = setting.covers ?? []
+  return covers.length === 0 ? '' : `${formatIndianDate(covers[0].from)} to ${formatIndianDate(covers[covers.length - 1].to)}`
+}
+
+/** The period in words, for a schedule's one-line summary. */
+export function describePeriod(setting: Pick<PeriodSetting, 'mode' | 'from' | 'to'>): string {
+  if (setting.mode === 'last_month') return 'covering the whole of last month'
+  if (setting.mode === 'range') {
+    return setting.from && setting.to
+      ? `covering ${formatIndianDate(setting.from)} to ${formatIndianDate(setting.to)}`
+      : 'covering days (not picked yet)'
+  }
+  return 'covering the month so far'
+}
+
+/** The same, shorter, for a schedule's chip. */
+export function shortPeriod(setting: Pick<PeriodSetting, 'mode' | 'from' | 'to'>): string {
+  if (setting.mode === 'last_month') return 'last month'
+  if (setting.mode === 'range') {
+    return setting.from && setting.to ? `${formatIndianDate(setting.from)} to ${formatIndianDate(setting.to)}` : 'days not picked'
+  }
+  return 'month so far'
+}
+
+/**
+ * The days a report covers: the automatic period (the month so far, plus the whole previous month through the first
+ * days of a month), the whole of last month (worked out at every mail), or a month / days the person picks - never
+ * more than one complete month plus the first few days of the next. Used by a schedule's settings and by the mail sent
+ * by hand (for that one mail only).
+ */
+export function PeriodChoice({
+  mode,
+  from,
+  to,
+  setting,
+  onChange,
+  forThisMail = false,
+}: {
+  mode: PeriodMode
+  from: string
+  to: string
+  setting: PeriodLimits
+  onChange: (mode: PeriodMode, from: string, to: string) => void
+  forThisMail?: boolean
+}) {
+  const problem = periodProblem(mode, from, to, setting)
+  const shown = periodShownDays(mode, from, to, setting)
+  const latest = from ? periodLatestEnd(from, setting) : setting.yesterday
+  const wholeMonth = from && to && from.endsWith('-01') && from.slice(0, 7) === to.slice(0, 7) ? from.slice(0, 7) : ''
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="segmented-control max-w-full self-start">
+        {PERIOD_CHOICES.map((choice) => (
+          <button
+            key={choice.mode}
+            type="button"
+            onClick={() =>
+              choice.mode === 'range' && !from && !to
+                ? onChange('range', setting.last_month_from, setting.last_month_to) // a start: last month
+                : onChange(choice.mode, from, to)
+            }
+            className={segmentClass(mode === choice.mode)}
+            aria-pressed={mode === choice.mode}
+          >
+            {choice.label}
+          </button>
+        ))}
+      </div>
+
+      {mode === 'auto' && (
+        <p className="text-sm leading-6 text-ink-dim">
+          The month so far, through yesterday. Through the first {setting.extra_days} days of a month the whole of the
+          month before is included as well. Each month is a file of its own.
+        </p>
+      )}
+      {mode === 'last_month' && (
+        <p className="text-sm leading-6 text-ink-dim">
+          The whole of the month before the one the mail goes out in.
+          {forThisMail ? '' : ' It is worked out again for every mail, so a mail sent on 3 December covers all of November.'}
+        </p>
+      )}
+      {mode === 'range' && (
+        <div className="flex flex-col gap-3">
+          <label className="flex max-w-xs flex-col gap-1.5 text-sm">
+            <span className="text-xs font-medium text-ink-faint">A whole month</span>
+            <MonthYearPicker
+              value={wholeMonth}
+              max={setting.yesterday.slice(0, 7)}
+              onValueChange={(month) => {
+                if (!month) return
+                const first = `${month}-01`
+                const last = lastDayOfMonth(first)
+                onChange(mode, first, last < setting.yesterday ? last : setting.yesterday)
+              }}
+              aria-label={forThisMail ? 'Month for this mail' : 'Month'}
+            />
+          </label>
+          <div className="flex flex-wrap gap-3">
+            <label className="flex w-44 flex-col gap-1.5 text-sm">
+              <span className="text-xs font-medium text-ink-faint">From</span>
+              <DatePicker
+                value={from}
+                max={setting.yesterday}
+                onValueChange={(value) => {
+                  // keep the last day inside what the new first day allows
+                  const cap = value ? periodLatestEnd(value, setting) : ''
+                  onChange(mode, value, value && to && to > cap ? cap : to)
+                }}
+                aria-label="From"
+              />
+            </label>
+            <label className="flex w-44 flex-col gap-1.5 text-sm">
+              <span className="text-xs font-medium text-ink-faint">To</span>
+              <DatePicker
+                value={to}
+                min={from || undefined}
+                max={latest}
+                onValueChange={(value) => onChange(mode, from, value)}
+                aria-label="To"
+              />
+            </label>
+          </div>
+          <p className="text-xs text-ink-faint">
+            At most one complete month plus the first {setting.extra_days} days of the next
+            {from ? `: from ${formatIndianDate(from)} the last day can be ${formatIndianDate(latest)}` : ''}. Each month
+            is a file of its own.
+            {forThisMail ? '' : ' Every mail of this schedule will cover these same days until you change them; for a mail that repeats, choose Automatic or Last month.'}
+          </p>
+        </div>
+      )}
+
+      <p className="text-sm font-semibold text-ink">
+        {mode === 'range'
+          ? shown && !problem
+            ? `The report will cover ${shown}.`
+            : 'Pick the days.'
+          : shown
+            ? `If sent today, the report will cover ${shown}.`
+            : 'There is no completed day to report on yet.'}
+      </p>
+      {problem && <ErrorBanner>{problem}</ErrorBanner>}
+      {setting.problem && !problem && <ErrorBanner>{setting.problem}</ErrorBanner>}
     </div>
   )
 }

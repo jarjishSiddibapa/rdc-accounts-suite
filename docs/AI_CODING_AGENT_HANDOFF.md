@@ -1006,7 +1006,15 @@ Number schedules stay administrator-only). The Accounts Sales
 Register query (`sql.py`, verbatim; org 102 fixed; the date predicate takes an
 exclusive midnight after the end date) is streamed from the ERP straight into
 one xlsxwriter workbook (`report.build_workbook`, run on the CPU pool): every
-value exactly as the ERP returns it, nothing converted. The columns, headings and
+value as the ERP returns it, with ONE conversion: the date columns (`report._DATE_COLUMNS`: Invoice Date, GL Date,
+GL Posted Date - the query returns them as `to_char` text - and the Acknowledgement Date, a text flexfield) are written
+as REAL Excel dates (`dd-mmm-yyyy`, `dd-mmm-yyyy hh:mm:ss` for the acknowledgement); blanks stay blank and text that is
+no date stays as it came. (Standing requirement: every application's workbook holds real Excel dates, never date text.)
+Which days a report covers is `sales_register/periods.py` (pure date logic): `auto` (the month so far + the whole
+previous month through the 8th), `last_month`, or a picked `range` of at most one complete month plus the first 8 days
+of the next (never past yesterday), checked by `periods.check_range` for every way a period is set; the choice lives on
+the schedule (`mail_schedule.period_mode/period_from/period_to`, `MailSpec.period`) and can be changed for one mail sent
+by hand. The columns, headings and
 order are those of the ERP report's RDC Sales Invoice Details RTF template
 (`report.TEMPLATE_COLUMNS`, 50 columns; the query columns the template does not
 use are left out, and Cust PAN Number is empty because the query returns no PAN). The
@@ -1129,13 +1137,13 @@ be chosen.
 Mailer, RDC Sales Register Report, Unidentified Entries; `app/services/mail_schedules.py`, routes
 `app/routers/schedule_routes.py`, UI `components/MailSchedules.tsx`). An application has any number (at most 20) of
 **mail schedules** - each one scheduled mail with its own timing, recipients, wording and send log, and where the report
-can be as on a date (`MailSpec.as_on`: Untagged, GST, Debtors, Unidentified; not the month-by-month Sales Register) its
-own as-on date, and for the Debtors Reports (`MailSpec.report_choices`) its own choice of reports. They replaced the
+can be as on a date (`MailSpec.as_on`: Untagged, GST, Debtors, Unidentified) its own as-on date, for the month-by-month
+Sales Register (`MailSpec.period`) its own choice of the days it covers, and for the Debtors Reports (`MailSpec.report_choices`) its own choice of reports. They replaced the
 separate "Meeting Debtors Reports Auto Mailer" application (its key is in `RETIRED_APP_KEYS`: a schedule with the
 as-on date "last day of last month" is the same thing). The Ultrafine Cashflow mail is manual-only and has no schedules.
 * **Storage**: table `mail_schedule` (`models.MailSchedule`; it began as `debtors_mail_plan` and is renamed at start-up
-  by `database._rename_debtors_mail_plan_table`, keeping the rows and ids; columns `app_key` and `sender_user_id` are
-  added). Its timing / run-state columns are named exactly like those of `ScheduledReportMail`, so the scheduler's
+  by `database._rename_debtors_mail_plan_table`, keeping the rows and ids; columns `app_key`, `sender_user_id` and
+  `period_mode` / `period_from` / `period_to` are added). Its timing / run-state columns are named exactly like those of `ScheduledReportMail`, so the scheduler's
   duck-typed functions (`due_slot`, `due_every_slot`, `next_run`, ...) work on a schedule row unchanged. Recipients are the
   schedule's own `to_list` / `cc_list` (JSON), not Admin -> Report recipients (these applications are not in
   `REPORT_RECIPIENT_APP_KEYS`). `scheduled_report_mail_log.schedule_id` (the DB column kept its first name, `plan_id`) ties

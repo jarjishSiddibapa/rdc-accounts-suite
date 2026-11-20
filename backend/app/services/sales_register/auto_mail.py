@@ -1,6 +1,7 @@
 """Automatic and on-demand mail of the RDC Sales Register Report.
 
-One workbook per calendar month (see report.get_report_periods): each is fetched
+One workbook per calendar month (see periods.get_report_periods; a schedule can ask for the automatic period,
+last month, or the days it picks - never more than a complete month plus the first 8 days of the next): each is fetched
 from the ERP and written exactly as the ERP returns it (see
 app.services.sales_register.report). All the files go in ONE mail. Because one
 email carries a limited total (not a limit per file), files that are too big together
@@ -69,7 +70,8 @@ def build(snapshot: dict, progress_cb=None, cancel_event=None) -> mail.MailPaylo
     )
 
     run_date = now_ist().date()
-    periods = report.get_report_periods(run_date)
+    # snapshot["period"]: the first and last day the schedule (or this one mail) asks for; None = the automatic period
+    periods = report.get_report_periods(run_date, snapshot.get("period"))
     if not periods:
         raise JobUserError("There is no completed day to report on yet.")
 

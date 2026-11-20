@@ -458,6 +458,10 @@ class MailSchedule(Base):
     # the date the report is as on: "today", "last_month_end" or a fixed "date" (only for reports that have one)
     as_on_mode = Column(String(20), default="today", nullable=False)
     as_on_date = Column(Date, nullable=True)
+    # the days the report covers (the Sales Register only): "auto", "last_month" or a picked "range" (first/last day)
+    period_mode = Column(String(20), default="auto", nullable=False)
+    period_from = Column(Date, nullable=True)
+    period_to   = Column(Date, nullable=True)
     # the Debtors Reports only: which of its three reports it sends
     ageing     = Column(Boolean, default=True, nullable=False)      # the ageing with the GST invoice numbers
     unapplied  = Column(Boolean, default=True, nullable=False)      # the Unapplied Receipts report
