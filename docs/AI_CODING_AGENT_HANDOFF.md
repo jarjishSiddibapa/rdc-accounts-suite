@@ -975,6 +975,20 @@ Incharge. The Unapplied Receipts Register is fetched from the ERP too
 (`app/services/unapplied_receipts/erp_register.py`; the report's three
 parameters are bound NULL; the upload is now optional).
 
+**Payables-side Location comes from the supplier's ERP region too** (Unaccounted Transactions, Pending MRN,
+Uninvoiced Expense POs, and Loans & Advance / IOCL / TDS): `app/services/supplier_region.py` reads each supplier's
+region from the ERP (`ap_suppliers.segment1` -> `party_id` -> `hz_parties.attribute5` -> `xxrdc_region_details`;
+about 6 % of suppliers have one) once per job (`fetch_for_job`; a failed lookup only logs a warning and the site
+mapping decides every row). Order per row: the supplier's ERP region, else the Supplier Site / Vendor Site Code
+mapping, else the "mapping not found" popup; explicit vendor / invoice overrides in Loans & Advance still win. The
+supplier number is matched through `customer_region.normalise_account` (the export's "Supplier Number" /
+"Vendor Number" column). These reports have always carried their own labels (`NCR + Delhi`, `SAMBHAJI NAGAR`,
+`CAPEX`), not the ERP's, so a region is turned into that label by `LABEL_FOR_REGION` (taken from how the site
+mapping already places each region's suppliers) before it is used - the two spellings land on one pivot row and the
+Accounts Incharge kept against the label applies. A region that has no label keeps its ERP spelling and is warned
+about if it has no incharge. The tests' `tests/conftest.py` stubs the lookup so no unit test opens a live Oracle
+connection.
+
 ERP speed: the ageing query is fetched as `ORACLE_FETCH_PARALLELISM` (4) slices
 on separate connections, by `MOD(apsa.payment_schedule_id, n)`, and re-sorted by
 schedule id (~20 s -> ~8 s; same rows). The register query carries a

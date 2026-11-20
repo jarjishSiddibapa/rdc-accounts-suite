@@ -18,6 +18,14 @@ Report mail defaults are editable where the workflow permits. In the Unaccounted
 workflow, one, two, or all three selected reports update the subject and body
 automatically before sending.
 
+### Where a row's Location comes from (Unaccounted, Pending MRN, Uninvoiced POs, Loans & Advance)
+
+For each row the application first looks up the supplier (by its Supplier Number / Vendor Number) in the ERP. If the
+ERP holds a region for that supplier, that region is the row's Location. Otherwise the Supplier Site / Vendor Site
+Code mapping decides, as before. Only a row that neither knows is listed in the "mapping not found" popup. The report
+log says how many rows took their Location from the ERP and how many of those differ from the site mapping. If the ERP
+cannot be reached, the log says so and every row uses the site mapping.
+
 ### Loans & Advance, IOCL, TDS Report Generator
 
 Upload the Oracle ERP workbook and select the GL cutoff month and year. The

@@ -3,7 +3,7 @@ import io
 import math
 import os
 
-from app.services import tabular_input
+from app.services import supplier_region, tabular_input
 import atexit
 from datetime import datetime
 from calendar import monthrange
@@ -440,7 +440,8 @@ def cutoff_for_month(year, month):
 def process_report(columns, data_rows, cutoff_year, cutoff_month,
                    mapping, loc_code_map=None, exclusions=None,
                    invoice_overrides=None, region_incharge_map=None,
-                   txn_type_overrides=None):
+                   txn_type_overrides=None, supplier_regions=None,
+                   region_stats=None):
     """
     Apply all transformation steps defined in the spec.
 
@@ -458,6 +459,12 @@ def process_report(columns, data_rows, cutoff_year, cutoff_month,
                                  overrides. An entry keyed with a blank invoice
                                  number, e.g. (vendor_num_upper, ""), applies to
                                  every invoice from that vendor.
+    supplier_regions   : dict – {supplier number: ERP region}. A vendor the ERP holds a region for
+                                 gets that region (as this report's own label); every other row keeps
+                                 the Vendor Site Code mapping. Explicit vendor / invoice overrides
+                                 below still win over both.
+    region_stats       : dict – optional; filled with what the ERP regions did (from_erp, changed,
+                                 no_incharge) so the caller can log it.
     region_incharge_map: dict – {Region: Accounts Incharge}. When a Region has
                                  an entry here, it always wins over whatever
                                  Accounts Incharge value came from the vendor /
@@ -528,6 +535,14 @@ def process_report(columns, data_rows, cutoff_year, cutoff_month,
             accounts.append(entry.get("Accounts Incharge", ""))
         df.insert(idx + 1, "Region",            regions)
         df.insert(idx + 2, "Accounts Incharge", accounts)
+
+        # The vendor's own region in the ERP (when it holds one) is the source of truth; the site
+        # mapping above is the fallback for every other vendor.
+        stats = supplier_region.apply_supplier_regions(
+            df, supplier_region.find_number_column(df.columns), "Region", "Accounts Incharge",
+            supplier_regions, region_incharge_map)
+        if region_stats is not None:
+            region_stats.update(stats)
 
     # ── Invoice-level overrides (Vendor Number + Invoice Number) ──────────────
     # Takes priority over the Vendor Site Code mapping above — lets specific

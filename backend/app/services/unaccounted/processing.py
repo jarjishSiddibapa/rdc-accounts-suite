@@ -5,7 +5,7 @@ import os
 import pandas as pd
 
 from app.jobs import JobUserError
-from app.services import tabular_input
+from app.services import supplier_region, tabular_input
 from app.regional import format_indian_number, today_ist
 
 import re
@@ -136,8 +136,11 @@ def merge_xls_files(paths: list, log_q) -> "pd.DataFrame":
     return combined
 
 
-def process_report(input_path: str, log_q) -> tuple:
-    """Read, clean, and return (df, total_rows, input_cols, matched)."""
+def process_report(input_path: str, log_q, supplier_regions: dict | None = None) -> tuple:
+    """Read, clean, and return (df, total_rows, input_cols, matched).
+
+    ``supplier_regions`` ({supplier number -> ERP region}): a supplier the ERP holds a region for gets
+    that region as its Location; every other row uses the supplier-site mapping, as before."""
     log_q.put(("info", "Reading file …"))
     tables = _read_export_tables(input_path, DATA_ANCHOR_COL, 1)
 
@@ -184,6 +187,9 @@ def process_report(input_path: str, log_q) -> tuple:
         lambda s: eff_site.get(str(s).strip(), ("", ""))[0])
     df["Accounts Incharge"] = df[COL_MOVE_TO_END].apply(
         lambda s: _resolve_incharge(*eff_site.get(str(s).strip(), ("", "")), loc_incharge_map))
+
+    supplier_region.apply_with_log(df, "Location", "Accounts Incharge", supplier_regions,
+                                   loc_incharge_map, log_q)
 
     if site_overrides:
         log_q.put(("info", f"Applied {len(site_overrides)} custom site override(s)"))
@@ -258,7 +264,7 @@ def process_report(input_path: str, log_q) -> tuple:
     return df, total_rows, input_cols, matched
 
 
-def process_report_multi(input_paths: list, log_q) -> tuple:
+def process_report_multi(input_paths: list, log_q, supplier_regions: dict | None = None) -> tuple:
     """Merge multiple Unaccounted Transactions XLS files and process them.
 
     Each file is read individually so that its own Period Name (from the B12
@@ -271,7 +277,7 @@ def process_report_multi(input_paths: list, log_q) -> tuple:
     """
     if len(input_paths) == 1:
         # Fast path: single file handled by process_report (which also sets __month__)
-        return process_report(input_paths[0], log_q)
+        return process_report(input_paths[0], log_q, supplier_regions)
 
     log_q.put(("info", f"Merging {len(input_paths)} input file(s) …"))
 
@@ -324,6 +330,9 @@ def process_report_multi(input_paths: list, log_q) -> tuple:
         lambda s: eff_site.get(str(s).strip(), ("", ""))[0])
     df["Accounts Incharge"] = df[COL_MOVE_TO_END].apply(
         lambda s: _resolve_incharge(*eff_site.get(str(s).strip(), ("", "")), loc_incharge_map))
+
+    supplier_region.apply_with_log(df, "Location", "Accounts Incharge", supplier_regions,
+                                   loc_incharge_map, log_q)
 
     if site_overrides:
         log_q.put(("info", f"Applied {len(site_overrides)} custom site override(s)"))
@@ -499,6 +508,7 @@ def process_po_report(
     keywords: list,
     log_q,
     fuzzy_threshold: float = 0.82,
+    supplier_regions: dict | None = None,
 ) -> tuple:
     """Read Uninvoiced Expense PO XLS and return
     (main_df, moved_df, unmapped_df, total_rows, input_cols, matched).
@@ -567,6 +577,8 @@ def process_po_report(
         df.insert(org_idx + 2, "Accounts Incharge",
                   df[PO_SITE_COL].apply(
                       lambda s: _resolve_incharge(*eff_site.get(str(s).strip(), ("", "")), loc_incharge_map)))
+        supplier_region.apply_with_log(df, "Location", "Accounts Incharge", supplier_regions,
+                                       loc_incharge_map, log_q)
         log_q.put(("ok", "Added 'Location' and 'Accounts Incharge' after 'Organization Name'"))
     else:
         log_q.put(("warn", f"'{PO_SITE_COL}' or '{PO_ORG_COL}' not found — skipping mapping"))
@@ -685,7 +697,7 @@ def detect_mrn_periods(input_path: str) -> list:
         return []
 
 
-def process_mrn_report(input_path: str, exclude_periods: set, log_q) -> tuple:
+def process_mrn_report(input_path: str, exclude_periods: set, log_q, supplier_regions: dict | None = None) -> tuple:
     """Read Pending MRN XLS, add Location + Accounts Incharge, filter periods."""
     log_q.put(("info", "Reading MRN file …"))
     tables = _read_export_tables(input_path, MRN_ANCHOR_COL, 0)
@@ -741,6 +753,8 @@ def process_mrn_report(input_path: str, exclude_periods: set, log_q) -> tuple:
         df.insert(site_idx + 2, "Accounts Incharge",
                   df[MRN_SITE_COL].apply(
                       lambda s: _resolve_incharge(*eff_site.get(str(s).strip(), ("", "")), loc_incharge_map)))
+        supplier_region.apply_with_log(df, "Location", "Accounts Incharge", supplier_regions,
+                                       loc_incharge_map, log_q)
         if site_overrides:
             log_q.put(("info", f"Applied {len(site_overrides)} custom site override(s)"))
     else:

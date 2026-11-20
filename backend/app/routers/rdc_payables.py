@@ -37,6 +37,7 @@ from app.models import User
 from app.permissions import require_app_access
 from app.routers.finished_report_mail import make_finished_report_mail_router
 from app.regional import format_indian_number, now_ist
+from app.services import supplier_region
 from app.services.rdc_payables import mapping_store, processor
 from app.uploads import save_upload
 
@@ -181,6 +182,11 @@ def _run_process_job(input_path: str, output_path: str,
             progress_cb(0.40, "Applying filters and mappings...")
         cutoff_label = datetime(cutoff_year, cutoff_month, 1).strftime("%b-%Y")
         add_log("INFO", f"Including GL data through: {cutoff_label}")
+        erp_log: list = []
+        supplier_regions = supplier_region.fetch_for_job(erp_log)
+        for level, text in erp_log:
+            add_log({"ok": "OK", "warn": "WARN"}.get(level, "INFO"), text)
+        region_stats: dict = {}
         df, reporting_ref_date = processor.process_report(
             columns, rows, cutoff_year, cutoff_month, mapping,
             loc_code_map=loc_code_map,
@@ -188,7 +194,15 @@ def _run_process_job(input_path: str, output_path: str,
             invoice_overrides=invoice_overrides,
             region_incharge_map=region_incharge_map,
             txn_type_overrides=txn_type_overrides,
+            supplier_regions=supplier_regions,
+            region_stats=region_stats,
         )
+        if supplier_regions:
+            add_log("INFO", f"Region from the vendor's ERP region for {region_stats.get('from_erp', 0):,} rows "
+                             f"({region_stats.get('changed', 0):,} of them different from the site mapping); "
+                             "the rest from the Vendor Site Code mapping")
+            if region_stats.get("no_incharge"):
+                add_log("WARN", "No Accounts Incharge on file for: " + ", ".join(region_stats["no_incharge"]))
 
         add_log("OK", f"Output rows: {format_indian_number(len(df))}")
         if reporting_ref_date:

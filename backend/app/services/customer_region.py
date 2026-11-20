@@ -117,9 +117,9 @@ def normalise_account(value) -> str:
 
 # ── fetching ─────────────────────────────────────────────────────────────────
 
-def fetch_customer_regions(oracle_cfg, cancel_event=None) -> dict[str, str]:
-    """{customer account -> region} for every customer the ERP has a region
-    for. Raises on a connection or query failure."""
+def fetch_rows(oracle_cfg, sql: str, cancel_event=None) -> list:
+    """The rows of a read-only ERP query, on a connection of its own. Raises on a
+    connection or query failure."""
     # imported here: these modules import this one's neighbours at load time
     from app.services.unapplied_receipts.processor import (
         _connect_oracle, _init_oracle_client, _start_cancel_watcher,
@@ -132,7 +132,7 @@ def fetch_customer_regions(oracle_cfg, cancel_event=None) -> dict[str, str]:
         cur = conn.cursor()
         cur.arraysize = 5000
         try:
-            cur.execute(CUSTOMER_REGION_SQL)
+            cur.execute(sql)
             rows = cur.fetchall()
         except Exception:
             if cancel_event is not None and cancel_event.is_set():
@@ -145,7 +145,13 @@ def fetch_customer_regions(oracle_cfg, cancel_event=None) -> dict[str, str]:
         if watcher is not None:
             watcher.join(timeout=1)
         conn.close()
-    return regions_from_rows(rows)
+    return rows
+
+
+def fetch_customer_regions(oracle_cfg, cancel_event=None) -> dict[str, str]:
+    """{customer account -> region} for every customer the ERP has a region
+    for. Raises on a connection or query failure."""
+    return regions_from_rows(fetch_rows(oracle_cfg, CUSTOMER_REGION_SQL, cancel_event))
 
 
 def regions_from_rows(rows) -> dict[str, str]:

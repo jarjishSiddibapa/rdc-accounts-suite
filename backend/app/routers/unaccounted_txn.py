@@ -36,7 +36,7 @@ from app.jobs import (
 )
 from app.permissions import require_app_access
 from app.regional import now_ist
-from app.services import attachment_fit, mailer_shared, send_history
+from app.services import attachment_fit, mailer_shared, send_history, supplier_region
 from app.services.unaccounted import excel_writers, mappings, processing
 from app.uploads import save_upload
 
@@ -147,9 +147,9 @@ class _CollectingLogQueue:
         self.messages.append(item)
 
 
-def _cpu_phase_process_unaccounted(paths: list):
+def _cpu_phase_process_unaccounted(paths: list, supplier_regions: dict | None = None):
     log_q = _CollectingLogQueue()
-    df, total_rows, input_cols, matched = processing.process_report_multi(paths, log_q)
+    df, total_rows, input_cols, matched = processing.process_report_multi(paths, log_q, supplier_regions)
     return df, total_rows, input_cols, matched, log_q.messages
 
 
@@ -157,9 +157,10 @@ def _cpu_phase_write_unaccounted(df, output_path: str, progress_cb=None):
     excel_writers.write_formatted_excel(df, output_path, progress_cb=progress_cb)
 
 
-def _cpu_phase_process_mrn(path: str, exclude_periods: set):
+def _cpu_phase_process_mrn(path: str, exclude_periods: set, supplier_regions: dict | None = None):
     log_q = _CollectingLogQueue()
-    df, total_rows, input_cols, matched = processing.process_mrn_report(path, exclude_periods, log_q)
+    df, total_rows, input_cols, matched = processing.process_mrn_report(
+        path, exclude_periods, log_q, supplier_regions)
     return df, total_rows, input_cols, matched, log_q.messages
 
 
@@ -167,10 +168,11 @@ def _cpu_phase_write_mrn(df, output_path: str, progress_cb=None):
     excel_writers.write_formatted_mrn_excel(df, output_path, progress_cb=progress_cb)
 
 
-def _cpu_phase_process_po(path: str, exclude_months: set, keywords: list, fuzzy_threshold: float):
+def _cpu_phase_process_po(path: str, exclude_months: set, keywords: list, fuzzy_threshold: float,
+                          supplier_regions: dict | None = None):
     log_q = _CollectingLogQueue()
     main_df, moved_df, unmapped_df, total_rows, input_cols, matched = processing.process_po_report(
-        path, exclude_months, keywords, log_q, fuzzy_threshold
+        path, exclude_months, keywords, log_q, fuzzy_threshold, supplier_regions
     )
     return main_df, moved_df, unmapped_df, total_rows, input_cols, matched, log_q.messages
 
@@ -191,13 +193,16 @@ def _job_unaccounted(
 ) -> dict:
     if progress_cb:
         progress_cb(0.05, "Processing report...")
+    erp_log: list = []
+    supplier_regions = supplier_region.fetch_for_job(erp_log)
     try:
         df, total_rows, input_cols, matched, log_messages = run_cpu_phase(
-            _cpu_phase_process_unaccounted, paths,
+            _cpu_phase_process_unaccounted, paths, supplier_regions,
         )
+        log_messages[:0] = erp_log
         unmapped = sorted(
             df[df["Location"].astype(str).str.strip() == ""]["Supplier Site"]
-            .astype(str).unique().tolist()
+            .map(str).unique().tolist()
         )
         if unmapped:
             log_messages.append(("warn", f"Unmapped supplier sites: {len(unmapped)}"))
@@ -241,13 +246,16 @@ def _job_mrn(
     if progress_cb:
         progress_cb(0.05, "Processing report...")
     from app.services.unaccounted.constants import MRN_SITE_COL
+    erp_log: list = []
+    supplier_regions = supplier_region.fetch_for_job(erp_log)
     try:
         df, total_rows, input_cols, matched, log_messages = run_cpu_phase(
-            _cpu_phase_process_mrn, path, exclude_periods,
+            _cpu_phase_process_mrn, path, exclude_periods, supplier_regions,
         )
+        log_messages[:0] = erp_log
         unmapped = sorted(
             df[df["Location"].astype(str).str.strip() == ""][MRN_SITE_COL]
-            .astype(str).unique().tolist()
+            .map(str).unique().tolist()
         )
         if unmapped:
             log_messages.append(("warn", f"Unmapped supplier sites: {len(unmapped)}"))
@@ -292,12 +300,15 @@ def _job_po(
     if progress_cb:
         progress_cb(0.05, "Processing report...")
     from app.services.unaccounted.constants import PO_SITE_COL
+    erp_log: list = []
+    supplier_regions = supplier_region.fetch_for_job(erp_log)
     try:
         main_df, moved_df, unmapped_df, total_rows, input_cols, matched, log_messages = run_cpu_phase(
-            _cpu_phase_process_po, path, exclude_months, keywords, fuzzy_threshold,
+            _cpu_phase_process_po, path, exclude_months, keywords, fuzzy_threshold, supplier_regions,
         )
+        log_messages[:0] = erp_log
         unmapped = (
-            sorted(unmapped_df[PO_SITE_COL].astype(str).unique().tolist())
+            sorted(unmapped_df[PO_SITE_COL].map(str).unique().tolist())
             if PO_SITE_COL in unmapped_df.columns else []
         )
         if unmapped:
@@ -878,12 +889,16 @@ def _job_mail_send(
     safe_month_mrn = month_mrn.strip() or "Report"
     safe_month_po = month_po.strip() or "Report"
 
+    erp_log: list = []
+    supplier_regions = supplier_region.fetch_for_job(erp_log)
+    for entry in erp_log:
+        log_q.put(entry)
     try:
         if include_ua and ua_paths:
-            df_ua, *_ = processing.process_report_multi(ua_paths, log_q)
+            df_ua, *_ = processing.process_report_multi(ua_paths, log_q, supplier_regions)
             unmapped = sorted(
                 df_ua[df_ua["Location"].astype(str).str.strip() == ""]["Supplier Site"]
-                .astype(str).unique().tolist()
+                .map(str).unique().tolist()
             )
             if unmapped:
                 unmapped_all["unaccounted"] = unmapped
@@ -891,11 +906,11 @@ def _job_mail_send(
             excel_writers.write_formatted_excel(df_ua, ua_out)
 
         if include_mrn and mrn_path:
-            df_mrn, *_ = processing.process_mrn_report(mrn_path, exclude_periods, log_q)
+            df_mrn, *_ = processing.process_mrn_report(mrn_path, exclude_periods, log_q, supplier_regions)
             from app.services.unaccounted.constants import MRN_SITE_COL
             unmapped = sorted(
                 df_mrn[df_mrn["Location"].astype(str).str.strip() == ""][MRN_SITE_COL]
-                .astype(str).unique().tolist()
+                .map(str).unique().tolist()
             )
             if unmapped:
                 unmapped_all["mrn"] = unmapped
@@ -904,11 +919,11 @@ def _job_mail_send(
 
         if include_po and po_path:
             main_df, moved_df, unmapped_df, *_ = processing.process_po_report(
-                po_path, exclude_months, keywords, log_q, fuzzy_threshold
+                po_path, exclude_months, keywords, log_q, fuzzy_threshold, supplier_regions
             )
             from app.services.unaccounted.constants import PO_SITE_COL
             unmapped = (
-                sorted(unmapped_df[PO_SITE_COL].astype(str).unique().tolist())
+                sorted(unmapped_df[PO_SITE_COL].map(str).unique().tolist())
                 if PO_SITE_COL in unmapped_df.columns else []
             )
             if unmapped:
