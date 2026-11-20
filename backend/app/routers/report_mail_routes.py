@@ -53,6 +53,8 @@ class PreviewBody(BaseModel):
     period_mode: str | None = None      # the Sales Register: "auto", "last_month" or "range" (+ the two days)
     period_from: date | None = None
     period_to: date | None = None
+    month_mode: str | None = None       # the Ultrafine Cashflow: "current", "last" or "month" (+ month_value "YYYY-MM")
+    month_value: str | None = None
 
 
 class ConfirmBody(BaseModel):
@@ -155,7 +157,8 @@ def make_report_mail_router(app_key: str, preview_job, per_month: bool = False,
             if schedule_id is not None:
                 overrides = mail_schedules.validate_overrides(
                     app_key, body.reports, body.as_on_mode, body.as_on_date,
-                    period_mode=body.period_mode, period_from=body.period_from, period_to=body.period_to)
+                    period_mode=body.period_mode, period_from=body.period_from, period_to=body.period_to,
+                    month_mode=body.month_mode, month_value=body.month_value)
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
         extra = {}

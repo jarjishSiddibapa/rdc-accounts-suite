@@ -2,6 +2,8 @@ import { useCallback, useEffect, useState } from 'react'
 import { Landmark } from 'lucide-react'
 import { AppShell } from '@/components/AppShell'
 import { ErrorBanner } from '@/components/ErrorBanner'
+import { GlassCard } from '@/components/GlassCard'
+import { MailSchedules } from '@/components/MailSchedules'
 import { ApiError, get } from '@/lib/api'
 import { MappingsPanel } from './cashflow/MappingsPanel'
 import { SetupPanel } from './cashflow/SetupPanel'
@@ -10,14 +12,22 @@ import { UploadPanel } from './cashflow/UploadPanel'
 import { BASE, currentMonth, useMappingOptions, type MonthRow } from './cashflow/shared'
 import { segmentClass } from '@/utils/segment'
 
-type Tab = 'upload' | 'review' | 'setup' | 'mappings'
+type Tab = 'upload' | 'review' | 'setup' | 'mappings' | 'mail'
 
 const TABS: { key: Tab; label: string }[] = [
   { key: 'upload', label: 'Upload and months' },
   { key: 'review', label: 'Review lines' },
   { key: 'setup', label: 'Month setup' },
   { key: 'mappings', label: 'Mappings' },
+  { key: 'mail', label: 'Mail schedules' },
 ]
+
+// What a schedule does when bank lines are not mapped yet (the cashflow is left incomplete without them).
+const UNMAPPED_TEXT = {
+  label: 'If a bank line is not mapped yet',
+  send: 'Send anyway (those lines are highlighted in the workbook and left out of the table)',
+  hold: 'Hold the mail until every line is mapped',
+}
 
 export default function UltrafineCashflow() {
   const [tab, setTab] = useState<Tab>('upload')
@@ -120,6 +130,28 @@ export default function UltrafineCashflow() {
               void reloadMonths()
             }}
           />
+        )}
+        {tab === 'mail' && (
+          <>
+            <GlassCard padding="lg" className="flex flex-col gap-2">
+              <h2 className="font-display text-lg font-semibold text-ink">Mail the cashflow automatically</h2>
+              <p className="text-sm leading-6 text-ink-dim">
+                Each schedule rebuilds the cashflow of its month from the stored bank lines and the mappings as they
+                are at that moment, lays the Summary out as the table in the mail, and attaches the workbook. A
+                schedule has its own days and times, recipients, wording, sender and month (this month, last month,
+                or a month you pick). It can hold the mail while bank lines are unmapped, so a cashflow with missing
+                lines is never mailed by itself. To mail one month once, use Regenerate &amp; mail under Upload and
+                months, or Send now on a schedule.
+              </p>
+            </GlassCard>
+            <MailSchedules
+              base={BASE}
+              reportName="the cashflow"
+              showUnmapped
+              unmappedText={UNMAPPED_TEXT}
+              unmappedHint="Fix them under Mappings or Review lines and preview again, or preview anyway - those lines are highlighted in the workbook and left out of the table."
+            />
+          </>
         )}
       </div>
     </AppShell>

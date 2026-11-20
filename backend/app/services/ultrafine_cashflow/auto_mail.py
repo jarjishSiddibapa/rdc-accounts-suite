@@ -3,9 +3,13 @@
 "Regenerate & mail": the month's workbook is rebuilt from the stored bank lines
 and the mappings as they are now, the Summary is laid out as the table in the
 mail body (the way the cashflow has always been mailed by hand), and the
-workbook is the attachment. Nothing is sent by this module - a person reviews
-the preview and confirms (see app.routers.report_mail_routes). It is mailed by
-hand only; there is no automatic schedule for it.
+workbook is the attachment.
+
+It is mailed two ways. By hand, for a month chosen on the page: a person reviews the preview and confirms
+(see app.routers.report_mail_routes), and nothing is sent by this module. And automatically, by any number of MAIL
+SCHEDULES (see app.services.mail_schedules): each has its own timing, recipients and wording, and says which month
+it is of - this month, last month (worked out afresh at every mail) or a month picked - and whether to hold the mail
+while bank lines are unmapped. A scheduled run rebuilds the month first, exactly as "Regenerate & mail" does.
 """
 
 from __future__ import annotations
@@ -20,7 +24,7 @@ from pathlib import Path
 from app.config import SCRATCH_DIR
 from app.database import SessionLocal
 from app.jobs import JobUserError
-from app.services import report_mail_preview
+from app.services import mail_schedules, report_mail_preview
 from app.services import scheduled_report_mail as mail
 
 from .generate import generate_month
@@ -135,6 +139,8 @@ def _warnings(summary: dict) -> list[dict]:
 
 
 def build(snapshot: dict, progress_cb=None, cancel_event=None, month: str | None = None) -> mail.MailPayload:
+    """``month`` (YYYY-MM): given by the person mailing by hand; a mail schedule hands its month in the snapshot."""
+    month = month or snapshot.get("month")
     if not month:
         raise JobUserError("Choose the month to mail.")
     payload = mail.MailPayload(values={"date": "", "date_plain": "", "month": ""})
@@ -147,10 +153,12 @@ def build(snapshot: dict, progress_cb=None, cancel_event=None, month: str | None
         outcome = generate_month(db, month, None, allow_unmapped=snapshot["send_when_unmapped"])
         db.commit()
         if outcome["status"] == "no_data":
+            payload.detail = {"month": month}
             payload.hold_reason = "There are no bank lines in this month, so there is no cashflow to mail."
             return payload
         if outcome["status"] == "needs_mapping_fix":
-            payload.detail = {"unmapped": _warnings(outcome["unmapped"]), "issue_count": outcome["issue_count"]}
+            payload.detail = {"month": month, "unmapped": _warnings(outcome["unmapped"]),
+                              "issue_count": outcome["issue_count"]}
             payload.hold_reason = (
                 f"{outcome['issue_count']} bank line(s) are not mapped yet, so the cashflow would be incomplete."
             )
@@ -200,11 +208,28 @@ def build(snapshot: dict, progress_cb=None, cancel_event=None, month: str | None
     return payload
 
 
+def run_auto_mail_job(trigger: str = "scheduled", requested_by: str | None = None,
+                      schedule_id: int | None = None, progress_cb=None, cancel_event=None) -> dict:
+    """Regenerate the month of one mail schedule and send the mail (the scheduler's job)."""
+    if schedule_id is None:
+        raise JobUserError("Choose the mail schedule to send.")
+    return mail.run_mail_job(
+        APP_KEY, trigger, mail_schedules.scheduled_build(build, schedule_id), progress_cb=progress_cb,
+        cancel_event=cancel_event, requested_by=requested_by, schedule_id=schedule_id,
+    )
+
+
 def run_preview_job(user_id: int, to: list, cc: list, subject: str, intro: str,
-                    allow_unmapped: bool = False, month: str | None = None,
+                    allow_unmapped: bool = False, month: str | None = None, sender: str | None = None,
+                    schedule_id: int | None = None, overrides: dict | None = None,
                     progress_cb=None, cancel_event=None) -> dict:
-    """Regenerate the month and build the exact mail for review. Sends nothing."""
+    """Regenerate the month and build the exact mail for review. Sends nothing. Either a month chosen on the page
+    (``month``), or one mail schedule (``schedule_id``; ``overrides``: what was changed for this one send)."""
+    if schedule_id is not None:
+        builder = mail_schedules.scheduled_build(build, schedule_id, overrides)
+    else:
+        builder = partial(build, month=month)
     return report_mail_preview.build_preview(
-        APP_KEY, partial(build, month=month), user_id, to, cc, subject, intro, allow_unmapped,
+        APP_KEY, builder, user_id, to, cc, subject, intro, allow_unmapped, sender=sender,
         progress_cb=progress_cb, cancel_event=cancel_event,
     )

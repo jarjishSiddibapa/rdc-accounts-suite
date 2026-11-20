@@ -40,6 +40,7 @@ from app.jobs import JobUserError, cancel_job, get_job, submit_job
 from app.models import User
 from app.permissions import require_app_access
 from app.routers.report_mail_routes import make_report_mail_router
+from app.routers.schedule_routes import make_schedules_router
 from app.services.ultrafine_cashflow import auto_mail
 from app.services.ultrafine_cashflow import mapping_store as store
 from app.services.ultrafine_cashflow.generate import generate_month
@@ -79,6 +80,9 @@ router = APIRouter(
 # "Regenerate & mail": preview the mail of a month, then confirm - the same flow as the
 # Unaccounted / MRN / PO mail (see report_mail_routes).
 router.include_router(make_report_mail_router("ultrafine-cashflow", auto_mail.run_preview_job, per_month=True))
+# ... and the same mail on a schedule: any number of MAIL SCHEDULES (see app.routers.schedule_routes), each its own
+# timing, recipients, wording and month; anyone granted the application sets them.
+router.include_router(make_schedules_router("ultrafine-cashflow", auto_mail.run_preview_job, sender_choice=True))
 
 _XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 _MONTH_RE = re.compile(r"^\d{4}-(0[1-9]|1[0-2])$")

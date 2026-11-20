@@ -4,8 +4,8 @@ import { GlassCard } from '@/components/GlassCard'
 import { Button } from '@/components/Button'
 import { ErrorBanner } from '@/components/ErrorBanner'
 import {
-  AsOnChoice, PeriodChoice, ReportsChoice, ScheduleTag, periodProblem, type AsOnMode, type AsOnSetting,
-  type PeriodMode, type PeriodSetting, type ReportOption,
+  AsOnChoice, MonthChoice, PeriodChoice, ReportsChoice, ScheduleTag, monthProblem, periodProblem, type AsOnMode,
+  type AsOnSetting, type MonthMode, type MonthSetting, type PeriodMode, type PeriodSetting, type ReportOption,
 } from '@/components/ScheduleChoices'
 import { ApiError, get, put } from '@/lib/api'
 import { formatIndianDate, formatIndianDateTime } from '@/lib/regional'
@@ -27,6 +27,8 @@ interface AutoMailSettings {
   as_on?: AsOnSetting
   /** The days the report covers (only for a report whose days can be chosen: the Sales Register). */
   period?: PeriodSetting
+  /** The month the report is of (only for a report of a month: the Ultrafine Cashflow). */
+  month?: MonthSetting
   /** Which reports the mail carries (the Debtors Reports). */
   reports?: ReportOption[]
   enabled: boolean
@@ -228,10 +230,24 @@ function splitEmails(value: string): string[] {
  * and shows what happened. Mailing a report by hand, with a preview first, is
  * ReportMailPanel.
  */
+/** The wording of the "if something is not mapped" choice. */
+export interface UnmappedText {
+  label: string
+  send: string
+  hold: string
+}
+
+const DEFAULT_UNMAPPED_TEXT: UnmappedText = {
+  label: 'If a location or incharge has no mapping',
+  send: 'Send anyway (the missing values show as -)',
+  hold: 'Hold the mail until they are mapped',
+}
+
 export function AutoMailCard({
   baseUrl,
   reportName,
   showUnmapped = true,
+  unmappedText = DEFAULT_UNMAPPED_TEXT,
   description,
   onSaved,
 }: {
@@ -243,6 +259,7 @@ export function AutoMailCard({
   onSaved?: () => void
   /** The "if a location has no mapping" choice, for a report that uses mappings. */
   showUnmapped?: boolean
+  unmappedText?: UnmappedText
 }) {
   const [saved, setSaved] = useState<AutoMailSettings | null>(null)
   const [form, setForm] = useState<AutoMailSettings | null>(null)
@@ -264,6 +281,8 @@ export function AutoMailCard({
   const [periodMode, setPeriodMode] = useState<PeriodMode>('auto')
   const [periodFrom, setPeriodFrom] = useState('')
   const [periodTo, setPeriodTo] = useState('')
+  const [monthMode, setMonthMode] = useState<MonthMode>('current')
+  const [monthValue, setMonthValue] = useState('')
 
   const apply = useCallback((data: AutoMailSettings) => {
     setSaved(data)
@@ -273,6 +292,8 @@ export function AutoMailCard({
     setPeriodMode(data.period?.mode ?? 'auto')
     setPeriodFrom(data.period?.from ?? '')
     setPeriodTo(data.period?.to ?? '')
+    setMonthMode(data.month?.mode ?? 'current')
+    setMonthValue(data.month?.value ?? '')
     setReportKeys((data.reports ?? []).filter((option) => option.selected).map((option) => option.key))
     setRepeatChoice(null)
     setToText(data.to.join(', '))
@@ -316,12 +337,15 @@ export function AutoMailCard({
       (saved.period !== undefined &&
         (periodMode !== saved.period.mode ||
           (periodMode === 'range' && (periodFrom !== (saved.period.from ?? '') || periodTo !== (saved.period.to ?? ''))))) ||
+      (saved.month !== undefined &&
+        (monthMode !== saved.month.mode || (monthMode === 'month' && monthValue !== (saved.month.value ?? '')))) ||
       (saved.reports !== undefined &&
         JSON.stringify(reportKeys) !== JSON.stringify(saved.reports.filter((o) => o.selected).map((o) => o.key)))
     return contentChanged || keys.some((key) => JSON.stringify(saved[key]) !== JSON.stringify(current[key]))
-  }, [saved, current, asOnMode, asOnDate, periodMode, periodFrom, periodTo, reportKeys])
+  }, [saved, current, asOnMode, asOnDate, periodMode, periodFrom, periodTo, monthMode, monthValue, reportKeys])
   const contentIncomplete = (asOnMode === 'date' && !asOnDate && saved?.as_on !== undefined) ||
     (saved?.period !== undefined && periodProblem(periodMode, periodFrom, periodTo, saved.period) !== null) ||
+    (saved?.month !== undefined && monthProblem(monthMode, monthValue, saved.month) !== null) ||
     (saved?.reports !== undefined && reportKeys.length === 0)
 
   if (loadError) return <ErrorBanner>{loadError}</ErrorBanner>
@@ -382,6 +406,9 @@ export function AutoMailCard({
               period_to: periodMode === 'range' ? periodTo || null : null,
             }
           : {}),
+        ...(saved?.month
+          ? { month_mode: monthMode, month_value: monthMode === 'month' ? monthValue || null : null }
+          : {}),
         ...(saved?.reports ? { reports: reportKeys } : {}),
       })
       apply(next)
@@ -415,7 +442,7 @@ export function AutoMailCard({
         {saved.name && <span className="max-w-full sm:ml-auto"><ScheduleTag name={saved.name} /></span>}
       </div>
 
-      {(saved.as_on || saved.period || saved.reports) && (
+      {(saved.as_on || saved.period || saved.month || saved.reports) && (
         <div className="flex flex-col gap-4 rounded-2xl border border-stroke/70 bg-surface/40 p-4">
           <h3 className="text-sm font-semibold text-ink">What it sends</h3>
           {saved.reports && (
@@ -453,6 +480,17 @@ export function AutoMailCard({
                   setPeriodTo(to)
                   setMessage(null)
                 }}
+              />
+            </div>
+          )}
+          {saved.month && (
+            <div className="flex flex-col gap-2">
+              <span className="text-xs font-medium text-ink-faint">The month the cashflow is of</span>
+              <MonthChoice
+                mode={monthMode}
+                value={monthValue}
+                setting={saved.month}
+                onChange={(mode, value) => { setMonthMode(mode); setMonthValue(value); setMessage(null) }}
               />
             </div>
           )}
@@ -733,14 +771,14 @@ export function AutoMailCard({
 
       {showUnmapped && (
         <label className="flex flex-col gap-1.5 text-sm sm:max-w-md">
-          <span className="font-medium text-ink-dim">If a location or incharge has no mapping</span>
+          <span className="font-medium text-ink-dim">{unmappedText.label}</span>
           <select
             className="field-control"
             value={current.send_when_unmapped ? 'send' : 'hold'}
             onChange={(event) => update({ send_when_unmapped: event.target.value === 'send' })}
           >
-            <option value="send">Send anyway (the missing values show as -)</option>
-            <option value="hold">Hold the mail until they are mapped</option>
+            <option value="send">{unmappedText.send}</option>
+            <option value="hold">{unmappedText.hold}</option>
           </select>
         </label>
       )}

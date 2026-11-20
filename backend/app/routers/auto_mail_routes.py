@@ -54,6 +54,9 @@ class AutoMailBody(BaseModel):
     period_mode: str | None = None
     period_from: date | None = None
     period_to: date | None = None
+    # the Ultrafine Cashflow: the month it is of - "current", "last", or a picked "month" (month_value "YYYY-MM")
+    month_mode: str | None = None
+    month_value: str | None = None
     reports: list[str] | None = None
 
 

@@ -787,3 +787,170 @@ class PeriodTests(_Case):
                                   period_from=date(2026, 8, 1), period_to=date(2026, 9, 30))
         self.assertIsNone(ms.validate_overrides(GST, None, None, None, self.TODAY, period_mode="range",
                                                 period_from=date(2026, 8, 1), period_to=date(2026, 9, 30)))
+
+
+CASHFLOW = "ultrafine-cashflow"
+
+
+class MonthTests(_Case):
+    """The Ultrafine Cashflow is mailed on schedules like the other reports; each says which month it is of."""
+
+    def set_month(self, row, mode, value=None):
+        return self.save(row, enabled=False, month_mode=mode, month_value=value)["month"]
+
+    def test_the_cashflow_is_a_scheduled_report_with_a_month_choice_and_nothing_else_has_one(self):
+        spec = mail.SPECS[CASHFLOW]
+        self.assertTrue(spec.scheduled and spec.per_schedule and spec.month)
+        self.assertTrue(ms.list_view(self.db, CASHFLOW)["has_month"])
+        for app_key in (APP, UNTAGGED, GST, UNIDENTIFIED, SALES):
+            self.assertFalse(ms.list_view(self.db, app_key)["has_month"], app_key)
+        row = ms.create(self.db, GST, "M", None)
+        self.save(row, enabled=False, month_mode="month", month_value="2026-10")
+        self.assertIsNone(ms.summary(self.db, self.fresh(row))["month"])           # ignored, nothing stored
+        self.assertEqual(self.fresh(row).month_mode, "current")
+
+    def test_this_month_is_the_default_and_follows_the_run_date(self):
+        row = ms.create(self.db, CASHFLOW, "Daily", None)
+        self.assertEqual(ms.month_for_run(row, self.TODAY), "2026-11")
+        self.assertEqual(ms.month_for_run(row, date(2027, 1, 2)), "2027-01")
+        view = ms.month_view(row, self.TODAY)
+        self.assertEqual((view["mode"], view["resolved"], view["current"], view["last"]),
+                         ("current", "2026-11", "2026-11", "2026-10"))
+
+    def test_last_month_is_worked_out_afresh_at_every_run(self):
+        row = ms.create(self.db, CASHFLOW, "Month end", None)
+        self.set_month(row, "last")
+        self.assertEqual(ms.month_for_run(self.fresh(row), self.TODAY), "2026-10")
+        self.assertEqual(ms.month_for_run(self.fresh(row), date(2027, 1, 5)), "2026-12")     # across a year end
+
+    def test_a_picked_month_is_used_as_picked_and_can_be_the_current_one(self):
+        row = ms.create(self.db, CASHFLOW, "September", None)
+        self.assertEqual(self.set_month(row, "month", "2026-09")["resolved"], "2026-09")
+        self.assertEqual(self.set_month(row, "month", "2026-11")["resolved"], "2026-11")
+
+    def test_a_month_that_cannot_be_mailed_is_refused_and_stops_the_whole_save(self):
+        row = ms.create(self.db, CASHFLOW, "M", None)
+        for value, message in ((None, "Pick the month"), ("2026-13", "Pick the month"), ("Oct 2026", "Pick the month"),
+                               ("2026-12", "not started yet"), ("1999-12", "too far back")):
+            with self.assertRaisesRegex(ValueError, message):
+                self.set_month(row, "month", value)
+        with self.assertRaises(ValueError):
+            self.set_month(row, "next")
+        with self.assertRaises(ValueError):
+            self.save(row, enabled=False, subject_template="Changed {date}", month_mode="month", month_value="2027-01")
+        self.assertNotEqual(self.fresh(row).subject_template, "Changed {date}")
+
+    def test_the_picked_month_is_kept_when_switching_to_another_choice(self):
+        row = ms.create(self.db, CASHFLOW, "M", None)
+        self.set_month(row, "month", "2026-09")
+        view = self.set_month(row, "current")
+        self.assertEqual((view["mode"], view["value"]), ("current", "2026-09"))
+
+    def test_each_schedule_has_its_own_month_and_a_copy_starts_with_it(self):
+        one, two = ms.create(self.db, CASHFLOW, "Daily", None), ms.create(self.db, CASHFLOW, "September pack", None)
+        self.set_month(two, "month", "2026-09")
+        self.assertEqual(ms.month_for_run(self.fresh(one), self.TODAY), "2026-11")
+        self.assertEqual(ms.month_for_run(self.fresh(two), self.TODAY), "2026-09")
+        copy = ms.create(self.db, CASHFLOW, "September pack 2", None, copy_of=two.id)
+        self.assertEqual(ms.month_for_run(copy, self.TODAY), "2026-09")
+
+    def test_a_new_cashflow_schedule_holds_the_mail_while_bank_lines_are_unmapped(self):
+        self.assertFalse(ms.create(self.db, CASHFLOW, "C", None).send_when_unmapped)
+        self.assertTrue(ms.create(self.db, GST, "G", None).send_when_unmapped)             # the others are unchanged
+        row = ms.create(self.db, CASHFLOW, "C2", None)
+        self.save(row, enabled=False, send_when_unmapped=True)
+        self.assertTrue(self.fresh(row).send_when_unmapped)                                # and it can be changed
+
+    def test_the_month_reaches_the_builder_and_the_runs_detail(self):
+        seen = {}
+
+        def fake_build(snapshot, progress_cb=None, cancel_event=None):
+            seen.clear()
+            seen.update(snapshot)
+            return mail.MailPayload(values={"date": "x"})
+
+        row = ms.create(self.db, CASHFLOW, "C", None)
+        payload = ms.scheduled_build(fake_build, row.id)({"send_when_unmapped": False})
+        self.assertEqual((seen["month"], payload.detail["month_mode"]), ("2026-11", "current"))
+        self.set_month(row, "last")
+        payload = ms.scheduled_build(fake_build, row.id)({"send_when_unmapped": False})
+        self.assertEqual((seen["month"], payload.detail["month_mode"]), ("2026-10", "last"))
+        other = ms.create(self.db, GST, "G", None)                         # an application without a month is never given one
+        ms.scheduled_build(fake_build, other.id)({"send_when_unmapped": True})
+        self.assertNotIn("month", seen)
+
+    def test_a_mail_sent_by_hand_can_be_of_another_month_without_touching_the_schedule(self):
+        row = ms.create(self.db, CASHFLOW, "Daily", None)
+        overrides = ms.validate_overrides(CASHFLOW, None, None, None, self.TODAY, month_mode="month",
+                                          month_value="2026-08")
+        self.assertEqual(overrides, {"month_mode": "month", "month_value": "2026-08"})
+        self.assertEqual(ms.run_options(row.id, self.TODAY, overrides)["month"], "2026-08")
+        self.assertEqual(ms.run_options(row.id, self.TODAY)["month"], "2026-11")
+        self.assertEqual(self.fresh(row).month_mode, "current")                            # nothing saved
+        self.assertIsNone(ms.validate_overrides(CASHFLOW, None, None, None, self.TODAY))   # nothing changed
+        with self.assertRaisesRegex(ValueError, "not started yet"):
+            ms.validate_overrides(CASHFLOW, None, None, None, self.TODAY, month_mode="month", month_value="2027-02")
+        self.assertIsNone(ms.validate_overrides(GST, None, None, None, self.TODAY, month_mode="month",
+                                                month_value="2026-08"))
+
+    def test_a_saved_month_that_can_no_longer_run_is_reported_not_guessed(self):
+        row = ms.create(self.db, CASHFLOW, "M", None)
+        row.month_mode, row.month_value = "month", "2027-05"
+        self.db.commit()
+        self.assertIn("not started yet", ms.month_view(row, self.TODAY)["problem"])
+        with self.assertRaises(ms.ScheduleError):
+            ms.month_for_run(row, self.TODAY)
+
+
+class CashflowMailTests(_Case):
+    """The scheduler runs the Ultrafine Cashflow's schedules and the build takes its month from the schedule."""
+
+    def test_the_scheduler_starts_a_due_cashflow_schedule(self):
+        row = ms.create(self.db, CASHFLOW, "Mornings", None)
+        self.save(row, enabled=True, days=[0, 1, 2, 3, 4, 5, 6], time="08:30", times=["08:30"])
+        started = []
+        fake = MagicMock(side_effect=lambda job, *a, **k: started.append((job, k)) or "job")
+        with patch.object(mail, "now_ist", lambda: self.at(2026, 10, 19, 9, 0)), \
+                patch("app.jobs.submit_job", fake):
+            names = mail.enqueue_due_checks()
+        self.assertEqual(names, [f"{CASHFLOW}#{row.id}"])
+        from app.services.ultrafine_cashflow import auto_mail as cashflow_mail
+        self.assertIs(started[0][0], cashflow_mail.run_auto_mail_job)
+        self.assertEqual(started[0][1]["schedule_id"], row.id)
+
+    def test_a_schedule_with_no_month_to_mail_is_held_with_the_reason(self):
+        from app.services.ultrafine_cashflow import auto_mail as cashflow_mail
+
+        row = ms.create(self.db, CASHFLOW, "C", None)
+        self.save(row, enabled=False, month_mode="last", send_when_unmapped=False)
+        seen = {}
+
+        def fake_generate(db, month, user_id, allow_unmapped=False):
+            seen.update(month=month, allow_unmapped=allow_unmapped)
+            return {"month": month, "status": "no_data"}
+
+        with patch.object(cashflow_mail, "generate_month", fake_generate):
+            result = mail.run_mail_job(CASHFLOW, "scheduled", ms.scheduled_build(cashflow_mail.build, row.id),
+                                       schedule_id=row.id)
+        self.assertEqual(seen, {"month": "2026-10", "allow_unmapped": False})
+        self.assertEqual(result["status"], "held")
+        self.assertIn("no bank lines", result["message"])
+        self.assertEqual(mail.log_view(self.db, CASHFLOW, schedule_id=row.id)["items"][0]["detail"]["month"], "2026-10")
+        self.sent.assert_not_called()
+        self.assertEqual(mail.log_view(self.db, CASHFLOW, schedule_id=row.id)["items"][0]["status"], "held")
+
+    def test_every_scheduled_application_has_a_registered_background_job(self):
+        # the queue only runs registered task functions; an unregistered one fails when the scheduler starts it
+        from app import jobs
+
+        for app_key, spec in mail.SPECS.items():
+            if spec.scheduled:
+                with self.subTest(app_key=app_key):
+                    self.assertEqual(jobs._task_name(mail._job_for(app_key)).split(":")[1], "run_auto_mail_job")
+        self.assertTrue(mail.SPECS[CASHFLOW].scheduled)
+
+    def test_a_build_without_a_month_asks_for_one(self):
+        from app.services.ultrafine_cashflow import auto_mail as cashflow_mail
+
+        with self.assertRaisesRegex(JobUserError, "Choose the month"):
+            cashflow_mail.build({"send_when_unmapped": False})

@@ -80,6 +80,24 @@ Excel dates in every date column. Each schedule - and each mail you send by hand
   month plus the first eight days of the next (never past yesterday); anything longer is refused with the latest last
   day allowed.
 
+### Ultrafine Cashflow Generator: mail schedules
+
+Open **Mail schedules** in the Cashflow Generator. Like the other report mailers, the cashflow can have any number of
+schedules, each with its own days and times, recipients, sender, wording and month. Every mail first rebuilds the
+cashflow of its month from the stored bank lines and the mappings as they are at that moment, lays the Summary out as the
+table in the mail, and attaches the workbook. A schedule's **month** is:
+
+- **This month** - the month the mail goes out in, up to the last bank line stored.
+- **Last month** - the month before the one the mail goes out in, worked out again for every mail.
+- **A month I pick** - one fixed month (never one that has not started yet), for a one-off pack.
+
+**If a bank line is not mapped yet**, a schedule either holds the mail (the default for a new schedule, so a cashflow
+with lines missing is never mailed on its own) or sends it anyway, with those lines highlighted in the workbook and
+left out of the table. A held mail is shown in the schedule's send history with the reason. A month with no bank lines
+yet is held the same way. **Send now** on a schedule previews its mail and sends it only when you confirm, and can use
+another month for that one mail; **Regenerate & mail** on a month under Upload and months still mails that one month by
+hand.
+
 ## IOCL monitor
 
 Assigned users can select **Ultrafine IOCL Balance Monitor**, choose **Check

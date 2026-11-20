@@ -1134,16 +1134,23 @@ Only the Untagged Invoices and GST Invoice Number mailers keep administrator-onl
 be chosen.
 
 **Mail schedules** (every scheduled mailer: Untagged Invoices Report, GST Invoice Number Adder, Debtors Reports Auto
-Mailer, RDC Sales Register Report, Unidentified Entries; `app/services/mail_schedules.py`, routes
+Mailer, RDC Sales Register Report, Unidentified Entries, Ultrafine Cashflow; `app/services/mail_schedules.py`, routes
 `app/routers/schedule_routes.py`, UI `components/MailSchedules.tsx`). An application has any number (at most 20) of
 **mail schedules** - each one scheduled mail with its own timing, recipients, wording and send log, and where the report
 can be as on a date (`MailSpec.as_on`: Untagged, GST, Debtors, Unidentified) its own as-on date, for the month-by-month
 Sales Register (`MailSpec.period`) its own choice of the days it covers, and for the Debtors Reports (`MailSpec.report_choices`) its own choice of reports. They replaced the
 separate "Meeting Debtors Reports Auto Mailer" application (its key is in `RETIRED_APP_KEYS`: a schedule with the
-as-on date "last day of last month" is the same thing). The Ultrafine Cashflow mail is manual-only and has no schedules.
+as-on date "last day of last month" is the same thing). The Ultrafine Cashflow mail is on schedules too
+(`MailSpec.month`, `per_schedule`, `send_unmapped_default=False`): each schedule is of a MONTH - `current` (the month of
+the run), `last` (the month before it, worked out at every run) or a picked `month` ("YYYY-MM", never one still to come):
+`mail_schedule.month_mode/month_value`, `mail_schedules.resolve_month`, handed to `ultrafine_cashflow.auto_mail.build` as
+`snapshot["month"]` (a hand-sent "Regenerate & mail" still passes `month=`). A scheduled run rebuilds the month
+(`generate_month`) first, and holds the mail (status `held`, with the reason) when the month has no bank lines or - the
+default for a new Cashflow schedule - when lines are unmapped. The page keeps its per-month "Regenerate & mail" button
+(`/mail/...`, no schedule) next to the new "Mail schedules" tab (`/schedules/...`).
 * **Storage**: table `mail_schedule` (`models.MailSchedule`; it began as `debtors_mail_plan` and is renamed at start-up
   by `database._rename_debtors_mail_plan_table`, keeping the rows and ids; columns `app_key`, `sender_user_id` and
-  `period_mode` / `period_from` / `period_to` are added). Its timing / run-state columns are named exactly like those of `ScheduledReportMail`, so the scheduler's
+  `period_mode` / `period_from` / `period_to` and `month_mode` / `month_value` are added). Its timing / run-state columns are named exactly like those of `ScheduledReportMail`, so the scheduler's
   duck-typed functions (`due_slot`, `due_every_slot`, `next_run`, ...) work on a schedule row unchanged. Recipients are the
   schedule's own `to_list` / `cc_list` (JSON), not Admin -> Report recipients (these applications are not in
   `REPORT_RECIPIENT_APP_KEYS`). `scheduled_report_mail_log.schedule_id` (the DB column kept its first name, `plan_id`) ties

@@ -462,6 +462,9 @@ class MailSchedule(Base):
     period_mode = Column(String(20), default="auto", nullable=False)
     period_from = Column(Date, nullable=True)
     period_to   = Column(Date, nullable=True)
+    # the month the report is of (the Ultrafine Cashflow only): "current", "last" or a picked "month" ("YYYY-MM")
+    month_mode  = Column(String(20), default="current", nullable=False)
+    month_value = Column(String(7), nullable=True)
     # the Debtors Reports only: which of its three reports it sends
     ageing     = Column(Boolean, default=True, nullable=False)      # the ageing with the GST invoice numbers
     unapplied  = Column(Boolean, default=True, nullable=False)      # the Unapplied Receipts report

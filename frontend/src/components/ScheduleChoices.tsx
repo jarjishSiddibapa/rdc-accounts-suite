@@ -341,6 +341,143 @@ export function PeriodChoice({
   )
 }
 
+// ── the month a report is of (the Ultrafine Cashflow) ───────────────────────────────────────────
+
+export type MonthMode = 'current' | 'last' | 'month'
+
+/** The month a schedule's cashflow is of, as the server describes it. Months are written YYYY-MM. */
+export interface MonthSetting {
+  mode: MonthMode
+  /** The month that was picked (kept while another choice is on). */
+  value: string | null
+  /** The month a mail sent today would be of. */
+  resolved: string | null
+  problem: string | null
+  current: string
+  last: string
+}
+
+const MONTH_CHOICES: { mode: MonthMode; label: string }[] = [
+  { mode: 'current', label: 'This month' },
+  { mode: 'last', label: 'Last month' },
+  { mode: 'month', label: 'A month I pick' },
+]
+
+/** "November 2026" for "2026-11". */
+export function monthName(month: string): string {
+  const [year, number] = month.split('-').map(Number)
+  if (!year || !number) return month
+  return new Date(Date.UTC(year, number - 1, 1)).toLocaleDateString('en-IN', {
+    month: 'long', year: 'numeric', timeZone: 'UTC',
+  })
+}
+
+/** The month a choice amounts to when the mail goes out now ('' while a picked month is missing). */
+export function monthShown(mode: MonthMode, value: string, setting: Pick<MonthSetting, 'current' | 'last'>): string {
+  return mode === 'current' ? setting.current : mode === 'last' ? setting.last : value
+}
+
+/** Why the month cannot be mailed (the same rules the server enforces), or null when it can. */
+export function monthProblem(mode: MonthMode, value: string, setting: Pick<MonthSetting, 'current'>): string | null {
+  if (mode !== 'month') return null
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(value)) return 'Pick the month the cashflow is of.'
+  if (value > setting.current) return 'The cashflow of a month that has not started yet cannot be mailed.'
+  return null
+}
+
+/** The month choice in words, for a schedule's one-line summary. */
+export function describeMonth(setting: Pick<MonthSetting, 'mode' | 'value'>): string {
+  if (setting.mode === 'current') return 'of the month it is sent in'
+  if (setting.mode === 'last') return 'of the month before the one it is sent in'
+  return setting.value ? `of ${monthName(setting.value)}` : 'of a month (not picked yet)'
+}
+
+/** The same, shorter, for a schedule's chip. */
+export function shortMonth(setting: Pick<MonthSetting, 'mode' | 'value'>): string {
+  if (setting.mode === 'current') return 'this month'
+  if (setting.mode === 'last') return 'last month'
+  return setting.value ? monthName(setting.value) : 'month not picked'
+}
+
+/**
+ * The month a cashflow is of: the month the mail goes out in, the month before it (both worked out again at every
+ * mail), or a month the person picks. Used by a schedule's settings and by the mail sent by hand (for that one mail
+ * only). The cashflow of the month is rebuilt from the stored bank lines each time, before it is mailed.
+ */
+export function MonthChoice({
+  mode,
+  value,
+  setting,
+  onChange,
+  forThisMail = false,
+}: {
+  mode: MonthMode
+  value: string
+  setting: Pick<MonthSetting, 'current' | 'last' | 'problem'>
+  onChange: (mode: MonthMode, value: string) => void
+  forThisMail?: boolean
+}) {
+  const problem = monthProblem(mode, value, setting)
+  const shown = monthShown(mode, value, setting)
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="segmented-control max-w-full self-start">
+        {MONTH_CHOICES.map((choice) => (
+          <button
+            key={choice.mode}
+            type="button"
+            onClick={() => onChange(choice.mode, choice.mode === 'month' && !value ? setting.last : value)}
+            className={segmentClass(mode === choice.mode)}
+            aria-pressed={mode === choice.mode}
+          >
+            {choice.label}
+          </button>
+        ))}
+      </div>
+
+      {mode === 'current' && (
+        <p className="text-sm leading-6 text-ink-dim">
+          The month the mail is sent in, up to the last bank line stored.
+          {forThisMail ? '' : ' It is worked out again for every mail, so a mail sent on 3 December is of December.'}
+        </p>
+      )}
+      {mode === 'last' && (
+        <p className="text-sm leading-6 text-ink-dim">
+          The month before the one the mail goes out in.
+          {forThisMail ? '' : ' It is worked out again for every mail, so a mail sent on 3 December is of November.'}
+        </p>
+      )}
+      {mode === 'month' && (
+        <label className="flex max-w-xs flex-col gap-1.5 text-sm">
+          <span className="text-xs font-medium text-ink-faint">Month</span>
+          <MonthYearPicker
+            value={value}
+            max={setting.current}
+            onValueChange={(next) => onChange(mode, next)}
+            aria-label={forThisMail ? 'Month for this mail' : 'Month'}
+          />
+          {!forThisMail && (
+            <span className="text-xs text-ink-faint">
+              Every mail of this schedule will be of this same month until you change it. Use it for a one-off pack;
+              for a mail that repeats, choose This month or Last month.
+            </span>
+          )}
+        </label>
+      )}
+
+      <p className="text-sm font-semibold text-ink">
+        {mode === 'month' && !shown
+          ? 'Pick the month.'
+          : mode === 'month'
+            ? `The cashflow will be of ${monthName(shown)}.`
+            : `If sent today, the cashflow will be of ${monthName(shown)}.`}
+      </p>
+      {problem && <ErrorBanner>{problem}</ErrorBanner>}
+      {setting.problem && !problem && <ErrorBanner>{setting.problem}</ErrorBanner>}
+    </div>
+  )
+}
+
 /** Tick which of a report's parts the mail carries (the Debtors Reports): at least one. */
 export function ReportsChoice({
   options,

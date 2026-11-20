@@ -266,6 +266,9 @@ def _apply_additive_schema_updates() -> None:
             ("period_mode", "VARCHAR(20) NOT NULL DEFAULT 'auto'"),
             ("period_from", "DATE NULL"),
             ("period_to", "DATE NULL"),
+            # the month the Ultrafine Cashflow's mail is of
+            ("month_mode", "VARCHAR(20) NOT NULL DEFAULT 'current'"),
+            ("month_value", "VARCHAR(7) NULL"),
         ):
             if column not in schedule_columns:
                 with engine.begin() as connection:

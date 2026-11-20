@@ -13,6 +13,9 @@ The date the report is as on is one of:
                            every run, so a mail sent on 3 December is as on 30 November.
   * ``date``             - a calendar date the person picked; everything is as it stood on that day.
 
+The Ultrafine Cashflow is of a MONTH instead: ``current`` (the month of the run), ``last`` (the month before it,
+worked out afresh at every run) or ``month`` (a month the person picked, never one still to come); see resolve_month.
+
 The date, the reports and the timing are saved together with the schedule's one Save (see
 scheduled_report_mail.save_settings). The same two choices can be changed for a single mail sent by hand (the
 preview-and-send panel) without touching the schedule: see validate_overrides.
@@ -24,6 +27,7 @@ application's own settings row (the columns are named alike).
 from __future__ import annotations
 
 import json
+import re
 from datetime import date, datetime, timedelta
 
 from sqlalchemy.orm import Session
@@ -43,6 +47,7 @@ EARLIEST = date(2000, 1, 1)
 
 # the columns a copy of a schedule starts with
 _COPIED = ("ageing", "unapplied", "untagged", "as_on_mode", "as_on_date", "period_mode", "period_from", "period_to",
+           "month_mode", "month_value",
            "to_list", "cc_list", "sender_user_id",
            "send_mode", "send_days", "send_month_days", "send_time", "send_times", "send_times_enabled",
            "send_every_hours", "send_every_start", "subject_template", "intro_template", "signature",
@@ -233,6 +238,69 @@ def period_view(row: MailSchedule, today: date | None = None) -> dict:
     }
 
 
+# ── the month the report is of (the Ultrafine Cashflow) ─────────────────────
+
+MONTH_CURRENT, MONTH_LAST, MONTH_PICK = "current", "last", "month"
+MONTH_MODES = (MONTH_CURRENT, MONTH_LAST, MONTH_PICK)
+_MONTH_RE = re.compile(r"(\d{4})-(0[1-9]|1[0-2])")
+EARLIEST_MONTH = "2000-01"
+
+
+def _month_of(day: date) -> str:
+    return f"{day.year:04d}-{day.month:02d}"
+
+
+def last_month_of(today: date) -> str:
+    """The month before ``today``'s month, as YYYY-MM."""
+    return _month_of(today.replace(day=1) - timedelta(days=1))
+
+
+def resolve_month(mode: str, value: str | None, today: date) -> str:
+    """The month (YYYY-MM) a run on ``today`` is of: this month, the month before, or the one that was picked
+    (never a month still to come)."""
+    if mode == MONTH_CURRENT:
+        return _month_of(today)
+    if mode == MONTH_LAST:
+        return last_month_of(today)
+    if mode == MONTH_PICK:
+        if not value or not _MONTH_RE.fullmatch(str(value)):
+            raise ScheduleError("Pick the month the cashflow is of.")
+        if str(value) < EARLIEST_MONTH:
+            raise ScheduleError("That month is too far back.")
+        if str(value) > _month_of(today):
+            raise ScheduleError("The cashflow of a month that has not started yet cannot be mailed.")
+        return str(value)
+    raise ScheduleError("Choose this month, last month, or a month to pick.")
+
+
+def check_month(mode: str, value: str | None, today: date) -> None:
+    """Refuse a month choice that cannot be run (a bad choice, no month, a month still to come)."""
+    resolve_month(mode, value, today)
+
+
+def month_for_run(row: MailSchedule, today: date | None = None) -> str:
+    """The month (YYYY-MM) a run of this schedule is of; ScheduleError when the schedule's choice cannot be run."""
+    return resolve_month(row.month_mode or MONTH_CURRENT, row.month_value, today or today_ist())
+
+
+def month_view(row: MailSchedule, today: date | None = None) -> dict:
+    """The schedule's month for the page: the choice, the month that was picked, what a run today is of."""
+    today = today or today_ist()
+    mode = row.month_mode if row.month_mode in MONTH_MODES else MONTH_CURRENT
+    try:
+        resolved, problem = resolve_month(mode, row.month_value, today), None
+    except ScheduleError as exc:
+        resolved, problem = None, str(exc)
+    return {
+        "mode": mode,
+        "value": row.month_value,
+        "resolved": resolved,
+        "problem": problem,
+        "current": _month_of(today),
+        "last": last_month_of(today),
+    }
+
+
 # ── the choices a schedule makes about its content ──────────────────────────
 
 def reports_selected(row: MailSchedule) -> tuple[str, ...]:
@@ -278,6 +346,12 @@ def checked_content(spec: mail.MailSpec, data: dict, today: date | None = None) 
         check_period(mode, start, end, today)
         out["period_mode"] = mode
         out["period_from"], out["period_to"] = (start, end) if mode == PERIOD_RANGE else (None, None)
+    if spec.month and data.get("month_mode") is not None:
+        mode = str(data["month_mode"])
+        value = data.get("month_value") or None
+        check_month(mode, value, today)
+        out["month_mode"] = mode
+        out["month_value"] = str(value) if mode == MONTH_PICK else None
     if spec.report_choices and data.get("reports") is not None:
         out["reports"] = _checked_reports(spec, data["reports"])
     return out
@@ -293,6 +367,10 @@ def apply_content(row: MailSchedule, content: dict) -> None:
         row.period_mode = content["period_mode"]
         if content["period_from"] is not None:         # the picked days are kept when the person switches rule
             row.period_from, row.period_to = content["period_from"], content["period_to"]
+    if "month_mode" in content:
+        row.month_mode = content["month_mode"]
+        if content["month_value"] is not None:          # the picked month is kept when the person switches rule
+            row.month_value = content["month_value"]
     if "reports" in content:
         from app.services.debtors_mailer import report_choice
 
@@ -327,8 +405,8 @@ def create(db: Session, app_key: str, name: str, updated_by: str | None, copy_of
     spec = mail.SPECS[app_key]
     row = MailSchedule(
         app_key=app_key, name=name, enabled=False, subject_template=spec.default_subject,
-        intro_template=spec.default_intro, signature="", send_when_unmapped=True, to_list="[]", cc_list="[]",
-        created_at=datetime.utcnow(),
+        intro_template=spec.default_intro, signature="", send_when_unmapped=spec.send_unmapped_default,
+        to_list="[]", cc_list="[]", created_at=datetime.utcnow(),
     )
     if copy_of is not None:
         source = require(db, app_key, copy_of)
@@ -382,6 +460,7 @@ def summary(db: Session, row: MailSchedule) -> dict:
         "reports": list(reports_selected(row)) if spec.report_choices else None,
         "as_on": as_on_view(row) if spec.as_on else None,
         "period": period_view(row) if spec.period else None,
+        "month": month_view(row) if spec.month else None,
         "to_count": len(view["to"]),
         "cc_count": len(view["cc"]),
     }
@@ -395,6 +474,7 @@ def list_view(db: Session, app_key: str) -> dict:
         "report_labels": dict(spec.report_choices) or None,
         "has_as_on": spec.as_on,
         "has_period": spec.period,
+        "has_month": spec.month,
     }
 
 
@@ -402,7 +482,8 @@ def list_view(db: Session, app_key: str) -> dict:
 
 def validate_overrides(app_key: str, reports, as_on_mode: str | None, as_on_date: date | None,
                        today: date | None = None, period_mode: str | None = None,
-                       period_from: date | None = None, period_to: date | None = None) -> dict | None:
+                       period_from: date | None = None, period_to: date | None = None,
+                       month_mode: str | None = None, month_value: str | None = None) -> dict | None:
     """What a person changed for ONE send (the preview-and-send panel), checked: the reports, the as-on rule
     (``today`` / ``last_month_end`` / ``date`` + the date) and/or the days the report covers (``auto`` /
     ``last_month`` / ``range`` + the first and last day). None when nothing was changed. Nothing is saved on the
@@ -410,7 +491,8 @@ def validate_overrides(app_key: str, reports, as_on_mode: str | None, as_on_date
     spec = mail.SPECS[app_key]
     content = checked_content(spec, {
         "reports": reports, "as_on_mode": as_on_mode, "as_on_date": as_on_date,
-        "period_mode": period_mode, "period_from": period_from, "period_to": period_to}, today)
+        "period_mode": period_mode, "period_from": period_from, "period_to": period_to,
+        "month_mode": month_mode, "month_value": month_value}, today)
     out: dict = {}
     if "reports" in content:
         out["reports"] = content["reports"]
@@ -421,6 +503,9 @@ def validate_overrides(app_key: str, reports, as_on_mode: str | None, as_on_date
         out["period_mode"] = content["period_mode"]
         out["period_from"] = content["period_from"].isoformat() if content["period_from"] else None
         out["period_to"] = content["period_to"].isoformat() if content["period_to"] else None
+    if "month_mode" in content:
+        out["month_mode"] = content["month_mode"]
+        out["month_value"] = content["month_value"]
     return out or None
 
 
@@ -446,7 +531,7 @@ def run_options(schedule_id: int, today: date | None = None, overrides: dict | N
         if not spec.as_on:
             mode, as_on = AS_ON_TODAY, None
         options = {"schedule_name": row.name, "as_on": as_on, "as_on_mode": mode, "has_as_on": spec.as_on,
-                   "one_off": bool(overrides), "has_period": spec.period}
+                   "one_off": bool(overrides), "has_period": spec.period, "has_month": spec.month}
         if spec.period:
             if "period_mode" in overrides:
                 period_mode = overrides["period_mode"]
@@ -460,6 +545,13 @@ def run_options(schedule_id: int, today: date | None = None, overrides: dict | N
                 period_mode = row.period_mode
                 options["period"] = period_for_run(row, today)
             options["period_mode"] = period_mode
+        if spec.month:
+            if "month_mode" in overrides:
+                month_mode, month_value = overrides["month_mode"], overrides.get("month_value")
+            else:
+                month_mode, month_value = row.month_mode or MONTH_CURRENT, row.month_value
+            options["month"] = resolve_month(month_mode, month_value, today)
+            options["month_mode"] = month_mode
         if spec.report_choices:
             options["reports"] = tuple(overrides["reports"]) if overrides.get("reports") else reports_selected(row)
         return options
@@ -483,12 +575,16 @@ def scheduled_build(build, schedule_id: int, overrides: dict | None = None):
             extra["reports"] = options["reports"]
         if options["has_period"]:
             extra["period"] = options["period"]
+        if options["has_month"]:
+            extra["month"] = options["month"]
         payload = build({**snapshot, **extra}, progress_cb, cancel_event)
         payload.detail["schedule"] = options["schedule_name"]
         if options["has_as_on"]:
             payload.detail["as_on_mode"] = options["as_on_mode"]
         if options["has_period"]:
             payload.detail["period_mode"] = options["period_mode"]
+        if options["has_month"]:
+            payload.detail["month_mode"] = options["month_mode"]
         if options["one_off"]:
             payload.detail["changed_for_this_send"] = sorted(overrides or {})
         return payload
@@ -511,7 +607,8 @@ def migrate_legacy(db: Session, app_key: str, name: str | None = None) -> MailSc
     row = MailSchedule(
         app_key=app_key, name=name or spec.label, as_on_mode=AS_ON_TODAY, enabled=False,
         subject_template=spec.default_subject, intro_template=spec.default_intro, signature="",
-        send_when_unmapped=True, to_list="[]", cc_list="[]", created_at=datetime.utcnow(), updated_at=datetime.utcnow(),
+        send_when_unmapped=spec.send_unmapped_default, to_list="[]", cc_list="[]", created_at=datetime.utcnow(),
+        updated_at=datetime.utcnow(),
     )
     people = get_report_recipient_defaults(db, app_key)
     if legacy is not None and not legacy.is_deleted and (
@@ -523,6 +620,8 @@ def migrate_legacy(db: Session, app_key: str, name: str | None = None) -> MailSc
                        "last_attempt_date", "last_attempt_slot", "last_run_at", "last_trigger", "last_status",
                        "last_error", "last_detail"):
             setattr(row, column, getattr(legacy, column))
+        if not spec.send_unmapped_default:
+            row.send_when_unmapped = False       # the application's own rule, not what a never-scheduled mail held
         legacy.enabled = False
     db.add(row)
     db.commit()

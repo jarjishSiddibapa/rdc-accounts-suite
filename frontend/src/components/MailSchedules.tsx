@@ -6,10 +6,13 @@ import { Button } from '@/components/Button'
 import { ErrorBanner } from '@/components/ErrorBanner'
 import { Modal } from '@/components/Modal'
 import { LoadingNotice } from '@/components/LoadingNotice'
-import { AutoMailCard, describeSchedule, repeatOf, type ScheduleFields } from '@/components/AutoMailCard'
 import {
-  AsOnChoice, PeriodChoice, ReportsChoice, asOnShownDate, describeAsOn, describePeriod, periodProblem, shortAsOn,
-  shortPeriod, type AsOnMode, type AsOnSetting, type PeriodMode, type PeriodSetting,
+  AutoMailCard, describeSchedule, repeatOf, type ScheduleFields, type UnmappedText,
+} from '@/components/AutoMailCard'
+import {
+  AsOnChoice, MonthChoice, PeriodChoice, ReportsChoice, asOnShownDate, describeAsOn, describeMonth, describePeriod,
+  monthProblem, periodProblem, shortAsOn, shortMonth, shortPeriod, type AsOnMode, type AsOnSetting, type MonthMode,
+  type MonthSetting, type PeriodMode, type PeriodSetting,
 } from '@/components/ScheduleChoices'
 import { ReportMailPanel, type MappingFix } from '@/components/ReportMailPanel'
 import { ApiError, del, get, patch, post } from '@/lib/api'
@@ -29,6 +32,8 @@ interface ScheduleSummary extends ScheduleFields {
   as_on: AsOnSetting | null
   /** Only for a report whose days can be chosen (the Sales Register). */
   period: PeriodSetting | null
+  /** Only for a report of a month (the Ultrafine Cashflow). */
+  month: MonthSetting | null
   to_count: number
   cc_count: number
 }
@@ -38,6 +43,7 @@ interface ScheduleList {
   max_schedules: number
   report_labels: Record<string, string> | null
   has_as_on: boolean
+  has_month?: boolean
   /** Whether this person may create, change and delete schedules (otherwise they may only send by hand). */
   can_manage: boolean
 }
@@ -53,7 +59,8 @@ function describeSchedulePlan(schedule: ScheduleSummary, list: ScheduleList, rep
     ? listOf(schedule.reports.map((key) => labels[key] ?? key))
     : reportName
   const asOn = (schedule.as_on ? `, ${describeAsOn(schedule.as_on)}` : '') +
-    (schedule.period ? `, ${describePeriod(schedule.period)}` : '')
+    (schedule.period ? `, ${describePeriod(schedule.period)}` : '') +
+    (schedule.month ? `, ${describeMonth(schedule.month)}` : '')
   const people = schedule.to_count + schedule.cc_count
   const who = schedule.to_count === 0
     ? 'No one is set to receive it yet.'
@@ -94,6 +101,7 @@ function ScheduleChip({
   }
   if (schedule.as_on) parts.push(shortAsOn(schedule.as_on))
   if (schedule.period) parts.push(shortPeriod(schedule.period))
+  if (schedule.month) parts.push(shortMonth(schedule.month))
   if (parts.length === 0) parts.push(schedule.enabled ? 'sends automatically' : 'sends by hand only')
   return (
     <button
@@ -353,9 +361,16 @@ function SendNowPanel({
   const [periodMode, setPeriodMode] = useState<PeriodMode>(savedPeriodMode)
   const [periodFrom, setPeriodFrom] = useState(savedPeriodFrom)
   const [periodTo, setPeriodTo] = useState(savedPeriodTo)
+  // the month the report is of (the Ultrafine Cashflow)
+  const savedMonthMode: MonthMode = schedule.month?.mode ?? 'current'
+  const savedMonthValue = schedule.month?.value ?? ''
+  const [monthMode, setMonthMode] = useState<MonthMode>(savedMonthMode)
+  const [monthValue, setMonthValue] = useState(savedMonthValue)
 
   // the schedule's saved choices changed (a Save above): start from them again
-  const savedKey = JSON.stringify([savedReports, savedMode, savedDate, savedPeriodMode, savedPeriodFrom, savedPeriodTo])
+  const savedKey = JSON.stringify([
+    savedReports, savedMode, savedDate, savedPeriodMode, savedPeriodFrom, savedPeriodTo, savedMonthMode, savedMonthValue,
+  ])
   const startAgain = () => {
     setReports(savedReports ?? [])
     setMode(savedMode)
@@ -363,6 +378,8 @@ function SendNowPanel({
     setPeriodMode(savedPeriodMode)
     setPeriodFrom(savedPeriodFrom)
     setPeriodTo(savedPeriodTo)
+    setMonthMode(savedMonthMode)
+    setMonthValue(savedMonthValue)
   }
   useEffect(() => {
     startAgain()
@@ -375,7 +392,9 @@ function SendNowPanel({
     (schedule.as_on !== null && (mode !== savedMode || (mode === 'date' && date !== savedDate))) ||
     (schedule.period !== null &&
       (periodMode !== savedPeriodMode ||
-        (periodMode === 'range' && (periodFrom !== savedPeriodFrom || periodTo !== savedPeriodTo))))
+        (periodMode === 'range' && (periodFrom !== savedPeriodFrom || periodTo !== savedPeriodTo)))) ||
+    (schedule.month !== null &&
+      (monthMode !== savedMonthMode || (monthMode === 'month' && monthValue !== savedMonthValue)))
 
   const extraBody = useMemo(
     () => ({
@@ -388,17 +407,23 @@ function SendNowPanel({
             period_to: periodMode === 'range' ? periodTo || null : null,
           }
         : {}),
+      ...(schedule.month !== null
+        ? { month_mode: monthMode, month_value: monthMode === 'month' ? monthValue || null : null }
+        : {}),
     }),
-    [savedReports, schedule.as_on, schedule.period, reports, mode, date, periodMode, periodFrom, periodTo],
+    [savedReports, schedule.as_on, schedule.period, schedule.month, reports, mode, date, periodMode, periodFrom,
+      periodTo, monthMode, monthValue],
   )
 
   const labels = list.report_labels
   const reportOptions = labels ? Object.entries(labels).map(([key, label]) => ({ key, label })) : []
-  const hasChoices = schedule.as_on !== null || schedule.period !== null || savedReports !== null
+  const hasChoices =
+    schedule.as_on !== null || schedule.period !== null || schedule.month !== null || savedReports !== null
   const incomplete =
     (savedReports !== null && reports.length === 0) ||
     (schedule.as_on !== null && mode === 'date' && !date) ||
-    (schedule.period !== null && periodProblem(periodMode, periodFrom, periodTo, schedule.period) !== null)
+    (schedule.period !== null && periodProblem(periodMode, periodFrom, periodTo, schedule.period) !== null) ||
+    (schedule.month !== null && monthProblem(monthMode, monthValue, schedule.month) !== null)
 
   const controls = hasChoices ? (
     <div className="flex flex-col gap-4 rounded-2xl border border-stroke/70 bg-surface/40 p-4">
@@ -456,6 +481,21 @@ function SendNowPanel({
           />
         </div>
       )}
+      {schedule.month && (
+        <div className="flex flex-col gap-2">
+          <span className="text-xs font-medium text-ink-faint">The month the cashflow is of</span>
+          <MonthChoice
+            mode={monthMode}
+            value={monthValue}
+            setting={schedule.month}
+            forThisMail
+            onChange={(nextMode, nextValue) => {
+              setMonthMode(nextMode)
+              setMonthValue(nextValue)
+            }}
+          />
+        </div>
+      )}
       {savedReports !== null && reports.length > 0 && schedule.as_on && !incomplete && (
         <p className="text-sm font-semibold text-ink">
           This mail: {listOf(reports.map((key) => labels?.[key] ?? key))}, as on{' '}
@@ -472,7 +512,7 @@ function SendNowPanel({
       reportName={reportName}
       eyebrow="Send now"
       title="Send this schedule's mail now"
-      description="Builds the mail exactly as this schedule would, shows you what will go out, and sends it only when you click Confirm & send. Change the date, the people, the subject or the text for this one mail if you need to; the schedule itself is not affected. The mail is recorded in this schedule's send history."
+      description="Builds the mail exactly as this schedule would, shows you what will go out, and sends it only when you click Confirm & send. Change what it contains (its date, days, month or reports), the people, the subject or the text for this one mail if you need to; the schedule itself is not affected. The mail is recorded in this schedule's send history."
       unmappedHint={unmappedHint}
       mappingFixes={mappingFixes}
       extraControls={controls}
@@ -494,6 +534,7 @@ function SchedulePanel({
   base,
   reportName,
   showUnmapped,
+  unmappedText,
   mappingFixes,
   unmappedHint,
   onChanged,
@@ -507,6 +548,7 @@ function SchedulePanel({
   base: string
   reportName: string
   showUnmapped: boolean
+  unmappedText?: UnmappedText
   mappingFixes?: Record<string, MappingFix>
   unmappedHint?: string
   onChanged: () => void
@@ -558,7 +600,8 @@ function SchedulePanel({
           baseUrl={scheduleBase}
           reportName={reportName}
           showUnmapped={showUnmapped}
-          description="Everything this schedule does is set here and saved with one Save: what the report is as on, when the mail goes out, who receives it and what it says. The report is built when the time arrives, so allow a few minutes before it lands. This schedule's send history is at the bottom of this card."
+          unmappedText={unmappedText}
+          description="Everything this schedule does is set here and saved with one Save: what the report contains (its date, days, month or reports), when the mail goes out, who receives it and what it says. The report is built when the time arrives, so allow a few minutes before it lands. This schedule's send history is at the bottom of this card."
           onSaved={onChanged}
         />
       )}
@@ -589,6 +632,7 @@ export function MailSchedules({
   base,
   reportName,
   showUnmapped = false,
+  unmappedText,
   mappingFixes,
   unmappedHint,
 }: {
@@ -598,6 +642,8 @@ export function MailSchedules({
   reportName: string
   /** The "if a location has no mapping" choice, for a report that uses mappings. */
   showUnmapped?: boolean
+  /** The wording of that choice, when "location or incharge" is not what is missing. */
+  unmappedText?: UnmappedText
   mappingFixes?: Record<string, MappingFix>
   unmappedHint?: string
 }) {
@@ -709,6 +755,7 @@ export function MailSchedules({
             base={base}
             reportName={reportName}
             showUnmapped={showUnmapped}
+            unmappedText={unmappedText}
             mappingFixes={mappingFixes}
             unmappedHint={unmappedHint}
             onChanged={() => void load()}

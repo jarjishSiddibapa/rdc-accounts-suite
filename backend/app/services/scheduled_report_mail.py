@@ -79,6 +79,8 @@ class MailSpec:
     as_on: bool = False         # its report can be as on a date (a schedule picks: today, last month end, a date)
     report_choices: tuple = ()  # ((key, label), ...) when a schedule picks which of several reports it sends
     period: bool = False        # a schedule picks the days its report covers (automatic, last month, or a range)
+    month: bool = False         # a schedule picks the month its report is of (this month, last month, or a month)
+    send_unmapped_default: bool = True   # a new schedule sends even when mappings are missing (False: holds the mail)
 
 
 SPECS: dict[str, MailSpec] = {
@@ -166,8 +168,9 @@ SPECS: dict[str, MailSpec] = {
             "Please find the cash flow details and summary as of {date_plain}."
         ),
         placeholders=("date", "date_plain", "month"),
-        scheduled=False,
-        allow_hourly=False,
+        per_schedule=True,
+        month=True,
+        send_unmapped_default=False,     # figures that leave bank lines out are not mailed on their own
     ),
 }
 
@@ -592,6 +595,8 @@ def schedule_settings_view(db: Session, row: MailSchedule) -> dict:
         view["as_on"] = mail_schedules.as_on_view(row)
     if spec.period:
         view["period"] = mail_schedules.period_view(row)
+    if spec.month:
+        view["month"] = mail_schedules.month_view(row)
     if spec.report_choices:
         chosen = mail_schedules.reports_selected(row)
         view["reports"] = [{"key": key, "label": label, "selected": key in chosen} for key, label in spec.report_choices]
@@ -1104,6 +1109,8 @@ def _job_for(app_key: str):
         from app.services.sales_register.auto_mail import run_auto_mail_job
     elif app_key == "unidentified-entries":
         from app.services.unidentified_entries.auto_mail import run_auto_mail_job
+    elif app_key == "ultrafine-cashflow":
+        from app.services.ultrafine_cashflow.auto_mail import run_auto_mail_job
     else:
         from app.services.gst_invoice_adder.auto_mail import run_auto_mail_job
     return run_auto_mail_job
