@@ -78,11 +78,11 @@ export const TOOLS_CATALOG: ToolCatalogEntry[] = [
   },
   {
     to: '/tools/gstr2b-combinator',
-    title: 'GSTR-2B File Combinator',
+    title: 'Ultrafine GSTR-2B Report Generator',
     description: 'Combine multiple GSTR-2B files into one, with editable state-code mappings.',
     icon: Combine,
     appKey: 'gstr2b-combinator',
-    category: 'Tax reporting',
+    category: 'Ultrafine tax reporting',
     company: 'RDC',
   },
   {

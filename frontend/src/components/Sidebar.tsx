@@ -60,7 +60,7 @@ const mainNav: NavItem[] = [
     appKey: 'unaccounted',
   },
   { to: '/tools/trial-balance', label: 'Trial Balance Location Wise', icon: Scale, appKey: 'trial-balance' },
-  { to: '/tools/gstr2b-combinator', label: 'GSTR 2B File Combinator', icon: Combine, appKey: 'gstr2b-combinator' },
+  { to: '/tools/gstr2b-combinator', label: 'Ultrafine GSTR-2B Report Generator', icon: Combine, appKey: 'gstr2b-combinator' },
   { to: '/tools/unapplied-receipts', label: 'Unapplied Receipts Report Generator', icon: Banknote, appKey: 'unapplied-receipts' },
   {
     to: '/tools/ultrafine-balance-confirmation',

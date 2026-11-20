@@ -33,7 +33,7 @@ control access, mappings, email defaults, automation, audit history, and recover
 | Loans & Advance, IOCL, TDS Report Generator | Produces the mapped loans, advances, IOCL, TDS, and other report with an editable download name | Excel files |
 | Unaccounted Transactions, Pending MRN & Uninvoiced Expense POs | Detects periods, generates three exception reports, previews email, and sends the selected package | Excel + SMTP |
 | Trial Balance Location Wise | Converts and reviews trial-balance data by location | Excel files |
-| GSTR 2B File Combinator | Validates and combines GSTR-2B exports | Excel files |
+| Ultrafine GSTR-2B Report Generator | Validates and combines GSTR-2B exports | Excel files |
 | Unapplied Receipts Report Generator | Enriches receipts with live location and comment data | Oracle ERP |
 | Ultrafine Balance Confirmation | Prepares and sends customer balance confirmations | Excel + SMTP |
 | Ultrafine Payment Reminder | Prepares and sends controlled payment reminders | Excel + SMTP |

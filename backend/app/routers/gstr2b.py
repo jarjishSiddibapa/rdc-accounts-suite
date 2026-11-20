@@ -1,4 +1,4 @@
-"""GSTR-2B File Combinator tool routes.
+"""Ultrafine GSTR-2B Report Generator tool routes (stable app key: gstr2b-combinator).
 
 Ports the desktop app's flow (see the sibling source repo's app.py) onto the
 shared FastAPI backend:

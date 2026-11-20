@@ -16,7 +16,7 @@ LAN-hosted FastAPI and React application. The current suite contains:
 2. Loans & Advance, IOCL, TDS Report Generator (stable key: `rdc-payables`)
 3. Unaccounted Transactions, Pending MRN, and Uninvoiced Expense PO reports
 4. Trial Balance Location Wise Report
-5. GSTR 2B File Combinator
+5. Ultrafine GSTR-2B Report Generator (stable key: `gstr2b-combinator`)
 6. Unapplied Receipts Report
 7. Ultrafine Balance Confirmation sender
 8. GST Invoice Number Adder

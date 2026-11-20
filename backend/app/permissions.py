@@ -33,7 +33,7 @@ APP_LABELS = {
     "rdc-payables": "Loans & Advance, IOCL, TDS Report Generator",
     "unaccounted": "Unaccounted Transactions, Pending MRN & Uninvoiced Expense POs Report Generator",
     "trial-balance": "Trial Balance Location Wise Report Generator",
-    "gstr2b-combinator": "GSTR 2B File Combinator",
+    "gstr2b-combinator": "Ultrafine GSTR-2B Report Generator",
     "unapplied-receipts": "Unapplied Receipts Report Generator",
     "ultrafine-balance-confirmation": "Ultrafine Balance Confirmation Bulk Sender",
     "ultrafine-payment-reminder": "Ultrafine Bulk Payment Reminder Sender",
@@ -64,7 +64,12 @@ _ULTRAFINE_APP_KEYS = {
     "invoice-booking-tracker",
     "creditors-ageing-report",
     "trial-balance-formatter",
+    "gstr2b-combinator",
 }
+
+# An app that was renamed because it belongs to a company: (the old label, the company). Applied once, on the
+# start-up where the stored label still is the old one, so an administrator's later change of company is kept.
+_RECLASSIFIED_WITH_LABEL = {"gstr2b-combinator": ("GSTR 2B File Combinator", "Ultrafine")}
 
 # Apps that actually send mail using an admin-managed, application-wide
 # default To/Cc (see ApplicationEmailRecipient / mailer_shared's
@@ -127,6 +132,8 @@ def seed_applications(db: Session) -> None:
             changed = True
         else:
             if row.label != APP_LABELS[key]:
+                if key in _RECLASSIFIED_WITH_LABEL and row.label == _RECLASSIFIED_WITH_LABEL[key][0]:
+                    row.company = _RECLASSIFIED_WITH_LABEL[key][1]   # once: this start-up is when the label changes
                 row.label = APP_LABELS[key]
                 changed = True
             if row.is_deleted:

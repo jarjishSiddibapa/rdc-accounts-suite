@@ -93,5 +93,28 @@ class ApplicationAccessControlTests(unittest.TestCase):
             engine.dispose()
 
 
+    def test_gstr2b_is_renamed_and_moved_to_ultrafine_once(self):
+        engine = create_engine("sqlite:///:memory:")
+        Base.metadata.create_all(bind=engine, tables=[Application.__table__])
+        Session = sessionmaker(bind=engine, expire_on_commit=False)
+        try:
+            with Session() as db:
+                db.add(Application(key="gstr2b-combinator", label="GSTR 2B File Combinator", company="RDC"))
+                db.commit()
+
+                seed_applications(db)
+                row = db.query(Application).filter_by(key="gstr2b-combinator").one()
+                self.assertEqual(row.label, "Ultrafine GSTR-2B Report Generator")
+                self.assertEqual(row.company, "Ultrafine")
+
+                # an administrator who then moves it back is not overruled at the next start
+                row.company = "RDC"
+                db.commit()
+                seed_applications(db)
+                self.assertEqual(db.query(Application).filter_by(key="gstr2b-combinator").one().company, "RDC")
+        finally:
+            engine.dispose()
+
+
 if __name__ == "__main__":
     unittest.main()

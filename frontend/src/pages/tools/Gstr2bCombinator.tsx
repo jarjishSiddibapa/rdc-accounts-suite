@@ -294,7 +294,7 @@ export default function Gstr2bCombinator() {
   }
 
   return (
-    <AppShell title="GSTR-2B File Combinator">
+    <AppShell title="Ultrafine GSTR-2B Report Generator">
       <div className="flex flex-col gap-6">
         <GlassCard padding="lg" className="flex flex-col gap-6">
           <div className="flex items-center gap-4">
