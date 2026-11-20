@@ -25,6 +25,7 @@ background job's progress_cb(frac, phase).
 
 from __future__ import annotations
 
+import datetime as _dt
 import hashlib
 from pathlib import Path
 
@@ -155,6 +156,43 @@ def _coerce_currency_columns(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+_DATE_FORMATS = ("%d-%m-%Y", "%d/%m/%Y", "%d-%b-%Y", "%d-%b-%y", "%Y-%m-%d", "%Y-%m-%d %H:%M:%S", "%Y/%m/%d")
+_DATE_NUMBER_FORMAT = "dd-mmm-yyyy"
+
+
+def _read_date(text: str):
+    """A GSTR-2B date cell ('17-10-2025', or a date Excel read as '2025-10-17 00:00:00') as a date, or None."""
+    text = text.strip()
+    for pattern in _DATE_FORMATS:
+        try:
+            return _dt.datetime.strptime(text, pattern).date()
+        except ValueError:
+            continue
+    return None
+
+
+def _coerce_date_columns(df: pd.DataFrame) -> pd.DataFrame:
+    """The sheet is read as text, which also turns the portal's date columns (Invoice date, Note date,
+    Bill of entry date, Filing Date) into text. They are written as real Excel dates instead, so they
+    sort, filter and calculate as dates.
+
+    Column-wide, as for the amounts: if even one non-blank value of a date column cannot be read as a
+    date the whole column is left as it came, rather than risk blanking a malformed cell."""
+    for col in df.columns:
+        if "date" not in str(col).lower():
+            continue
+        series = df[col]
+        non_blank = series.notna() & (series.astype(str).str.strip() != "")
+        if not non_blank.any():
+            continue
+        parsed = {value: _read_date(str(value)) for value in series[non_blank].unique()}
+        if any(day is None for day in parsed.values()):
+            continue
+        df[col] = series.astype(object)
+        df.loc[non_blank, col] = series[non_blank].map(parsed)
+    return df
+
+
 def _read_tab(fp: Path, tab: str) -> pd.DataFrame:
     """Read one tab from a GSTR-2B file, returning clean data rows only."""
     cfg  = TAB_CFG[tab]
@@ -167,7 +205,7 @@ def _read_tab(fp: Path, tab: str) -> pd.DataFrame:
     df = raw.iloc[ds:].copy()
     df.columns = cols
     df = df.dropna(how="all").reset_index(drop=True)
-    return _coerce_currency_columns(df)
+    return _coerce_date_columns(_coerce_currency_columns(df))
 
 
 def _write_sheet(ws, df: pd.DataFrame, log_q=None) -> None:
@@ -197,7 +235,10 @@ def _write_sheet(ws, df: pd.DataFrame, log_q=None) -> None:
                 safe = v
             if isinstance(safe, str) and safe.lower() in ("nan", "none"):
                 safe = None
-            ws.cell(row=r, column=c, value=safe).font = _DAT_FONT
+            cell = ws.cell(row=r, column=c, value=safe)
+            cell.font = _DAT_FONT
+            if isinstance(safe, _dt.date):
+                cell.number_format = _DATE_NUMBER_FORMAT
         if log_q is not None:
             pos = r - 1
             if pos % log_step == 0 or pos == n_rows:

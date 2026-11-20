@@ -217,3 +217,47 @@ class RunCombineBadInputTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class DateColumnsAreRealDatesTests(unittest.TestCase):
+    """The portal's date columns are read as text; the combined workbook holds them as Excel dates."""
+
+    def _portal_file(self, path, invoice_dates, filing_dates):
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "B2B"
+        ws["A1"] = "Goods and Services Tax - GSTR-2B"
+        headers = ["GSTIN of supplier", "Invoice number", "Invoice date", "Invoice Value(₹)", "GSTR-1 Filing Date"]
+        for column, header in enumerate(headers, start=1):
+            ws.cell(6, column, header)                      # the leaf header row (grid row 5)
+        for offset, (invoice_date, filing_date) in enumerate(zip(invoice_dates, filing_dates)):
+            for column, value in enumerate(["27AAAAA0000A1Z5", f"INV/{offset}", invoice_date, 100 + offset, filing_date], start=1):
+                ws.cell(8 + offset, column, value)          # data from grid row 7
+        wb.save(path)
+
+    def _combine(self, directory, invoice_dates, filing_dates):
+        import openpyxl
+        source = Path(directory) / "082026_27ABCDE1234F1Z5_GSTR2B_14092026.xlsx"
+        self._portal_file(source, invoice_dates, filing_dates)
+        output = Path(directory) / "combined.xlsx"
+        run_combine([(source.name, str(source))], output, {27: "Maharashtra"}, _LogQueue())
+        ws = openpyxl.load_workbook(output)["B2B"]
+        headers = [c.value for c in ws[1]]
+        return ws, headers
+
+    def test_text_dates_become_real_excel_dates(self):
+        import datetime as dt
+        with tempfile.TemporaryDirectory() as directory:
+            ws, headers = self._combine(directory, ["17-10-2025", "01-11-2025"], ["14-11-2025", None])
+            invoice, filing = headers.index("Invoice date") + 1, headers.index("GSTR-1 Filing Date") + 1
+            self.assertEqual([ws.cell(r, invoice).value for r in (2, 3)], [dt.datetime(2025, 10, 17), dt.datetime(2025, 11, 1)])
+            self.assertEqual(ws.cell(2, invoice).number_format, "dd-mmm-yyyy")
+            self.assertEqual(ws.cell(2, filing).value, dt.datetime(2025, 11, 14))
+            self.assertIsNone(ws.cell(3, filing).value)
+            self.assertEqual(ws.cell(2, headers.index("Invoice number") + 1).value, "INV/0")   # other text untouched
+
+    def test_a_date_column_with_a_value_that_is_no_date_is_left_as_it_came(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ws, headers = self._combine(directory, ["17-10-2025", "TBD"], ["14-11-2025", "14-11-2025"])
+            invoice = headers.index("Invoice date") + 1
+            self.assertEqual([ws.cell(r, invoice).value for r in (2, 3)], ["17-10-2025", "TBD"])

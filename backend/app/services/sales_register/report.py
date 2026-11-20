@@ -6,9 +6,11 @@ written to one Excel workbook with every value exactly as the ERP returned it.
   that just ended is still being closed) the whole previous month as well. Each
   month is a file of its own, never two months in one file.
 * The rows are streamed from the ERP straight into the workbook, so a report of
-  several hundred thousand rows never sits in memory. No value is converted,
-  rounded, re-typed or re-formatted: text stays text, numbers stay numbers and
-  dates stay dates. The columns, their headings and their order are those of the
+  several hundred thousand rows never sits in memory. No value is rounded or
+  re-typed: text stays text and numbers stay numbers. The one conversion is
+  that every date column is written as a real Excel date (the ERP hands some of
+  them over as text such as '18-NOV-2026'), so it sorts, filters and calculates as a
+  date. The columns, their headings and their order are those of the
   ERP report's RDC Sales Invoice Details template (see ``TEMPLATE_COLUMNS``).
 * ``build_workbook`` is a module-level function so it can run in the CPU process
   pool (see app.jobs.run_cpu_phase): the ERP fetch and the writing then never
@@ -37,6 +39,21 @@ _MAX_SHEET_ROWS = 1_048_576          # Excel's limit, the header row included
 _FETCH_ROWS = 5000
 _WIDTH_SAMPLE_ROWS = 500
 _DATE_FORMAT = "yyyy-mm-dd hh:mm:ss"
+# The date columns. The ERP hands some of them over as text ('18-NOV-2026', or '2026-11-18 21:25:00' from
+# a descriptive flexfield); the workbook holds them as real Excel dates, shown in the format listed here.
+_DAY_FORMAT = "dd-mmm-yyyy"
+_DAY_TIME_FORMAT = "dd-mmm-yyyy hh:mm:ss"
+_DATE_COLUMNS = {
+    "INVOICE_DATE": _DAY_FORMAT,
+    "GL_DATE": _DAY_FORMAT,
+    "GL_POSTED_DATE": _DAY_FORMAT,
+    "ACKN_DATE": _DAY_TIME_FORMAT,
+}
+_TEXT_DATE_FORMATS = (
+    "%d-%b-%Y", "%d-%b-%y",
+    "%Y-%m-%d %H:%M:%S", "%Y/%m/%d %H:%M:%S", "%Y-%m-%d %H:%M", "%Y/%m/%d %H:%M",
+    "%Y-%m-%d", "%Y/%m/%d", "%d/%m/%Y", "%d-%m-%Y",
+)
 # Characters no spreadsheet file can hold (lone surrogates and the two non-characters).
 _UNWRITABLE = re.compile("[\ud800-\udfff￾￿]")
 
@@ -159,6 +176,25 @@ def _cell(value):
     return value
 
 
+def _as_date(value):
+    """A date column's value as a datetime Excel can hold as a date, or None when it is not
+    a date (blank, or text that is not in a date format): that is then written as it came."""
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, date):
+        return datetime.combine(value, time.min)
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return None
+        for pattern in _TEXT_DATE_FORMATS:
+            try:
+                return datetime.strptime(text, pattern)
+            except ValueError:
+                continue
+    return None
+
+
 class _Writer:
     """One workbook, on as many sheets as the rows need (Excel holds 1,048,575
     rows a sheet), written row by row."""
@@ -176,6 +212,11 @@ class _Writer:
             "nan_inf_to_errors": True,
         })
         self.header = self.workbook.add_format({"bold": True})
+        formats = {fmt: self.workbook.add_format({"num_format": fmt}) for fmt in set(_DATE_COLUMNS.values())}
+        # column position -> its date format, for every date column of the template
+        self.date_formats = {i: formats[_DATE_COLUMNS[query_column]]
+                             for i, (query_column, _) in enumerate(TEMPLATE_COLUMNS)
+                             if query_column in _DATE_COLUMNS and i < len(columns)}
         self.sheets = 0
         self.sheet = None
         self.sinks = []                  # each sheet's row writer (fast_xlsx), closed with the workbook
@@ -205,7 +246,14 @@ class _Writer:
         sink = self.sink
         sink.begin_row(self.row)
         auto = sink.auto
+        date_formats = self.date_formats
         for ci, v in enumerate(cells):
+            fmt = date_formats.get(ci)
+            if fmt is not None:                    # a date column: a real Excel date, in the column's date format
+                moment = _as_date(v)
+                if moment is not None:
+                    sink.date(ci, moment, fmt)
+                    continue
             auto(ci, v)
         sink.end_row()
         self.row += 1

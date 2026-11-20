@@ -138,11 +138,12 @@ class WorkbookTests(unittest.TestCase):
         ws = openpyxl.load_workbook(path)[report.SHEET_NAME]
         self.assertEqual([c.value for c in ws[1]], columns)
         first, second, third = ([c.value for c in ws[i]] for i in (2, 3, 4))
-        self.assertEqual(first, ["0012345", "05-OCT-2026", 1234.5, 3, stamp, "=SUM(A1:A2)", None])
+        # the ERP's 'DD-MON-YYYY' text in a date column is written as a real Excel date
+        self.assertEqual(first, ["0012345", datetime(2026, 10, 5), 1234.5, 3, stamp, "=SUM(A1:A2)", None])
         self.assertIsInstance(first[0], str)               # leading zeros kept: text stays text
         self.assertEqual(first[5], "=SUM(A1:A2)")           # never turned into a formula
         self.assertEqual(ws["F2"].data_type, "s")
-        self.assertEqual(second, ["INV/9", "06-OCT-2026", -0.1, 0, None, "http://example.com", "27AAAAA0000A1Z5"])
+        self.assertEqual(second, ["INV/9", datetime(2026, 10, 6), -0.1, 0, None, "http://example.com", "27AAAAA0000A1Z5"])
         self.assertIsNone(ws["F3"].hyperlink)               # nor into a link
         self.assertEqual(third[0], "X" * 300)
         self.assertEqual(third[5], "multi\nline")
@@ -161,8 +162,29 @@ class WorkbookTests(unittest.TestCase):
         ws = openpyxl.load_workbook(path)[report.SHEET_NAME]
         self.assertEqual([c.value for c in ws[1]], ["Transaction Number", "RDC GSTIN", "Cust PAN Number", "GL Date", "Source"])
         # the PAN is not in the query, so its column is empty; every other value is as returned
-        self.assertEqual([c.value for c in ws[2]], ["0012345", "27AAAAA0000A1Z5", None, "05-OCT-2026", "Manual"])
+        self.assertEqual([c.value for c in ws[2]], ["0012345", "27AAAAA0000A1Z5", None, datetime(2026, 10, 5), "Manual"])
         self.assertEqual(ws.auto_filter.ref, "A1:E2")
+
+    def test_every_date_column_holds_real_excel_dates(self):
+        columns = ["INVOICE_DATE", "GL_DATE", "GL_POSTED_DATE", "ACKN_DATE", "NOTE"]
+        rows = [
+            ("18-NOV-2026", "18-NOV-2026", "19-NOV-2026", "2026-11-18 21:25:00", "a"),   # as the ERP returns them
+            ("01-JAN-2027", "01-JAN-2027", None, None, "b"),                              # blanks stay blank
+            ("not a date", "31-DEC-2026", "", "soon", "c"),                              # unparseable text is left as it came
+        ]
+        path = self.dir / "dates.xlsx"
+        _run_build(columns, rows, path)
+        ws = openpyxl.load_workbook(path)[report.SHEET_NAME]
+
+        for cell in (ws["A2"], ws["B2"], ws["C2"], ws["D2"], ws["A3"], ws["B3"], ws["B4"]):
+            self.assertEqual(cell.data_type, "d", cell.coordinate)             # a date, not text
+        self.assertEqual([ws["A2"].value, ws["B2"].value, ws["C2"].value], [datetime(2026, 11, 18), datetime(2026, 11, 18), datetime(2026, 11, 19)])
+        self.assertEqual(ws["D2"].value, datetime(2026, 11, 18, 21, 25, 0))
+        self.assertEqual((ws["A2"].number_format, ws["D2"].number_format), ("dd-mmm-yyyy", "dd-mmm-yyyy hh:mm:ss"))
+        self.assertIsNone(ws["C3"].value)
+        self.assertIsNone(ws["D3"].value)
+        self.assertEqual((ws["A4"].value, ws["D4"].value), ("not a date", "soon"))
+        self.assertEqual(ws["E2"].value, "a")                                   # other columns untouched
 
     def test_the_real_template_matches_the_erp_report(self):
         import re

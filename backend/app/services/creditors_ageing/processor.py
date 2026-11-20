@@ -223,8 +223,10 @@ def _extract_bill_wise_rows(rows, number_formats, ageing_date: dt.date):
             and pending_column < len(number_formats[row_index])
         ):
             pending_format = number_formats[row_index][pending_column]
+        shown_date = get(row, columns["date"])
         result.append({
-            "date": get(row, columns["date"]),
+            # a real date even when Tally gave the date as text ('12-Apr-26')
+            "date": shown_date if isinstance(shown_date, (dt.datetime, dt.date)) else invoice_date,
             "ref": get(row, columns["ref"]),
             "party": party.strip(),
             "cc": get(row, columns["cost_center"]) or "",

@@ -268,3 +268,17 @@ class VendorMappingStoreTests(unittest.TestCase):
 if __name__ == "__main__":
     unittest.main()
 
+
+
+class BillWiseDatesAreRealDatesTests(unittest.TestCase):
+    def test_a_bill_date_given_as_text_is_written_as_a_real_date(self):
+        import datetime as dt
+        header = ["Date", "Ref. No.", "Party's Name", "Pending Amount", "Opening Amount"]
+        rows = [
+            header,
+            ["12-Apr-26", "B1", "Vendor A", 100.0, 100.0],            # Tally gave the date as text
+            [dt.datetime(2026, 4, 20), "B2", "Vendor B", 50.0, 50.0],   # or as a real date
+        ]
+        got = processor._extract_bill_wise_rows(rows, None, dt.date(2026, 6, 30))
+        self.assertEqual([item["date"] for item in got], [dt.date(2026, 4, 12), dt.datetime(2026, 4, 20)])
+        self.assertTrue(all(isinstance(item["date"], dt.date) for item in got))
