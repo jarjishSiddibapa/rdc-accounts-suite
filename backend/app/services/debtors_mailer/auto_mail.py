@@ -145,9 +145,9 @@ def build(snapshot: dict, progress_cb=None, cancel_event=None) -> mail.MailPaylo
     past_date = as_on          # what the ERP queries are asked for; None = as it is now
     as_on = as_on or date.today()
     stamp = as_on.isoformat()
-    gst_path = work_dir / f"Ageing_with_GST_Invoice_Numbers_As_On_{stamp}.xlsx"
-    unapplied_path = work_dir / f"Unapplied_Receipts_Report_As_On_{stamp}.xlsx"
-    untagged_path = work_dir / f"Untagged_Invoices_Report_As_On_{stamp}.xlsx"
+    gst_path = work_dir / f"AR_Ageing_As_On_{stamp}.xlsx"
+    unapplied_path = work_dir / f"AR_Unapplied_Receipts_Report_As_On_{stamp}.xlsx"
+    untagged_path = work_dir / f"AR_Untagged_Invoices_Report_As_On_{stamp}.xlsx"
 
     # progress: each report counts for a third of the first 90 %
     fractions = {name: 0.0 for name, wanted in
@@ -285,7 +285,7 @@ def build(snapshot: dict, progress_cb=None, cancel_event=None) -> mail.MailPaylo
     # headings are numbered as the list in the mail text is.
     tables: list[tuple[str, str]] = []                 # (heading, html), numbered below
     if unapplied is not None:
-        tables.append(("Unapplied Receipts (Summary):",
+        tables.append(("AR Unapplied Receipts (Summary):",
                        sheet_to_html(str(unapplied_path), "Summary", payload.css, "r")))
     if untagged is not None:
         # the summaries shown in the mail, formatted exactly as in the reports
@@ -293,9 +293,9 @@ def build(snapshot: dict, progress_cb=None, cancel_event=None) -> mail.MailPaylo
         untagged_processor.write_summary_workbook(
             untagged.untagged_summary, untagged.below_1k_summary, summary_path, look=LOOK)
         payload.intro_note = f"Note: {untagged_processor.LAKHS_NOTE}"
-        tables.append(("Untagged Invoices (Summary):",
+        tables.append(("AR Untagged Invoices (Summary):",
                        sheet_to_html(str(summary_path), "Untagged Summary", payload.css, "u")))
-        tables.append(("Below 1k Invoices (Summary):",
+        tables.append(("Below 1k AR Invoices (Summary):",
                        sheet_to_html(str(summary_path), "Below 1k Summary", payload.css, "b")))
     first_number = 2 if want_ageing else 1      # the ageing, when sent, is item 1 of the list
     payload.sections = [(f"{first_number + i}. {heading}", html) for i, (heading, html) in enumerate(tables)]
@@ -311,7 +311,8 @@ def build(snapshot: dict, progress_cb=None, cancel_event=None) -> mail.MailPaylo
 
         splitters[gst_path] = attachment_fit.row_splitter(len(gst.df), write_gst_slice, work_dir, gst_path.stem)
     if untagged is not None:
-        splitters[untagged_path] = untagged_auto_mail.untagged_splitter(untagged.frames, work_dir, as_on, look=LOOK)
+        splitters[untagged_path] = untagged_auto_mail.untagged_splitter(
+            untagged.frames, work_dir, as_on, look=LOOK, stem=f"AR_Untagged_Invoices_Report_As_On_{stamp}")
     attached = [path for path, wanted in ((gst_path, want_ageing), (unapplied_path, want_unapplied),
                                           (untagged_path, want_untagged)) if wanted]
     groups, how = _fit_attachments(attached, progress_cb, splitters)

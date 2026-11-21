@@ -1,7 +1,7 @@
 """The three reports the Debtors Reports Auto Mailer builds, and the mail wording that follows the ones a schedule sends.
 
-The reports: the ageing with the GST invoice numbers, the Unapplied Receipts report and the Untagged Invoices
-report (whose workbook also carries the Below 1k Invoices). Each mail schedule (see mail_schedules.py) picks which of them it
+The reports: the AR Ageing (the ageing with the GST invoice numbers), the AR Unapplied Receipts report and the AR
+Untagged Invoices report (whose workbook also carries the Below 1k AR Invoices). Each mail schedule (see mail_schedules.py) picks which of them it
 sends; at least one.
 """
 
@@ -12,9 +12,9 @@ import re
 AGEING, UNAPPLIED, UNTAGGED = "ageing", "unapplied", "untagged"
 ALL_REPORTS = (AGEING, UNAPPLIED, UNTAGGED)
 LABELS = {
-    AGEING: "Ageing with GST Invoice Numbers",
-    UNAPPLIED: "Unapplied Receipts",
-    UNTAGGED: "Untagged Invoices and Below 1k Invoices",
+    AGEING: "AR Ageing",
+    UNAPPLIED: "AR Unapplied Receipts",
+    UNTAGGED: "AR Untagged Invoices and Below 1k AR Invoices",
 }
 
 
@@ -22,22 +22,30 @@ LABELS = {
 
 # The wording of the mail's default subject and text, one line per report (in the mail's order).
 _SUBJECT_NAMES = {
-    AGEING: ["Ageing with GST Invoice Numbers"],
-    UNAPPLIED: ["Unapplied Receipts"],
-    UNTAGGED: ["Untagged Invoices", "Below 1k Invoices"],
+    AGEING: ["AR Ageing"],
+    UNAPPLIED: ["AR Unapplied Receipts"],
+    UNTAGGED: ["AR Untagged Invoices", "Below 1k AR Invoices"],
 }
 _LIST_LINES = {                       # (the start of the numbered line, the report it is about)
+    "ar ageing": AGEING,
+    "ar unapplied": UNAPPLIED,
+    "ar untagged": UNTAGGED,
+    "below 1k ar": UNTAGGED,
+    # the earlier wording, for a text a person saved before the reports were renamed
     "ageing with gst": AGEING,
     "unapplied": UNAPPLIED,
     "untagged": UNTAGGED,
     "below 1k": UNTAGGED,
 }
 _ATTACHED_NAMES = {
-    AGEING: "the ageing with the GST invoice numbers",
-    UNAPPLIED: "the Unapplied Receipts report",
-    UNTAGGED: "the Untagged Invoices report",
+    AGEING: "AR Ageing",
+    UNAPPLIED: "the AR Unapplied Receipts report",
+    UNTAGGED: "the AR Untagged Invoices report",
 }
 _DEFAULT_ATTACHED = (
+    "AR Ageing, the AR Unapplied Receipts report and the AR Untagged Invoices report are attached."
+)
+_EARLIER_ATTACHED = (         # a text saved before the reports were renamed
     "The ageing with the GST invoice numbers, the Unapplied Receipts report and the Untagged Invoices "
     "report are attached."
 )
@@ -76,4 +84,4 @@ def adapt_intro(template: str, selected) -> str:
     text = "\n".join(out)
     attached = [_ATTACHED_NAMES[key] for key in ALL_REPORTS if key in selected]
     sentence = f"{_join(attached)[0].upper()}{_join(attached)[1:]} {'is' if len(attached) == 1 else 'are'} attached."
-    return text.replace(_DEFAULT_ATTACHED, sentence)
+    return text.replace(_DEFAULT_ATTACHED, sentence).replace(_EARLIER_ATTACHED, sentence)

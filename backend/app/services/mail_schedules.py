@@ -628,8 +628,28 @@ def migrate_legacy(db: Session, app_key: str, name: str | None = None) -> MailSc
     return row
 
 
+def retire_superseded_wording(db: Session) -> None:
+    """A schedule keeps its own copy of the subject, the body and (if never renamed) the application's name. When an
+    application is renamed, a schedule that still holds the earlier default word for word moves to the new wording;
+    anything a person edited is left alone."""
+    changed = False
+    for row in db.query(MailSchedule).all():
+        spec = mail.SPECS.get(row.app_key)
+        if spec is None or row.app_key not in mail.SUPERSEDED_SCHEDULE_NAMES:   # only the renamed applications
+            continue
+        if (row.name or "").strip() in mail.SUPERSEDED_SCHEDULE_NAMES.get(row.app_key, ()):
+            row.name, changed = spec.label, True
+        if (row.subject_template or "").strip() in mail.SUPERSEDED_SUBJECTS.get(row.app_key, ()):
+            row.subject_template, changed = spec.default_subject, True
+        if (row.intro_template or "").replace("\r\n", "\n").strip() in mail.SUPERSEDED_INTROS.get(row.app_key, ()):
+            row.intro_template, changed = spec.default_intro, True
+    if changed:
+        db.commit()
+
+
 def migrate_all_legacy(db: Session) -> None:
     """Every application that has schedules: carry its old single schedule across (once)."""
     for app_key, spec in mail.SPECS.items():
         if spec.per_schedule:
             migrate_legacy(db, app_key, "Debtors Reports" if app_key == "debtors-reports-auto-mailer" else None)
+    retire_superseded_wording(db)

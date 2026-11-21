@@ -638,7 +638,7 @@ export function MailSchedules({
 }: {
   /** The application's API base, for example `/tools/unidentified-entries`. */
   base: string
-  /** The report in words, for sentences ("the Unidentified Entries"). */
+  /** The report in words, for sentences ("the Unidentified Receipt Entries Report"). */
   reportName: string
   /** The "if a location has no mapping" choice, for a report that uses mappings. */
   showUnmapped?: boolean

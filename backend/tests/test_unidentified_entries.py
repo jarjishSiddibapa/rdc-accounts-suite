@@ -1,4 +1,4 @@
-"""Unidentified Entries: the Unapplied Receipts Register's "***** Unidentified" receipts as an
+"""Unidentified Receipt Entries Report: the Unapplied Receipts Register's "***** Unidentified" receipts as an
 application of their own - same list as the Unapplied report's Unidentified Customers sheet,
 mailed from the system email on the shared automatic-mail options."""
 
@@ -48,7 +48,7 @@ def _comments(receipts, log_q, oracle_cfg, cancel_event=None):
 class RegistrationTests(unittest.TestCase):
     def test_it_is_an_application_with_the_shared_automatic_mail(self):
         self.assertIn(KEY, permissions.APP_KEYS)
-        self.assertEqual(permissions.APP_LABELS[KEY], "Unidentified Entries")
+        self.assertEqual(permissions.APP_LABELS[KEY], "Unidentified Receipt Entries Report")
         self.assertNotIn(KEY, permissions.REPORT_RECIPIENT_APP_KEYS)      # each mail schedule has its own
         spec = mail.SPECS[KEY]
         self.assertTrue(spec.scheduled)
@@ -176,7 +176,7 @@ class BuildTests(unittest.TestCase):
             self.assertEqual(payload.values["rows"], "2")
             self.assertEqual(len(payload.attachment_groups), 1)
             (path,) = payload.attachment_groups[0]
-            self.assertTrue(Path(path).name.startswith("Unidentified_Entries_As_On_"))
+            self.assertTrue(Path(path).name.startswith("Unidentified_Receipt_Entries_Report_As_On_"))
             wb = load_workbook(path)
             self.assertEqual(wb.active.cell(row=1, column=1).value, "Customer Name")
             self.assertEqual(payload.detail["rows"], 2)

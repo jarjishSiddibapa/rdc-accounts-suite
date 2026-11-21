@@ -81,7 +81,7 @@ def cpu_write_report(df_main, df_advance, output_path, as_on_date, df_unidentifi
 
 
 def cpu_write_unidentified(df_unid, output_path, as_on_date, look="default"):
-    """The Unidentified Entries workbook (the Unidentified Customers sheet on its own)."""
+    """The Unidentified Receipt Entries Report workbook (the Unidentified Customers sheet on its own)."""
     processor.write_unidentified_workbook(df_unid, output_path, as_on_date, look=look)
 
 

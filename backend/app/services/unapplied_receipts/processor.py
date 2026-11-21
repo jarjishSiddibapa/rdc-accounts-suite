@@ -388,7 +388,7 @@ def split_unidentified(df: pd.DataFrame, log_q, oracle_cfg: OracleConfig, cancel
     deleted), each with its Bank Description (the receipt's Comments in the ERP).
     Returns (the other rows, the Unidentified rows). Shared by the Unapplied
     Receipts report, whose "Unidentified Customers" sheet they fill, and by the
-    Unidentified Entries application."""
+    Unidentified Receipt Entries Report application."""
     cust_col = "Customer Name"
     if cust_col not in df.columns:
         raise JobUserError(
@@ -1544,7 +1544,7 @@ def _write_unidentified_sheet(wb, df_unid: pd.DataFrame, as_on_date: _dt.date, t
 
 def write_unidentified_workbook(df_unid: pd.DataFrame, path: str, as_on_date: _dt.date, look: str = "default") -> None:
     """A workbook holding only the Unidentified Customers sheet, laid out exactly
-    as in the Unapplied Receipts report (the Unidentified Entries application)."""
+    as in the Unapplied Receipts report (the Unidentified Receipt Entries Report application)."""
     wb = Workbook()
     wb.remove(wb.active)
     _write_unidentified_sheet(wb, df_unid, as_on_date, titles=look != "accounts")

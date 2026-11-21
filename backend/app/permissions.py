@@ -48,7 +48,7 @@ APP_LABELS = {
     "untagged-invoices-report": "Untagged Invoices Report Generator",
     "debtors-reports-auto-mailer": "Debtors Reports Auto Mailer",
     "rdc-sales-register-report": "RDC Sales Register Report",
-    "unidentified-entries": "Unidentified Entries",
+    "unidentified-entries": "Unidentified Receipt Entries Report",
 }
 
 APP_COMPANIES = ("RDC", "Ultrafine")

@@ -26,12 +26,12 @@ class MailLayoutTests(unittest.TestCase):
         spec = mail.SPECS[auto_mail.APP_KEY]
         text = mail.render_text(spec.default_intro, {"date": "28-Oct-2026"})
         self.assertEqual(text.splitlines()[:3], ["Dear Team,", "", "Please find below:"])
-        for line in ("1. Ageing with GST invoice numbers as on 28-Oct-2026",
-                     "2. Unapplied Receipts as on 28-Oct-2026",
-                     "3. Untagged Invoices as on 28-Oct-2026",
-                     "4. Below 1k Invoices as on 28-Oct-2026"):
+        for line in ("1. AR Ageing as on 28-Oct-2026",
+                     "2. AR Unapplied Receipts as on 28-Oct-2026",
+                     "3. AR Untagged Invoices as on 28-Oct-2026",
+                     "4. Below 1k AR Invoices as on 28-Oct-2026"):
             self.assertIn(line, text)
-        self.assertTrue(text.endswith("Untagged Invoices report are attached."))
+        self.assertTrue(text.endswith("AR Untagged Invoices report are attached."))
         self.assertNotIn("rows have", text)
 
     def test_a_saved_old_default_body_moves_to_the_new_one_but_an_edited_body_stays(self):
@@ -42,7 +42,7 @@ class MailLayoutTests(unittest.TestCase):
         key = auto_mail.APP_KEY
         spec = mail.SPECS[key]
         row = mail.get_or_create_settings(db, key)
-        row.intro_template = mail.SUPERSEDED_INTROS[key][0]
+        row.intro_template = mail.SUPERSEDED_INTROS[key][-1]
         db.commit()
         self.assertIn("Kindly clear", row.intro_template)
         row = mail.get_or_create_settings(db, key)
@@ -57,11 +57,11 @@ class MailLayoutTests(unittest.TestCase):
         subject = mail.render_text(spec.default_subject, {"date": "05-Nov-2026"})
         self.assertEqual(
             subject,
-            "Ageing with GST Invoice Numbers, Unapplied Receipts, Untagged Invoices and Below 1k Invoices "
+            "AR Ageing, AR Unapplied Receipts, AR Untagged Invoices and Below 1k AR Invoices "
             "as on (05-Nov-2026)",
         )
         order = [subject.index(name) for name in
-                 ("Ageing with GST", "Unapplied Receipts", "Untagged Invoices", "Below 1k Invoices")]
+                 ("AR Ageing", "AR Unapplied Receipts", "AR Untagged Invoices", "Below 1k AR Invoices")]
         self.assertEqual(order, sorted(order))
 
     def test_a_saved_old_default_subject_moves_to_the_new_one_but_an_edited_subject_stays(self):

@@ -113,18 +113,17 @@ SPECS: dict[str, MailSpec] = {
         app_key="debtors-reports-auto-mailer",
         label="Debtors Reports",
         default_subject=(
-            "Ageing with GST Invoice Numbers, Unapplied Receipts, Untagged Invoices and Below 1k Invoices "
+            "AR Ageing, AR Unapplied Receipts, AR Untagged Invoices and Below 1k AR Invoices "
             "as on ({date})"
         ),
         default_intro=(
             "Dear Team,\n\n"
             "Please find below:\n\n"
-            "1. Ageing with GST invoice numbers as on {date}\n"
-            "2. Unapplied Receipts as on {date}\n"
-            "3. Untagged Invoices as on {date}\n"
-            "4. Below 1k Invoices as on {date}\n\n"
-            "The ageing with the GST invoice numbers, the Unapplied Receipts report and the Untagged Invoices "
-            "report are attached."
+            "1. AR Ageing as on {date}\n"
+            "2. AR Unapplied Receipts as on {date}\n"
+            "3. AR Untagged Invoices as on {date}\n"
+            "4. Below 1k AR Invoices as on {date}\n\n"
+            "AR Ageing, the AR Unapplied Receipts report and the AR Untagged Invoices report are attached."
         ),
         placeholders=("date", "total", "found", "blank"),
         fixed_sender=True,
@@ -148,11 +147,11 @@ SPECS: dict[str, MailSpec] = {
     ),
     "unidentified-entries": MailSpec(
         app_key="unidentified-entries",
-        label="Unidentified Entries",
-        default_subject="Unidentified Entries as on {date}",
+        label="Unidentified Receipt Entries Report",
+        default_subject="Unidentified Receipt Entries Report as on {date}",
         default_intro=(
             "Dear Team,\n\n"
-            "Please find attached the Unidentified Entries as on {date} ({rows} entries)."
+            "Please find attached the Unidentified Receipt Entries Report as on {date} ({rows} entries)."
         ),
         placeholders=("date", "rows"),
         fixed_sender=True,
@@ -323,12 +322,25 @@ def render_text(template: str, values: dict[str, str]) -> str:
 # still holds one word for word never had its text edited, so it moves to the current default (an edited
 # text is left alone).
 SUPERSEDED_INTROS: dict[str, tuple[str, ...]] = {
+    "unidentified-entries": (
+        "Dear Team,\n\n"
+        "Please find attached the Unidentified Entries as on {date} ({rows} entries).",
+    ),
     "rdc-sales-register-report": (
         "Dear Team,\n\n"
         "Please find attached the RDC Sales Register Report for {from_date} to {to_date} ({period}), "
         "{rows} rows.",
     ),
     "debtors-reports-auto-mailer": (
+        # the wording before the reports were renamed AR Ageing / AR Unapplied Receipts / AR Untagged Invoices
+        "Dear Team,\n\n"
+        "Please find below:\n\n"
+        "1. Ageing with GST invoice numbers as on {date}\n"
+        "2. Unapplied Receipts as on {date}\n"
+        "3. Untagged Invoices as on {date}\n"
+        "4. Below 1k Invoices as on {date}\n\n"
+        "The ageing with the GST invoice numbers, the Unapplied Receipts report and the Untagged Invoices "
+        "report are attached.",
         "Dear Team,\n\n"
         "Please find below:\n\n"
         "1. Ageing with GST invoice numbers as on {date} ({found} of {total} rows have a GST number)\n"
@@ -344,7 +356,19 @@ SUPERSEDED_INTROS: dict[str, tuple[str, ...]] = {
 
 # The same for subjects: a row that still holds an earlier default subject exactly never had it edited.
 SUPERSEDED_SUBJECTS: dict[str, tuple[str, ...]] = {
-    "debtors-reports-auto-mailer": ("Debtors Reports as on {date}",),
+    "debtors-reports-auto-mailer": (
+        "Debtors Reports as on {date}",
+        "Ageing with GST Invoice Numbers, Unapplied Receipts, Untagged Invoices and Below 1k Invoices "
+        "as on ({date})",
+    ),
+    "unidentified-entries": ("Unidentified Entries as on {date}",),
+}
+
+# Names a schedule was given automatically after its application (the application's old label). A schedule that
+# still has one was never renamed by a person, so it takes the application's new name.
+SUPERSEDED_SCHEDULE_NAMES: dict[str, tuple[str, ...]] = {
+    "unidentified-entries": ("Unidentified Entries",),
+    "debtors-reports-auto-mailer": (),        # its schedules keep their names; the wording below is retired
 }
 
 

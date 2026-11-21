@@ -138,8 +138,8 @@ export default function DebtorsReportsAutoMailer() {
                 Debtors Reports Auto Mailer
               </h2>
               <p className="mt-1 text-sm leading-6 text-ink-dim">
-                Mails the debtors reports: the receivable ageing with the GST invoice numbers, the Unapplied
-                Receipts report and the Untagged Invoices report (with Below 1k). Set up as many mail schedules as
+                Mails the debtors reports: the AR Ageing (with the GST invoice numbers), the AR Unapplied
+                Receipts report and the AR Untagged Invoices report (with Below 1k AR Invoices). Set up as many mail schedules as
                 you need &mdash; for example a daily mail for the team and a month-end pack for the meeting. Each
                 schedule has its own reports, as-on date, timing, recipients, wording and send history, and can
                 also be sent by hand with a preview first. The ageing is fetched from the ERP once per mail, and

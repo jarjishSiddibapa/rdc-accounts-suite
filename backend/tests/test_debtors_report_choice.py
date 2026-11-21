@@ -25,9 +25,9 @@ class WordingTests(unittest.TestCase):
 
     def test_the_subject_names_only_what_is_sent(self):
         subject = report_choice.adapt_subject(SPEC.default_subject, SPEC.default_subject, ("unapplied", "untagged"))
-        self.assertEqual(subject, "Unapplied Receipts, Untagged Invoices and Below 1k Invoices as on ({date})")
+        self.assertEqual(subject, "AR Unapplied Receipts, AR Untagged Invoices and Below 1k AR Invoices as on ({date})")
         only = report_choice.adapt_subject(SPEC.default_subject, SPEC.default_subject, ("ageing",))
-        self.assertEqual(only, "Ageing with GST Invoice Numbers as on ({date})")
+        self.assertEqual(only, "AR Ageing as on ({date})")
 
     def test_a_subject_a_person_wrote_is_left_alone(self):
         self.assertEqual(report_choice.adapt_subject("Meeting pack {date}", SPEC.default_subject, ("ageing",)),
@@ -35,17 +35,17 @@ class WordingTests(unittest.TestCase):
 
     def test_the_list_is_renumbered_and_the_attached_sentence_names_what_is_attached(self):
         intro = report_choice.adapt_intro(SPEC.default_intro, ("unapplied", "untagged"))
-        self.assertIn("1. Unapplied Receipts as on {date}", intro)
-        self.assertIn("2. Untagged Invoices as on {date}", intro)
-        self.assertIn("3. Below 1k Invoices as on {date}", intro)
-        self.assertNotIn("Ageing with GST", intro)
-        self.assertIn("The Unapplied Receipts report and the Untagged Invoices report are attached.", intro)
+        self.assertIn("1. AR Unapplied Receipts as on {date}", intro)
+        self.assertIn("2. AR Untagged Invoices as on {date}", intro)
+        self.assertIn("3. Below 1k AR Invoices as on {date}", intro)
+        self.assertNotIn("AR Ageing", intro)
+        self.assertIn("The AR Unapplied Receipts report and the AR Untagged Invoices report are attached.", intro)
 
     def test_one_report_is_singular(self):
         intro = report_choice.adapt_intro(SPEC.default_intro, ("ageing",))
-        self.assertIn("1. Ageing with GST invoice numbers as on {date}", intro)
+        self.assertIn("1. AR Ageing as on {date}", intro)
         self.assertNotIn("2.", intro)
-        self.assertIn("The ageing with the GST invoice numbers is attached.", intro)
+        self.assertIn("AR Ageing is attached.", intro)
 
 
 class OnlyThePickedReportsAreBuiltTests(unittest.TestCase):
@@ -109,7 +109,7 @@ class OnlyThePickedReportsAreBuiltTests(unittest.TestCase):
     def test_the_payload_rewords_the_mail_for_what_was_picked(self):
         _, payload, _ = self._build(("ageing", "unapplied"))
         subject, intro = payload.reword(SPEC.default_subject, SPEC.default_intro)
-        self.assertEqual(subject, "Ageing with GST Invoice Numbers and Unapplied Receipts as on ({date})")
+        self.assertEqual(subject, "AR Ageing and AR Unapplied Receipts as on ({date})")
         self.assertNotIn("Untagged", intro)
 
 

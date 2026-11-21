@@ -1,4 +1,4 @@
-"""Unidentified Entries routes (administrators and the users granted the application).
+"""Unidentified Receipt Entries Report routes (administrators and the users granted the application).
 
 The Unapplied Receipts Register's "***** Unidentified" receipts, fetched from the
 ERP into one Excel file and mailed (see app.services.unidentified_entries.auto_mail).

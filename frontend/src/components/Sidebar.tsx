@@ -90,7 +90,7 @@ const mainNav: NavItem[] = [
   { to: '/tools/untagged-invoices-report', label: 'Untagged Invoices Report Generator', icon: Tags, appKey: 'untagged-invoices-report' },
   { to: '/tools/debtors-reports-auto-mailer', label: 'Debtors Reports Auto Mailer', icon: MailCheck, appKey: 'debtors-reports-auto-mailer' },
   { to: '/tools/rdc-sales-register-report', label: 'RDC Sales Register Report', icon: ReceiptText, appKey: 'rdc-sales-register-report' },
-  { to: '/tools/unidentified-entries', label: 'Unidentified Entries', icon: UserRoundSearch, appKey: 'unidentified-entries' },
+  { to: '/tools/unidentified-entries', label: 'Unidentified Receipt Entries Report', icon: UserRoundSearch, appKey: 'unidentified-entries' },
 ]
 
 interface SidebarProps {

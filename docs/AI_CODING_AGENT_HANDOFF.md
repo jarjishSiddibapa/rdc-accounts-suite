@@ -1001,9 +1001,15 @@ the GST-numbered ageing, the Unapplied Receipts report and the Untagged Invoices
 report, from ONE ageing fetch (`_SharedAgeing`), one region fetch and one
 register fetch; the three reports are built side by side (threads, each writing
 on the CPU pool). The default subject names the four reports in the order of the
-mail body, then the date in brackets ("... Below 1k Invoices as on (05-Nov-2026)");
+mail body, then the date in brackets ("... Below 1k AR Invoices as on (05-Nov-2026)");
 a saved row still holding the earlier default ("Debtors Reports as on {date}", see
 `SUPERSEDED_SUBJECTS`) moves to it, an edited subject is left alone.
+The Debtors reports are named **AR Ageing** (the ageing with the GST invoice numbers), **AR Unapplied Receipts**, **AR Untagged Invoices**
+and **Below 1k AR Invoices** in the report picker, the subject, the body, the mail's table headings and the attachment file names
+(`AR_Ageing_As_On_<date>.xlsx`, `AR_Unapplied_Receipts_Report_As_On_<date>.xlsx`, `AR_Untagged_Invoices_Report_As_On_<date>.xlsx`).
+A renamed application's saved schedules still holding the earlier default name / subject / body word for word are moved to the new
+wording at start-up (`mail_schedules.retire_superseded_wording`: only the applications listed in
+`SUPERSEDED_SCHEDULE_NAMES`); wording a person edited is left alone.
 The mail shows the GST counts, the Unapplied summary and the
 two Untagged summaries; the workbooks are attachments, fitted into one mail by
 compacting, then `.xlsb` for the largest, and only then several mails. It has its
@@ -1131,7 +1137,7 @@ compares the two routes byte for byte); compaction skips files whose rows have g
 retry on transient Windows locks (`io_retry.with_retry`). Measured on the dev PC: Debtors mail 167 s -> 75 s, Sales Register
 110 s -> 67 s (35 s of which is the ERP query).
 
-**Unidentified Entries** (`unidentified-entries`, `app/services/unidentified_entries/auto_mail.py`,
+**Unidentified Receipt Entries Report** (shown under this name; key `unidentified-entries`, `app/services/unidentified_entries/auto_mail.py`,
 `app/routers/unidentified_entries.py`): the Unapplied Receipts Register's `***** Unidentified`
 receipts (each with its Bank Description, the receipt's Comments in the ERP) as an application of its
 own. The rows come from `processor.split_unidentified` (shared with the Unapplied Receipts report,

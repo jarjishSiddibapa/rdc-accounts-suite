@@ -4,7 +4,7 @@ import { GlassCard } from '@/components/GlassCard'
 import { MailSchedules } from '@/components/MailSchedules'
 
 const BASE = '/tools/unidentified-entries'
-const REPORT_NAME = 'the Unidentified Entries'
+const REPORT_NAME = 'the Unidentified Receipt Entries Report'
 
 /**
  * The "***** Unidentified" receipts of the Unapplied Receipts Register, fetched
@@ -15,7 +15,7 @@ const REPORT_NAME = 'the Unidentified Entries'
  */
 export default function UnidentifiedEntries() {
   return (
-    <AppShell title="Unidentified Entries">
+    <AppShell title="Unidentified Receipt Entries Report">
       <div className="flex flex-col gap-6">
         <GlassCard padding="lg" className="flex flex-col gap-4">
           <div className="flex items-center gap-4">
@@ -25,7 +25,7 @@ export default function UnidentifiedEntries() {
             <div>
               <p className="text-sm font-semibold text-accent">Accounts · Receivables</p>
               <h2 className="mt-1.5 font-display text-xl font-semibold tracking-[-0.025em] text-ink">
-                Unidentified Entries
+                Unidentified Receipt Entries Report
               </h2>
               <p className="mt-1 text-sm leading-6 text-ink-dim">
                 The receipts the ERP holds against “***** Unidentified”, straight from the Unapplied Receipts

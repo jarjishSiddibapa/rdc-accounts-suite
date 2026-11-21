@@ -355,7 +355,7 @@ class TimingAndRecipientsTests(_Case):
         self.assertEqual((entry["mode"], entry["days"], entry["times"]), ("weekly", [0, 1, 2, 3, 4], ["08:30"]))
         self.assertIsNotNone(entry["next_run"])
         self.assertTrue(listing["has_as_on"])
-        self.assertEqual(listing["report_labels"]["ageing"], "Ageing with GST Invoice Numbers")
+        self.assertEqual(listing["report_labels"]["ageing"], "AR Ageing")
 
     def test_the_list_of_an_application_without_those_choices_says_so(self):
         ms.create(self.db, SALES, "Daily", None)
@@ -609,6 +609,44 @@ class BringingAnInstallationAcrossTests(_Case):
                 patch("app.jobs.submit_job", return_value="job") as submit:
             self.assertEqual(mail.enqueue_due_checks(), [])                          # that slot is already done
         submit.assert_not_called()
+
+    def _schedule_with(self, app_key, **columns):
+        row = ms.migrate_legacy(self.db, app_key)
+        for key, value in columns.items():
+            setattr(row, key, value)
+        self.db.commit()
+        return row
+
+    def test_a_schedule_still_holding_the_earlier_wording_moves_to_the_renamed_one(self):
+        spec = mail.SPECS[UNIDENTIFIED]
+        row = self._schedule_with(
+            UNIDENTIFIED, name="Unidentified Entries", subject_template="Unidentified Entries as on {date}",
+            intro_template="Dear Team,\n\nPlease find attached the Unidentified Entries as on {date} ({rows} entries).")
+        ms.migrate_all_legacy(self.db)
+        row = self.fresh(row)
+        self.assertEqual((row.name, row.subject_template, row.intro_template),
+                         ("Unidentified Receipt Entries Report", spec.default_subject, spec.default_intro))
+        self.assertIn("Unidentified Receipt Entries Report", row.subject_template + row.intro_template)
+
+    def test_a_renamed_schedule_and_wording_a_person_wrote_are_left_alone(self):
+        row = self._schedule_with(UNIDENTIFIED, name="Daily unidentified", subject_template="My subject {date}",
+                                  intro_template="My own words {date}")
+        ms.migrate_all_legacy(self.db)
+        row = self.fresh(row)
+        self.assertEqual((row.name, row.subject_template, row.intro_template),
+                         ("Daily unidentified", "My subject {date}", "My own words {date}"))
+
+    def test_the_debtors_schedules_move_to_the_ar_wording_unless_edited(self):
+        spec = mail.SPECS[APP]
+        old = self._schedule_with(
+            APP, subject_template=mail.SUPERSEDED_SUBJECTS[APP][-1], intro_template=mail.SUPERSEDED_INTROS[APP][0])
+        ms.migrate_all_legacy(self.db)
+        old = self.fresh(old)
+        self.assertEqual((old.subject_template, old.intro_template), (spec.default_subject, spec.default_intro))
+        self.assertEqual(old.name, "Debtors Reports")
+        for text in (old.subject_template, old.intro_template):
+            self.assertIn("AR Ageing", text)
+        self.assertNotIn("GST invoice numbers", old.intro_template)
 
     def test_the_chosen_sender_is_carried_across(self):
         self.legacy(GST, sender_user_id=7)

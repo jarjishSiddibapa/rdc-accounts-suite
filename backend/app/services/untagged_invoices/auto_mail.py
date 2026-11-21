@@ -21,12 +21,12 @@ from app.services.untagged_invoices import processor, report_job
 
 APP_KEY = "untagged-invoices-report"
 
-def untagged_splitter(frames, work_dir: Path, as_on: date, look: str = "default"):
+def untagged_splitter(frames, work_dir: Path, as_on: date, look: str = "default", stem: str | None = None):
     """How the Untagged Invoices workbook is cut when it is too big for an email on its own (see
     app.services.attachment_fit): the four summary/detail sheets first, then the rows of the full Ageing sheet
     in the number of pieces asked for. Every row of every sheet is in exactly one part."""
     df, untagged_summary, untagged_ageing, below_summary, below_ageing = frames
-    stem = f"Untagged_Invoices_Report_As_On_{as_on.isoformat()}"
+    stem = stem or f"Untagged_Invoices_Report_As_On_{as_on.isoformat()}"
 
     def write_slice(first_row: int, last_row: int, path: Path) -> None:
         processor.write_report(

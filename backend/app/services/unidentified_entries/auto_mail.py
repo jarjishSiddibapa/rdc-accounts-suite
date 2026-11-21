@@ -1,4 +1,4 @@
-"""Automatic and on-demand mail of the Unidentified Entries.
+"""Automatic and on-demand mail of the Unidentified Receipt Entries Report.
 
 The Unapplied Receipts Register is fetched from the ERP and its "***** Unidentified"
 receipts (each with its Bank Description, the receipt's Comments in the ERP) are
@@ -48,7 +48,7 @@ def build(snapshot: dict, progress_cb=None, cancel_event=None) -> mail.MailPaylo
     _, unidentified = processor.split_unidentified(register, log, cfg, cancel_event)
 
     report(0.8, "Writing the workbook...")
-    path = work_dir / f"Unidentified_Entries_As_On_{as_on.isoformat()}.xlsx"
+    path = work_dir / f"Unidentified_Receipt_Entries_Report_As_On_{as_on.isoformat()}.xlsx"
     run_cpu_phase(report_job.cpu_write_unidentified, unidentified, str(path), as_on, LOOK)
 
     rows = len(unidentified)
