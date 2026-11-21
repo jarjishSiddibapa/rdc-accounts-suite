@@ -1007,6 +1007,14 @@ a saved row still holding the earlier default ("Debtors Reports as on {date}", s
 The Debtors reports are named **AR Ageing** (the ageing with the GST invoice numbers), **AR Unapplied Receipts**, **AR Untagged Invoices**
 and **Below 1k AR Invoices** in the report picker, the subject, the body, the mail's table headings and the attachment file names
 (`AR_Ageing_As_On_<date>.xlsx`, `AR_Unapplied_Receipts_Report_As_On_<date>.xlsx`, `AR_Untagged_Invoices_Report_As_On_<date>.xlsx`).
+**Every ageing carries the GST invoice number** (the "AR Ageing" standard): the AR Ageing, and the Ageing / Untagged Ageing /
+Below 1k Ageing sheets of the Untagged Invoices report, standalone and inside the Debtors mail. The look-up is one function,
+`gst_invoice_adder.report_job.fetch_gst_numbers` (the open-items GST query runs while the ageing is fetched; `gst_numbers_of(df)`
+for a frame already in hand); `untagged processor.add_gst_column` puts the column right before "Invoice No/ Receipt No" (blank rows
+stay, with "-"), `gst_invoice_adder.processor.gst_for_rows` builds each row's key exactly as the look-up did. `untagged_job.build_report(...,
+gst=)` takes the numbers (a dict or a callable) when the caller has them; the Debtors mail shares ONE look-up between the AR Ageing and
+the untagged report (`debtors_mailer.auto_mail._SharedGst`). A report held for a missing mapping does not wait for it. The Unapplied
+Receipts workbook lists receipts, not invoice ageing, so it has none. Any new report that shows the ageing must call the same helpers.
 A renamed application's saved schedules still holding the earlier default name / subject / body word for word are moved to the new
 wording at start-up (`mail_schedules.retire_superseded_wording`: only the applications listed in
 `SUPERSEDED_SCHEDULE_NAMES`); wording a person edited is left alone.

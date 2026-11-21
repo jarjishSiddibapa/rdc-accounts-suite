@@ -45,7 +45,8 @@ class BuilderAsOnTests(unittest.TestCase):
             calls["register"].append(extra.get("as_on"))
             return pd.DataFrame()
 
-        def fake_gst(path, name, progress_cb=None, cancel_event=None, ageing=None, look="default", prepare=None):
+        def fake_gst(path, name, progress_cb=None, cancel_event=None, ageing=None, look="default", prepare=None,
+                     gst_map=None):
             ageing()
             return SimpleNamespace(result={"total": 1, "found": 1, "blank": 0}, df=frame, gst_map={})
 

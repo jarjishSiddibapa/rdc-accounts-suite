@@ -508,7 +508,7 @@ export default function UntaggedInvoicesReport() {
               <p className="mt-1 text-sm leading-6 text-ink-dim">
                 Fetches the latest ageing from the ERP and generates the formatted workbook
                 (Untagged Summary, Untagged Ageing, Below 1k Summary, Below 1k Ageing and
-                Ageing sheets), as on today.
+                Ageing sheets, each with the GST invoice number of every row), as on today.
               </p>
             </div>
           </div>

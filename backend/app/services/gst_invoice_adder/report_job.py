@@ -42,17 +42,13 @@ class BuiltGstReport:
     gst_map: dict
 
 
-def build_report(output_path: str, download_name: str, progress_cb=None, cancel_event=None,
-                 ageing=None, look: str = "default", prepare=None) -> BuiltGstReport:
-    """Fetch the ageing from the ERP, look up each (invoice no, date) pair's
-    GST number, and write the enriched workbook to ``output_path``. ``ageing``
-    (optional) is a callable returning the ageing frame, for a caller that has
-    already fetched it for other reports (the Debtors Reports Auto Mailer). The
-    Oracle fetches stay on this thread (I/O-bound, already their own
-    ThreadPoolExecutor + connection pool); the CPU-bound write runs on the CPU
-    process pool. ``prepare`` (optional): a function that takes the finished ageing frame and returns the frame to
-    write, run once the GST numbers are in (the Debtors reports add the Accounts Incharge column with it)."""
-    log_q = LogQueue()
+def fetch_gst_numbers(ageing, progress_cb=None, cancel_event=None, log_q=None) -> tuple[pd.DataFrame, dict]:
+    """The ageing frame (``ageing()``) and the GST number of each of its (invoice no, date) pairs, as
+    ({(invoice no, 'DD-Mon-YY'): gst number}). Every report that shows the ageing takes its GST invoice numbers
+    from here, so they are always the same. The GST numbers of all open items do not depend on the ageing, so
+    that query runs while the ageing is being fetched. The Oracle fetches stay on this thread (I/O-bound, already
+    their own ThreadPoolExecutor + connection pool)."""
+    log_q = log_q if log_q is not None else LogQueue()
     oracle_cfg = erp_ageing.oracle_config()
 
     if progress_cb:
@@ -63,22 +59,11 @@ def build_report(output_path: str, download_name: str, progress_cb=None, cancel_
     open_items = None
     consumed = False
     try:
-        # The GST numbers of all open items do not depend on the ageing, so
-        # that query runs while the ageing is being fetched.
         open_items = processor.OpenItemsGst(pool)
 
         if progress_cb:
             progress_cb(0.03, "Fetching the ageing from the ERP...")
-        # the fetch reports 0.05-0.25; squeeze that into this job's 0.03-0.09
-        fetch_progress = (
-            (lambda frac, msg: progress_cb(0.03 + (frac - 0.05) / 0.2 * 0.06, msg)) if progress_cb else None
-        )
-        if ageing is not None:
-            df = ageing()
-        else:
-            df = erp_ageing.fetch_ageing_from_erp(
-                oracle_cfg, log_q, progress_cb=fetch_progress, cancel_event=cancel_event,
-            )
+        df = ageing()
         pairs_unique = processor._extract_pairs_vectorized(df, processor.COL_INV_NO, processor.COL_INV_DATE)
         log_q.put(("info", f"{len(df)} data rows found"))
         log_q.put(("info", f"{len(pairs_unique)} unique (invoice no, date) pairs"))
@@ -102,11 +87,42 @@ def build_report(output_path: str, download_name: str, progress_cb=None, cancel_
         except Exception:
             pass
 
-    if progress_cb:
-        progress_cb(0.90, "Preparing output workbook...")
     ok_cnt = sum(1 for v in gst_map.values() if v)
     log_q.put(("info", f"{ok_cnt}/{len(gst_map)} keys returned a GST number"))
+    return df, gst_map
 
+
+def gst_numbers_of(df: pd.DataFrame, progress_cb=None, cancel_event=None, log_q=None) -> dict:
+    """The GST numbers for an ageing frame that is already in hand."""
+    return fetch_gst_numbers(lambda: df, progress_cb, cancel_event, log_q)[1]
+
+
+def build_report(output_path: str, download_name: str, progress_cb=None, cancel_event=None,
+                 ageing=None, look: str = "default", prepare=None, gst_map=None) -> BuiltGstReport:
+    """Fetch the ageing from the ERP, look up each (invoice no, date) pair's
+    GST number, and write the enriched workbook to ``output_path``. ``ageing``
+    (optional) is a callable returning the ageing frame, for a caller that has
+    already fetched it for other reports (the Debtors Reports Auto Mailer), and
+    ``gst_map`` (optional) a callable returning the GST numbers when that caller has them
+    too (shared with its other reports). The CPU-bound write runs on the CPU
+    process pool. ``prepare`` (optional): a function that takes the finished ageing frame and returns the frame to
+    write, run once the GST numbers are in (the Debtors reports add the Accounts Incharge column with it)."""
+    log_q = LogQueue()
+    if ageing is None:
+        oracle_cfg = erp_ageing.oracle_config()
+        # the fetch reports 0.05-0.25; squeeze that into this job's 0.03-0.09
+        fetch_progress = (
+            (lambda frac, msg: progress_cb(0.03 + (frac - 0.05) / 0.2 * 0.06, msg)) if progress_cb else None
+        )
+        ageing = lambda: erp_ageing.fetch_ageing_from_erp(   # noqa: E731
+            oracle_cfg, log_q, progress_cb=fetch_progress, cancel_event=cancel_event)
+    if gst_map is None:
+        df, gst_map = fetch_gst_numbers(ageing, progress_cb, cancel_event, log_q)
+    else:
+        df, gst_map = ageing(), gst_map()
+
+    if progress_cb:
+        progress_cb(0.90, "Preparing output workbook...")
     if prepare is not None:
         df = prepare(df)
 

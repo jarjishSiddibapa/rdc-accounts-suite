@@ -319,6 +319,19 @@ def _extract_pairs_vectorized(df, inv_no_col, inv_date_col) -> list:
     return list(pairs)
 
 
+def gst_for_rows(df, gst_map: dict) -> list:
+    """The GST number of every row of an ageing frame, in row order ("" where there is none: no invoice number,
+    or the ERP holds none). The row's key is built exactly as _extract_pairs_vectorized builds it."""
+    raw_inv = df[COL_INV_NO]
+    inv = raw_inv.astype(str).str.strip().str.replace(r'\.0$', '', regex=True)
+    valid = raw_inv.notna() & ~inv.str.lower().isin(_INVALID_INV)
+    raw_dates = df[COL_INV_DATE]
+    date_lookup = {value: _to_oracle_date(value) for value in raw_dates[valid].unique()}
+    oracle_dates = raw_dates.map(date_lookup).fillna("")
+    return [gst_map.get(key, "") if ok else ""
+            for key, ok in zip(zip(inv.tolist(), oracle_dates.tolist()), valid.tolist())]
+
+
 # ── Read input file for key extraction (verbatim logic) ──────────────────────
 
 def detect_header_index(input_path: str) -> int:

@@ -182,13 +182,15 @@ class UntaggedInvoicesTests(_TempDirCase):
     def test_stops_by_default_and_writes_when_allowed(self):
         proc = untagged_report_job.processor
         df = pd.DataFrame({proc.LOCATION_COL: ["Nagpur", "Wada"]})
+        with_gst = df.assign(**{proc.GST_COL: ["G1", ""]})
 
         def write(*args, **kwargs):
             Path(args[5]).write_bytes(b"xlsx")
 
         for allow in (False, True):
             output = self.dir / f"ti{allow}.xlsx"
-            with patch.object(untagged_report_job, "SessionLocal", MagicMock()), \
+            with patch.object(untagged_report_job, "SessionLocal", MagicMock()),                     patch.object(untagged_report_job.gst_job, "fetch_gst_numbers",
+                                 side_effect=lambda ageing, *a, **k: (ageing(), {})), \
                     patch.object(customer_region, "RegionFetch", _NoRegions), \
                     patch.object(untagged_report_job.mapping_store, "load_all", return_value=({}, {})), \
                     patch.multiple(
@@ -196,6 +198,7 @@ class UntaggedInvoicesTests(_TempDirCase):
                         fetch_ageing_from_erp=MagicMock(return_value=df),
                         missing_location_mappings=MagicMock(return_value=["RAW LOCATION"]),
                         add_location_column=MagicMock(return_value=df),
+                        add_gst_column=MagicMock(return_value=with_gst),
                         missing_incharge_mappings=MagicMock(return_value=[]),
                         recompute_ageing_buckets=MagicMock(return_value=df),
                         build_untagged_ageing=MagicMock(return_value=df),

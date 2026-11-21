@@ -21,6 +21,10 @@ fixed order:
                             and ageing buckets recomputed; every row, both
                             Transactions and Receipts, unfiltered
 
+Every ageing sheet also carries the "GST Invoice Number" of each row, right before
+"Invoice No/ Receipt No" (blank for a receipt or an invoice the ERP holds no GST
+number for), exactly as in the AR Ageing.
+
 Both "Ageing" detail sheets (Untagged Ageing, Below 1k Ageing) are
 restricted to Type = Transactions - Receipts rows are never untagged or
 below-1k candidates, only the raw "Ageing" sheet itself carries them.
@@ -310,6 +314,23 @@ def add_location_column(df: pd.DataFrame, location_map: dict[str, str],
     return df[cols]
 
 
+GST_COL = "GST Invoice Number"
+
+
+def add_gst_column(df: pd.DataFrame, gst_map: dict) -> pd.DataFrame:
+    """Insert the 'GST Invoice Number' column right before 'Invoice No/ Receipt No' - where the AR Ageing
+    has it - so every ageing sheet of this report carries the GST invoice number of each row (blank where
+    the ERP holds none, e.g. a receipt). ``gst_map``: {(invoice no, 'DD-Mon-YY'): GST number}."""
+    from app.services.gst_invoice_adder import processor as gst
+    if gst.COL_INV_NO not in df.columns or gst.COL_INV_DATE not in df.columns:
+        raise JobUserError(f"Could not find the '{gst.COL_INV_NO}' and/or '{gst.COL_INV_DATE}' columns in the ageing.")
+    df = df.copy()
+    if GST_COL in df.columns:
+        df = df.drop(columns=[GST_COL])
+    df.insert(list(df.columns).index(gst.COL_INV_NO), GST_COL, gst.gst_for_rows(df, gst_map))
+    return df
+
+
 def add_incharge_after_location_name(df: pd.DataFrame, location_map: dict[str, str], incharge_map: dict[str, str],
                                      region_by_account: dict[str, str] | None = None) -> pd.DataFrame:
     """For an ageing frame that has no 'Location' column (the GST-numbered ageing): insert 'Accounts Incharge'
@@ -536,7 +557,7 @@ def _is_numeric_col(col_name: str) -> bool:
     if col_name in BUCKET_COLS or col_name == _DAYS_OS_COL:
         return True
     # "Invoice No/ Receipt No" and "Invoice Type" contain "invoice" but are identifiers, not amounts
-    if "no/" in low or "type" in low:
+    if "no/" in low or "type" in low or "gst" in low:
         return False
     return any(m in low for m in _CURRENCY_MARKERS)
 

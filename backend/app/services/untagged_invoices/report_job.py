@@ -12,7 +12,9 @@ from datetime import date
 import pandas as pd
 
 from app.database import SessionLocal
+from app.jobs import JobUserError  # noqa: F401 - kept for callers that import it from here
 from app.services import customer_region
+from app.services.gst_invoice_adder import report_job as gst_job
 from app.services.erp_ageing import oracle_config
 from app.services.untagged_invoices import mapping_store, processor
 
@@ -59,7 +61,7 @@ class BuiltReport:
 
 def build_report(output_path: str, allow_unmapped: bool = False, progress_cb=None,
                  cancel_event=None, *, maps=None, ageing=None, regions=None, write=None,
-                 as_on_date: date | None = None, incharge_column: bool = False) -> BuiltReport:
+                 as_on_date: date | None = None, incharge_column: bool = False, gst=None) -> BuiltReport:
     """Fetch the ageing from the ERP and write the 5-sheet workbook to
     ``output_path`` (not written while mappings are missing and
     ``allow_unmapped`` is False). The ageing is live, so it is as on today.
@@ -70,7 +72,10 @@ def build_report(output_path: str, allow_unmapped: bool = False, progress_cb=Non
     ``regions`` = {customer -> ERP region} (or a callable), and ``write`` =
     how to write the workbook (to run it on the CPU pool). ``as_on_date`` (with an ``ageing`` fetched as on
     that date): the date the report is as on; today when not given. ``incharge_column``: put each row's Accounts
-    Incharge right after its Location on the Ageing sheets (the Debtors reports)."""
+    Incharge right after its Location on the Ageing sheets (the Debtors reports). ``gst``: the GST invoice numbers,
+    {(invoice no, date): number}, or a callable returning them, when the caller already has them (the Debtors
+    reports fetch them once for the AR Ageing too); otherwise they are fetched from the ERP here. Every ageing
+    sheet carries the GST invoice number, as the AR Ageing does."""
     log_q = LogQueue(progress_cb)
     as_on_date = as_on_date or date.today()
 
@@ -88,13 +93,19 @@ def build_report(output_path: str, allow_unmapped: bool = False, progress_cb=Non
     if ageing is not None:
         df = ageing() if callable(ageing) else ageing
         region_by_account = (regions() if callable(regions) else regions) or {}
+        gst_map = gst
     else:
         # each customer's region comes from the ERP on a connection of its own, while the ageing is fetched
         cfg = oracle_config()
         region_fetch = customer_region.RegionFetch(cfg, cancel_event)
-        df = processor.fetch_ageing_from_erp(
-            cfg, log_q, progress_cb=progress_cb, cancel_event=cancel_event,
-            include_buckets=False,   # this report works out its own ageing buckets
+        # the GST numbers of the open items are fetched while the ageing is, then those of its invoices
+        gst_progress = (lambda frac, msg: progress_cb(0.25 + 0.05 * min(float(frac), 1.0), msg)) if progress_cb else None
+        df, gst_map = gst_job.fetch_gst_numbers(
+            lambda: processor.fetch_ageing_from_erp(
+                cfg, log_q, progress_cb=progress_cb, cancel_event=cancel_event,
+                include_buckets=False,   # this report works out its own ageing buckets
+            ),
+            gst_progress, cancel_event, log_q,
         )
         region_by_account = region_fetch.result(log_q)
 
@@ -129,6 +140,14 @@ def build_report(output_path: str, allow_unmapped: bool = False, progress_cb=Non
             "validation_warnings": validation_warnings,
             "log": log_q.messages,
         })
+
+    if callable(gst_map):
+        gst_map = gst_map()
+    elif gst_map is None:        # an ageing handed in without its GST numbers
+        gst_map = gst_job.gst_numbers_of(df, cancel_event=cancel_event, log_q=log_q)
+    df = processor.add_gst_column(df, gst_map)
+    with_gst = int((df[processor.GST_COL] != "").sum())
+    log_q.put(("info", f"GST invoice number for {with_gst:,} of {len(df):,} rows"))
 
     if incharge_column:
         df = processor.add_incharge_column(df, incharge_map)
@@ -165,6 +184,7 @@ def build_report(output_path: str, allow_unmapped: bool = False, progress_cb=Non
             "download_filename": filename,
             "as_on_date": as_on_date.isoformat(),
             "total_rows": int(len(df)),
+            "gst_found": with_gst,
             "untagged_ageing_row_count": int(len(df_untagged_ageing)),
             "untagged_summary_row_count": int(len(df_untagged_summary)),
             "below_1k_ageing_row_count": int(len(df_below_1k_ageing)),

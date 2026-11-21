@@ -63,6 +63,27 @@ class _SharedAgeing:
             return self._frame.copy()
 
 
+class _SharedGst:
+    """The GST invoice numbers of the ageing, looked up in the ERP once however many reports ask for them (the
+    AR Ageing and the AR Untagged Invoices report both carry them): whichever asks first does the look-up, the
+    other waits for it."""
+
+    def __init__(self, ageing, cancel_event, progress_cb=None):
+        self._ageing = ageing
+        self._cancel = cancel_event
+        self._progress_cb = progress_cb
+        self._lock = threading.Lock()
+        self._map = None
+        self.log: list[tuple[str, str]] = []
+
+    def get(self) -> dict:
+        with self._lock:
+            if self._map is None:
+                self._map = gst_job.gst_numbers_of(
+                    self._ageing(), self._progress_cb, self._cancel, _ListLog(self.log))
+            return self._map
+
+
 class _ListLog:
     def __init__(self, sink):
         self._sink = sink
@@ -179,6 +200,7 @@ def build(snapshot: dict, progress_cb=None, cancel_event=None) -> mail.MailPaylo
 
     # Fetched once, from the ERP, for all three reports (each on its own connection(s)).
     shared = _SharedAgeing(cfg, cancel, as_on=past_date)
+    shared_gst = _SharedGst(shared.get, cancel, reporter("gst" if want_ageing else "untagged"))
     regions = customer_region.RegionFetch(cfg, cancel)
 
     def with_gst_incharge(frame):
@@ -188,7 +210,7 @@ def build(snapshot: dict, progress_cb=None, cancel_event=None) -> mail.MailPaylo
     def build_gst():
         return gst_job.build_report(
             str(gst_path), gst_path.name, progress_cb=reporter("gst"), cancel_event=cancel, ageing=shared.get,
-            look=LOOK, prepare=with_gst_incharge,
+            look=LOOK, prepare=with_gst_incharge, gst_map=shared_gst.get,
         )
 
     def build_untagged():
@@ -196,7 +218,7 @@ def build(snapshot: dict, progress_cb=None, cancel_event=None) -> mail.MailPaylo
             str(untagged_path), allow_unmapped=allow_unmapped, progress_cb=reporter("untagged"),
             cancel_event=cancel, maps=(location_map, incharge_map),
             ageing=lambda: _without_buckets(shared.get()), regions=regions.result,
-            write=_cpu_write_untagged, as_on_date=as_on, incharge_column=True,
+            write=_cpu_write_untagged, as_on_date=as_on, incharge_column=True, gst=shared_gst.get,
         )
         # A workbook that is over the email limit by itself is always compacted by _fit_attachments
         # (nothing can bring the total under the limit without it), so do it now, while the other reports
