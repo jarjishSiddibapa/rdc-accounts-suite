@@ -40,6 +40,7 @@ class OcrConfig:
     online_timeout: float = 25.0
     online_engine: str = "2"
     model_dir: str = ""
+    state_file: str = ""              # shared by every worker: "the free quota is used up until ..." (see below)
 
     @property
     def online_ready(self) -> bool:
@@ -152,18 +153,53 @@ class OnlineUnavailable(Exception):
 _online_lock = threading.Lock()
 _online_state = {"fails": 0, "off_until": 0.0}
 _QUOTA_WORDS = ("limit", "quota", "exceed", "too many", "maximum", "rate", "forbidden", "invalid api", "key")
+_NOT_QUOTA_WORDS = ("file size", "filesize", "image size", "dimension", "timed out", "timeout")   # about this page only
+QUOTA_PAUSE_SECONDS = 1800
+
+
+def is_quota_message(message: str) -> bool:
+    low = (message or "").lower()
+    return any(w in low for w in _QUOTA_WORDS) and not any(w in low for w in _NOT_QUOTA_WORDS)
+
+
+def shared_pause(cfg: OcrConfig) -> Optional[dict]:
+    """{"until": epoch seconds, "reason": text} while the online service is paused for ALL workers, else None.
+    The workers are separate processes; without this file each of them would find out about a used-up quota by
+    spending a request of its own."""
+    if not cfg.state_file:
+        return None
+    try:
+        data = json.loads(Path(cfg.state_file).read_text(encoding="utf-8"))
+        return data if float(data.get("until", 0)) > time.time() else None
+    except (OSError, ValueError, TypeError, AttributeError):
+        return None
+
+
+def _write_shared_pause(cfg: OcrConfig, seconds: float, reason: str) -> None:
+    if not cfg.state_file:
+        return
+    try:
+        path = Path(cfg.state_file)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(f"{path.name}.{os.getpid()}.tmp")
+        tmp.write_text(json.dumps({"until": time.time() + seconds, "reason": reason[:200]}), encoding="utf-8")
+        os.replace(tmp, path)
+    except OSError:
+        pass
 
 
 def online_usable(cfg: OcrConfig) -> bool:
-    return cfg.online_ready and time.monotonic() >= _online_state["off_until"]
+    return cfg.online_ready and time.monotonic() >= _online_state["off_until"] and shared_pause(cfg) is None
 
 
-def _online_failed(seconds: float, hard: bool = False) -> None:
+def _online_failed(cfg: OcrConfig, seconds: float, hard: bool = False, reason: str = "") -> None:
     with _online_lock:
         _online_state["fails"] += 1
         if hard or _online_state["fails"] >= 2:         # quota / key problems at once, other trouble the second time
             _online_state["off_until"] = time.monotonic() + seconds
             _online_state["fails"] = 0
+            if hard:
+                _write_shared_pause(cfg, seconds, reason)
 
 
 def _multipart(fields: dict, file_name: str, file_bytes: bytes) -> tuple:
@@ -198,16 +234,18 @@ def read_online(img, cfg: OcrConfig) -> str:
         with urllib.request.urlopen(request, timeout=cfg.online_timeout) as response:
             payload = json.loads(response.read().decode("utf-8", "replace"))
     except urllib.error.HTTPError as exc:
-        _online_failed(1800 if exc.code in (401, 403, 429) else 120, hard=exc.code in (401, 403, 429))
+        hard = exc.code in (401, 403)
+        _online_failed(cfg, QUOTA_PAUSE_SECONDS if hard else 60 if exc.code == 429 else 120, hard=hard or exc.code == 429,
+                       reason=f"the service answered {exc.code} (free quota used up, rate limit or key refused)")
         raise OnlineUnavailable(f"online OCR answered {exc.code}") from exc
     except Exception as exc:                                # no network, DNS, timeout, bad JSON
-        _online_failed(300)
+        _online_failed(cfg, 300)
         raise OnlineUnavailable(f"online OCR not reachable ({exc.__class__.__name__})") from exc
     if payload.get("IsErroredOnProcessing") or not payload.get("ParsedResults"):
         message = " ".join(payload.get("ErrorMessage") or []) if isinstance(payload.get("ErrorMessage"), list) \
             else str(payload.get("ErrorMessage") or "")
-        _online_failed(1800 if any(w in message.lower() for w in _QUOTA_WORDS) else 120,
-                       hard=any(w in message.lower() for w in _QUOTA_WORDS))
+        quota = is_quota_message(message)
+        _online_failed(cfg, QUOTA_PAUSE_SECONDS if quota else 120, hard=quota, reason=message or "quota used up")
         raise OnlineUnavailable(message or "online OCR could not read the page")
     with _online_lock:
         _online_state["fails"] = 0

@@ -670,6 +670,12 @@ router `app/routers/lc_stamper.py` (prefix `/api/tools/lc-stamper`), engine `app
   `app/services/lc_stamper/models/` (free, unlimited, nothing leaves the network). The top 46% of the page is OCR-ed
   first; the whole page only if needed or when amount matching is on. Modes: Smart (default) / Always OCR / Never OCR.
   Truly unlimited free online OCR does not exist: the online tier needs the operator's own key and has quotas.
+  When the service answers 401/403 or an error that says the quota is used up, `ocr.shared_pause` writes
+  `SCRATCH_DIR/lc-stamper/online-ocr-paused.json` (30 min), which every worker process honours, so the rest of the
+  batch goes straight to offline OCR without spending more requests (a 429 pauses only 60 s; an error about one
+  image, such as its size, pauses nothing). `/capabilities` reports `online_paused` and the page says so. Each worker
+  sends up to `LC_ONLINE_PARALLEL` (default 3, env var) online OCR calls at once (`analysis._start_online`; pages are
+  rendered in the worker's main thread, only the HTTP calls run in threads); offline OCR is unchanged.
 - **`.env` keys.** `LC_OCR_ONLINE_ENABLED` (default true), `LC_OCR_ONLINE_URL` (default
   `https://api.ocr.space/parse/image`), `LC_OCR_ONLINE_KEY` (empty = online tier off; never log or commit it),
   `LC_STAMPER_RETENTION_HOURS` (24). The parent process builds `OcrConfig`; worker processes never read `.env`.

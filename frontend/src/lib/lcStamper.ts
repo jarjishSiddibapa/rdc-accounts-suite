@@ -31,6 +31,8 @@ export interface ListSummary {
 
 export interface Capabilities {
   online_ocr: boolean
+  online_paused?: boolean
+  online_paused_until?: number | null
   offline_ocr: boolean
   workers: number
   max_upload_mb: number

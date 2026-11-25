@@ -288,7 +288,7 @@ class StampPositionTests(unittest.TestCase):
 class _FakeOcrServer:
     """A stand-in for the online OCR service: answers with the invoice text, or with an error."""
 
-    def __init__(self, text=None, status=200):
+    def __init__(self, text=None, status=200, error=None):
         outer = self
         outer.calls = 0
 
@@ -296,7 +296,11 @@ class _FakeOcrServer:
             def do_POST(self):
                 outer.calls += 1
                 self.rfile.read(int(self.headers.get("Content-Length", 0)))
-                body = json.dumps({"ParsedResults": [{"ParsedText": text or ""}], "IsErroredOnProcessing": False}).encode()
+                if error:
+                    body = json.dumps({"IsErroredOnProcessing": True, "ErrorMessage": [error]}).encode()
+                else:
+                    body = json.dumps({"ParsedResults": [{"ParsedText": text or ""}],
+                                       "IsErroredOnProcessing": False}).encode()
                 self.send_response(status)
                 self.send_header("Content-Length", str(len(body)))
                 self.end_headers()
@@ -330,6 +334,7 @@ class OcrTierTests(unittest.TestCase):
     """Text layer first, then online OCR, then offline OCR; OCR only for the pages that need it."""
 
     def setUp(self):
+        ocr._online_state.update(fails=0, off_until=0.0)
         self.tmp = Path(tempfile.mkdtemp())
         self.scan = _scanned_pdf(self.tmp, [invoice_text("INV-1001")])
         self.text_pdf = make_pdf(self.tmp / "t.pdf", [invoice_text("INV-1001")])
@@ -356,6 +361,40 @@ class OcrTierTests(unittest.TestCase):
             server.close()
         self.assertEqual(result["rows"][0]["read_by"], "offline")
         self.assertEqual(result["rows"][0]["status"], "✓ Verified")
+
+    @unittest.skipUnless(ocr.offline_available(), "offline OCR models are not installed")
+    def test_a_used_up_free_quota_pauses_the_online_tier_for_every_worker_and_offline_takes_over(self):
+        server = _FakeOcrServer(error="You may only perform this action upto maximum 500 times for 24 hours.")
+        state = self.tmp / "paused.json"
+        try:
+            cfg = ocr.OcrConfig(online_url=server.url, online_key="k", state_file=str(state))
+            result, _ = _run([("scan.pdf", self.scan)], self.tgts, cfg_ocr=cfg)
+            self.assertEqual(result["rows"][0]["read_by"], "offline")
+            self.assertEqual(result["rows"][0]["status"], "✓ Verified")
+            self.assertTrue(state.exists())
+            self.assertIsNotNone(ocr.shared_pause(cfg))
+            calls = server.calls
+            # a worker that has never seen the error (fresh state) still does not call the service
+            ocr._online_state.update(fails=0, off_until=0.0)
+            self.assertFalse(ocr.online_usable(cfg))
+            _run([("scan.pdf", self.scan)], self.tgts, cfg_ocr=cfg)
+            self.assertEqual(server.calls, calls)
+        finally:
+            server.close()
+
+    def test_an_error_about_this_one_image_does_not_switch_the_online_tier_off(self):
+        server = _FakeOcrServer(error="File size exceeds the maximum permissible limit")
+        state = self.tmp / "paused.json"
+        try:
+            cfg = ocr.OcrConfig(online_url=server.url, online_key="k", state_file=str(state))
+            from PIL import Image
+            with self.assertRaises(ocr.OnlineUnavailable):
+                ocr.read_online(Image.new("L", (50, 50), 255), cfg)
+        finally:
+            server.close()
+        self.assertFalse(state.exists())
+        self.assertFalse(ocr.is_quota_message("File size exceeds the maximum permissible limit"))
+        self.assertTrue(ocr.is_quota_message("You may only perform this action upto maximum 500 times for 24 hours"))
 
     @unittest.skipUnless(ocr.offline_available(), "offline OCR models are not installed")
     def test_offline_ocr_alone_reads_a_scan_and_a_text_pdf_needs_no_ocr(self):

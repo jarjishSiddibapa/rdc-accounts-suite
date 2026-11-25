@@ -144,7 +144,8 @@ def _ocr_config():
     from app.services.lc_stamper.ocr import OcrConfig
     online = config.LC_OCR_ONLINE_ENABLED and bool(config.LC_OCR_ONLINE_KEY)
     return OcrConfig(online_url=config.LC_OCR_ONLINE_URL if online else "",
-                     online_key=config.LC_OCR_ONLINE_KEY if online else "")
+                     online_key=config.LC_OCR_ONLINE_KEY if online else "",
+                     state_file=str(_ROOT / "online-ocr-paused.json"))
 
 
 @router.get("/capabilities")
@@ -152,6 +153,9 @@ def capabilities(user: User = Depends(get_current_user)):
     from app.services.lc_stamper import ocr
     return {
         "online_ocr": config.LC_OCR_ONLINE_ENABLED and bool(config.LC_OCR_ONLINE_KEY),
+        # True while the free quota is used up (or the key was refused): the offline engine does all the OCR
+        "online_paused": bool(ocr.shared_pause(_ocr_config())),
+        "online_paused_until": (ocr.shared_pause(_ocr_config()) or {}).get("until"),
         "offline_ocr": ocr.offline_available(),
         "workers": getattr(jobs, "_CPU_POOL_WORKERS", 1),
         "max_upload_mb": config.MAX_UPLOAD_BYTES // (1024 * 1024),

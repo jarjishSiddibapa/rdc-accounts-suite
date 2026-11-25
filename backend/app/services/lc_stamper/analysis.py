@@ -20,6 +20,7 @@ from .dates import _extract_invoice_date_from_page
 from .models import PageResult
 
 _BLANK_MIN_CHARS = 5
+ONLINE_PARALLEL = max(1, int(os.environ.get("LC_ONLINE_PARALLEL", "3")))   # online OCR calls in flight per worker (network wait, not CPU)
 
 
 def init_worker() -> None:
@@ -39,13 +40,18 @@ def init_worker() -> None:
         pass
 
 
-def _scan_page(page, doc_index, page_index, keys, rules, cfg, need_date, need_amount) -> PageResult:
+def _scan_page(page, doc_index, page_index, keys, rules, cfg, need_date, need_amount,
+               text=None, wants_ocr=None, prefetch=None) -> PageResult:
+    """``text`` / ``wants_ocr`` / ``prefetch`` come from scan_chunk when it already looked at the page (and started the
+    online OCR of the pages that need it, so the calls overlap); alone, the page is looked at here."""
     from . import ocr as ocr_tools
 
-    text = page.get_text()
+    if text is None:
+        text = page.get_text()
     blank = len(text.strip()) < _BLANK_MIN_CHARS
     ocr_allowed = rules["ocr_mode"] != "off"
-    wants_ocr = ocr_allowed and ocr_tools.page_needs_ocr(text, page, rules["ocr_mode"])
+    if wants_ocr is None:
+        wants_ocr = ocr_allowed and ocr_tools.page_needs_ocr(text, page, rules["ocr_mode"])
 
     if blank and rules["skip_blank"] and not wants_ocr:
         return PageResult(doc_index, page_index, None, "SKIPPED_BLANK")
@@ -58,7 +64,14 @@ def _scan_page(page, doc_index, page_index, keys, rules, cfg, need_date, need_am
 
     def read(top):
         nonlocal ocr_text, read_by
-        got, how = ocr_tools.read_page(page, cfg, rules["online_ocr"], top)
+        started = prefetch.pop(page_index, None) if prefetch else None
+        if started is not None and started[0] == top:
+            try:
+                got, how = started[1].result(), "online"
+            except ocr_tools.OnlineUnavailable:                       # busy / quota used up: offline engine
+                got, how = ocr_tools.read_page(page, cfg, False, top)
+        else:
+            got, how = ocr_tools.read_page(page, cfg, rules["online_ocr"], top)
         ocr_text = got if not ocr_text else ocr_text + "\n" + got
         read_by = how
 
@@ -115,13 +128,48 @@ def scan_chunk(doc_index: int, path: str, pages: list, keys, rules: dict, cfg, n
     except Exception as exc:
         return [PageResult(doc_index, i, None, f"ERROR: cannot open the PDF: {exc}") for i in pages]
     out = []
+    executor = None
     try:
         keys = tuple(keys) if keys else ()
+        looked: dict = {}
+        prefetch: dict = {}
+        if keys and rules["online_ocr"] and rules["ocr_mode"] != "off":
+            executor, looked, prefetch = _start_online(doc, pages, keys, rules, cfg, need_amount)
         for index in pages:
             try:
-                out.append(_scan_page(doc.load_page(index), doc_index, index, keys, rules, cfg, need_date, need_amount))
+                text, wants = looked.get(index, (None, None))
+                out.append(_scan_page(doc.load_page(index), doc_index, index, keys, rules, cfg, need_date, need_amount,
+                                      text, wants, prefetch))
             except Exception as exc:
                 out.append(PageResult(doc_index, index, None, f"ERROR: {exc}"))
     finally:
+        if executor is not None:
+            executor.shutdown(wait=False, cancel_futures=True)
         doc.close()
     return out
+
+
+def _start_online(doc, pages, keys, rules, cfg, need_amount):
+    """Look at every page of the chunk once and send the pages that need OCR to the online service a few at a time,
+    so a worker does not sit idle waiting for the network between pages. Pages are rendered here (PyMuPDF is not
+    thread-safe); only the HTTP calls run in threads. Returns (executor | None, {page: (text, wants_ocr)},
+    {page: (top fraction, future)}). When the online service is not usable nothing is started and every page falls
+    through to the ordinary path."""
+    from concurrent.futures import ThreadPoolExecutor
+    from . import ocr as ocr_tools
+
+    looked: dict = {}
+    prefetch: dict = {}
+    executor = None
+    top = None if need_amount else ocr_tools.HEADER_FRACTION
+    for index in pages:
+        page = doc.load_page(index)
+        text = page.get_text()
+        wants = ocr_tools.page_needs_ocr(text, page, rules["ocr_mode"])
+        looked[index] = (text, wants)
+        if wants and ocr_tools.match_exact(keys, text) is None and ocr_tools.online_usable(cfg):
+            if executor is None:
+                executor = ThreadPoolExecutor(ONLINE_PARALLEL)
+            image = ocr_tools.render_gray(page, ocr_tools.OCR_DPI_ONLINE, top)
+            prefetch[index] = (top, executor.submit(ocr_tools.read_online, image, cfg))
+    return executor, looked, prefetch

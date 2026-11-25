@@ -506,11 +506,13 @@ export default function LcStamper() {
                         onChange={(v) => patchRules({ online_ocr: v })}
                         label="Try the free online OCR first"
                         hint={caps?.online_ocr
-                          ? 'The page picture is sent to the OCR service. If it is busy or out of reach, the offline engine takes over.'
+                          ? (caps.online_paused
+                            ? 'The free online quota is used up for now, so the offline engine does the OCR. Online OCR is tried again automatically later.'
+                            : 'The page picture is sent to the OCR service. When its free quota is used up, or it is out of reach, the offline engine takes over.')
                           : 'Not set up on this server, so the offline engine is used (free, unlimited, nothing leaves your network).'} />
                       <p className="ml-14 flex items-center gap-2 text-xs text-ink-faint">
                         {caps?.online_ocr ? <Globe className="h-3.5 w-3.5" /> : <Cpu className="h-3.5 w-3.5" />}
-                        Order: PDF text → {caps?.online_ocr && rules.online_ocr ? 'online OCR → ' : ''}offline OCR{caps && !caps.offline_ocr ? ' (models missing!)' : ''}
+                        Order: PDF text → {caps?.online_ocr && rules.online_ocr && !caps.online_paused ? 'online OCR → ' : ''}offline OCR{caps && !caps.offline_ocr ? ' (models missing!)' : ''}
                       </p>
                     </div>
                   )}

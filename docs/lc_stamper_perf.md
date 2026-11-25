@@ -23,3 +23,15 @@ Scanned pages (no usable text) are the slow case, because OCR is the only way to
 
 OCR runs only for a page that is a scan, has garbled or outlined text and did not give the invoice number from its
 own text, so a normal text PDF never pays this cost.
+
+## Online OCR calls in parallel
+
+A scanned page costs one online call of about 1.4 s, which is waiting for the network. Each worker keeps up to 3
+calls in flight (`LC_ONLINE_PARALLEL`). Measured with a simulated 1.4 s service on an 18-page scan:
+
+| calls in flight per worker | pool of 1 | pool of 2 |
+|---:|---:|---:|
+| 1 (before) | 26.8 s | 14.1 s |
+| 3 (now) | 14.0 s | 5.5 s |
+
+Three simultaneous calls against the real service were all accepted (no rate-limit answer).
