@@ -520,7 +520,7 @@ export default function LcStamper() {
                 <div className="flex flex-col gap-1 pt-2">
                   <Switch checked={rules.skip_blank} onChange={(v) => patchRules({ skip_blank: v })} label="Skip blank pages" />
                   <Switch checked={rules.keep_duplicates} onChange={(v) => patchRules({ keep_duplicates: v })}
-                    label="Keep a second page of the same invoice" hint="Off: only the first page of an invoice is kept; later ones show as duplicates." />
+                    label="Keep duplicate invoices" hint="Off: if an invoice appears again, only its first page is kept and the repeats are skipped." />
                 </div>
                 {docs.length > 1 && (
                   <div className="flex flex-col gap-2 pt-3">
