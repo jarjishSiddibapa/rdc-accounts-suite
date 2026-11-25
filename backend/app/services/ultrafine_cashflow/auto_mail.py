@@ -31,7 +31,7 @@ from .generate import generate_month
 from .models import CashflowFile
 from .resolver import ISSUE_TEXT, load_maps
 from .summary import PAYABLE_HEADER, MonthFigures, month_figures
-from .workbook import _ordinal
+from .workbook import as_of_label
 
 APP_KEY = "ultrafine-cashflow"
 
@@ -77,7 +77,7 @@ def summary_table_html(figures: MonthFigures, as_of: datetime) -> str:
     lines = [
         '<table style="border-collapse:collapse;" cellspacing="0" cellpadding="0">',
         f'<tr><td colspan="7" style="{title_style}text-align:center;">'
-        f'Cash Flow as of {_ordinal(as_of.day)} {as_of:%B, %Y}</td>'
+        f'Cash Flow as of {as_of_label(as_of)}</td>'
         f'<td style="{title_style}text-align:right;white-space:nowrap;">Amt in Lacs</td></tr>',
         "<tr>" + "".join(
             f'<td style="{_CELL}text-align:center;font-weight:bold;background:{_HEADER_BG};">'
@@ -176,8 +176,8 @@ def build(snapshot: dict, progress_cb=None, cancel_event=None, month: str | None
 
     as_of = max((a.txn_dt for a in figures.allocations), default=datetime.strptime(month, "%Y-%m"))
     payload.values = {
-        "date": f"{_ordinal(as_of.day)} {as_of:%B, %Y}",
-        "date_plain": f"{_ordinal(as_of.day)} {as_of:%B %Y}",
+        "date": as_of_label(as_of),
+        "date_plain": as_of_label(as_of, plain=True),
         "month": datetime.strptime(month, "%Y-%m").strftime("%B %Y"),
     }
     payload.sections = [("", summary_table_html(figures, as_of))]

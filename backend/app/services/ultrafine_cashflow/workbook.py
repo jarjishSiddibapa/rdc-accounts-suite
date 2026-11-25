@@ -45,6 +45,16 @@ def _ordinal(day: int) -> str:
     return f"{day}{ {1: 'st', 2: 'nd', 3: 'rd'}.get(day % 10, 'th') }"
 
 
+def as_of_label(as_of: datetime, plain: bool = False) -> str:
+    """The date of the last bank line, with its time: "4th September, 2026 at 06:42 PM" (``plain``: no comma
+    after the month). A statement that carries dates only has no time to show, so none is added."""
+    text = f"{_ordinal(as_of.day)} {as_of:%B} " if plain else f"{_ordinal(as_of.day)} {as_of:%B}, "
+    text += f"{as_of:%Y}"
+    if as_of.time() != datetime.min.time():
+        text += f" at {as_of:%I:%M %p}"
+    return text
+
+
 def _style_header(ws, row: int, first_col: int, last_col: int) -> None:
     for col in range(first_col, last_col + 1):
         cell = ws.cell(row=row, column=col)
@@ -159,7 +169,7 @@ def _write_summary(ws, figures: MonthFigures, as_of: datetime,
     # Row 1 is left empty; row 2 is the title band: the heading centred over B:H and
     # the unit right-aligned in the last column; the table header sits on row 3.
     ws.merge_cells(start_row=2, start_column=2, end_row=2, end_column=LAST_COL - 1)
-    ws["B2"] = f"Cash Flow as of {_ordinal(as_of.day)} {as_of:%B, %Y}"
+    ws["B2"] = f"Cash Flow as of {as_of_label(as_of)}"
     ws["B2"].font = _TITLE_FONT
     ws["B2"].alignment = Alignment(horizontal="center", vertical="center")
     ws.cell(row=2, column=LAST_COL, value="Amt in Lacs")

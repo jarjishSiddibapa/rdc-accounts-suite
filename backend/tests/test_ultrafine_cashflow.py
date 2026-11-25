@@ -469,7 +469,7 @@ class SummaryAndWorkbookTests(unittest.TestCase):
         values = load_workbook(path, data_only=True)
         self.assertEqual(formulas.sheetnames, ["Summary", "Payments", "Receipts", "Working"])
         summary_sheet, cached = formulas["Summary"], values["Summary"]
-        self.assertEqual(summary_sheet["B2"].value, "Cash Flow as of 3rd September, 2026")
+        self.assertEqual(summary_sheet["B2"].value, "Cash Flow as of 3rd September, 2026 at 10:00 AM")
         self.assertEqual(summary_sheet["I2"].value, "Amt in Lacs")
         self.assertEqual([str(r) for r in summary_sheet.merged_cells.ranges], ["B2:H2"])
         headers = [summary_sheet.cell(3, c).value for c in range(2, 10)]
@@ -737,13 +737,13 @@ class ApiTests(unittest.TestCase):
 
             payload = auto_mail.build({**snapshot, "send_when_unmapped": True}, month="2026-09")
         self.assertIsNone(payload.hold_reason)
-        self.assertEqual(payload.values["date"], "4th September, 2026")
+        self.assertEqual(payload.values["date"], "4th September, 2026 at 10:00 AM")
         message = auto_mail.mail.compose_messages(snapshot, payload)[0]
-        self.assertEqual(message["subject"], "UF - Cash Flow as of 4th September, 2026")
-        self.assertIn("Cash Flow as of 4th September, 2026", message["html_body"])
+        self.assertEqual(message["subject"], "UF - Cash Flow as of 4th September, 2026 at 10:00 AM")
+        self.assertIn("Cash Flow as of 4th September, 2026 at 10:00 AM", message["html_body"])
         self.assertIn("Amt in Lacs", message["html_body"])
         self.assertIn("Payable (80 % Of Collection)", message["html_body"])
-        self.assertIn("as of 4th September 2026.", message["html_body"])
+        self.assertIn("as of 4th September 2026 at 10:00 AM.", message["html_body"])
         self.assertIn("Hitanshi", message["html_body"])
         self.assertEqual([Path(p).name for p in message["attachments"]], ["UF_Cashflow_Sep_26.xlsx"])
         self.assertTrue(Path(message["attachments"][0]).is_file())
@@ -784,8 +784,17 @@ class ApiTests(unittest.TestCase):
         job = jobs.get_job(job_id, owner_id=810_777)
         self.assertEqual(job["status"], "done", job.get("error"))
         self.assertEqual(job["result"]["status"], "preview")
-        self.assertEqual(job["result"]["messages"][0]["subject"], "UF - Cash Flow as of 4th September, 2026")
+        self.assertEqual(job["result"]["messages"][0]["subject"], "UF - Cash Flow as of 4th September, 2026 at 10:00 AM")
         self.assertEqual(job["result"]["downloads"][0]["name"], "UF_Cashflow_Sep_26.xlsx")
+
+    def test_the_as_of_label_carries_the_time_of_the_last_statement_line(self):
+        from app.services.ultrafine_cashflow.workbook import as_of_label
+
+        self.assertEqual(as_of_label(datetime(2026, 9, 4, 18, 42)), "4th September, 2026 at 06:42 PM")
+        self.assertEqual(as_of_label(datetime(2026, 9, 4, 0, 5)), "4th September, 2026 at 12:05 AM")
+        self.assertEqual(as_of_label(datetime(2026, 9, 4, 18, 42), plain=True), "4th September 2026 at 06:42 PM")
+        # a statement with dates only has no time to show
+        self.assertEqual(as_of_label(datetime(2026, 9, 4)), "4th September, 2026")
 
     def test_lakhs_are_whole_numbers_with_brackets_for_negatives(self):
         from app.services.ultrafine_cashflow.auto_mail import _lakhs
