@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
-  AlertTriangle, CheckCircle2, ClipboardPaste, Cpu, Download, FileSpreadsheet, FileText, Filter as FilterIcon,
-  Globe, Loader2, Play, RotateCcw, ScanText, ShieldCheck, Stamp as StampIcon, Trash2, Upload, Wand2,
+  AlertTriangle, CheckCircle2, ClipboardPaste, Download, FileSpreadsheet, FileText, Filter as FilterIcon,
+  Loader2, Play, RotateCcw, ScanText, ShieldCheck, Stamp as StampIcon, Trash2, Upload, Wand2,
 } from 'lucide-react'
 import { AppShell } from '@/components/AppShell'
 import { GlassCard } from '@/components/GlassCard'
@@ -14,7 +14,7 @@ import { ApiError, apiUrl, del, get, post, postForm } from '@/lib/api'
 import { formatIndianNumber } from '@/lib/regional'
 import {
   BASE, COLOR_PRESETS, PLACEHOLDERS, formatSize, hexToRgb, loadSettings, readability, rgbToHex, saveSettings,
-  type Capabilities, type ListSummary, type Mode, type OcrMode, type RunResult, type Settings, type StagedDocument,
+  type Capabilities, type ListSummary, type Mode, type RunResult, type Settings, type StagedDocument,
 } from '@/lib/lcStamper'
 import { cn } from '@/utils/cn'
 
@@ -210,6 +210,9 @@ export default function LcStamper() {
         ...rules,
         match_dates: rules.match_dates && canDates,
         match_amounts: rules.match_amounts && canAmounts,
+        // reading is automatic: the PDF's text when it is readable; OCR (online first, then offline) only when a page needs it
+        ocr_mode: 'auto' as const,
+        online_ocr: true,
       }
       const reply = await post<{ job_id: string }>(`${BASE}/run`, {
         document_ids: docs.map((d) => d.id), list_id: list?.id ?? null, mode, output, rules: effective, stamp,
@@ -490,31 +493,6 @@ export default function LcStamper() {
                         onChange={(e) => patchRules({ amount_tolerance: Math.max(0, Number(e.target.value) || 0) })}
                         className="h-8 w-20 rounded-md border border-border bg-surface px-2 text-sm text-ink" /> (rounding)
                     </label>
-                  )}
-                </div>
-                <div className="flex flex-col gap-3 py-3">
-                  <p className="flex items-center gap-2 text-sm font-medium text-ink"><ScanText className="h-4 w-4 text-accent" />Reading the pages</p>
-                  <Choice<OcrMode> label="OCR" value={rules.ocr_mode} onChange={(v) => patchRules({ ocr_mode: v })}
-                    options={[
-                      { value: 'auto', title: 'Smart', badge: 'Recommended', hint: "Reads the PDF's own text. OCR only for a page that is a scan or has unreadable text." },
-                      { value: 'always', title: 'Always OCR', hint: 'Every page is OCR-ed. Slow; only for PDFs whose text is wrong.' },
-                      { value: 'off', title: 'Never OCR', hint: 'Only text PDFs. Scanned pages are not matched.' },
-                    ]} />
-                  {rules.ocr_mode !== 'off' && (
-                    <div className="flex flex-col gap-1">
-                      <Switch checked={rules.online_ocr && Boolean(caps?.online_ocr)} disabled={!caps?.online_ocr}
-                        onChange={(v) => patchRules({ online_ocr: v })}
-                        label="Try the free online OCR first"
-                        hint={caps?.online_ocr
-                          ? (caps.online_paused
-                            ? 'The free online quota is used up for now, so the offline engine does the OCR. Online OCR is tried again automatically later.'
-                            : 'The page picture is sent to the OCR service. When its free quota is used up, or it is out of reach, the offline engine takes over.')
-                          : 'Not set up on this server, so the offline engine is used (free, unlimited, nothing leaves your network).'} />
-                      <p className="ml-14 flex items-center gap-2 text-xs text-ink-faint">
-                        {caps?.online_ocr ? <Globe className="h-3.5 w-3.5" /> : <Cpu className="h-3.5 w-3.5" />}
-                        Order: PDF text → {caps?.online_ocr && rules.online_ocr && !caps.online_paused ? 'online OCR → ' : ''}offline OCR{caps && !caps.offline_ocr ? ' (models missing!)' : ''}
-                      </p>
-                    </div>
                   )}
                 </div>
                 <div className="flex flex-col gap-1 pt-2">
