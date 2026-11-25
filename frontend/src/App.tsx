@@ -33,6 +33,7 @@ const UntaggedInvoicesReport = lazy(() => import('@/pages/tools/UntaggedInvoices
 const DebtorsReportsAutoMailer = lazy(() => import('@/pages/tools/DebtorsReportsAutoMailer'))
 const RdcSalesRegisterReport = lazy(() => import('@/pages/tools/RdcSalesRegisterReport'))
 const UnidentifiedEntries = lazy(() => import('@/pages/tools/UnidentifiedEntries'))
+const LcStamper = lazy(() => import('@/pages/tools/LcStamper'))
 
 function ScrollToTop() {
   const { pathname } = useLocation()
@@ -260,6 +261,12 @@ export default function App() {
             path="/tools/unidentified-entries"
             element={
               protectedPage(<AppGuard appKey="unidentified-entries"><UnidentifiedEntries /></AppGuard>)
+            }
+          />
+          <Route
+            path="/tools/lc-stamper"
+            element={
+              protectedPage(<AppGuard appKey="lc-stamper"><LcStamper /></AppGuard>)
             }
           />
 

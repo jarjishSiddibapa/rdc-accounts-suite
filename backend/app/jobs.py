@@ -90,6 +90,7 @@ _ALLOWED_TASKS = frozenset(
         "app.routers.ultrafine_cashflow:_job_generate",
         "app.services.ultrafine_cashflow.auto_mail:run_preview_job",
         "app.services.ultrafine_cashflow.auto_mail:run_auto_mail_job",
+        "app.routers.lc_stamper:_run_job",
     }
 )
 
@@ -287,6 +288,23 @@ def _abort_cpu_executor() -> None:
 
 def _current_cancel_event() -> threading.Event | None:
     return getattr(_execution_context, "cancel_event", None)
+
+
+def cpu_pool() -> ProcessPoolExecutor:
+    """This job worker's own process pool, for a job that spreads one piece of work over many tasks (the LC Stamper
+    scans and stamps many pages and documents side by side). Use ``cancel_requested`` and ``abort_cpu_pool`` with it."""
+    return _get_cpu_executor()
+
+
+def cancel_requested() -> bool:
+    """Whether the job running in this thread has been cancelled (a Cancel click or its browser tab closing)."""
+    event = _current_cancel_event()
+    return bool(event is not None and event.is_set())
+
+
+def abort_cpu_pool() -> None:
+    """Stop the tasks still running in this worker's process pool (after a cancellation)."""
+    _abort_cpu_executor()
 
 
 def run_cpu_phase(fn, *args, progress_cb=None, **kwargs):

@@ -87,6 +87,14 @@ DB_POOL_TIMEOUT_SECONDS = int(os.environ.get("DB_POOL_TIMEOUT_SECONDS", "30"))
 
 MAX_UPLOAD_BYTES = int(os.environ.get("MAX_UPLOAD_BYTES", str(600 * 1024 * 1024)))
 
+# RDC LC Stamper: pages that cannot be read from the PDF's own text are OCR-ed - first by an online service (a free
+# OCR.space style endpoint; used only when a key is set here and the service answers), then by the offline engine
+# shipped with the application. The page image leaves the network only when online OCR is switched on.
+LC_OCR_ONLINE_ENABLED = _env_bool("LC_OCR_ONLINE_ENABLED", True)
+LC_OCR_ONLINE_URL = os.environ.get("LC_OCR_ONLINE_URL", "https://api.ocr.space/parse/image").strip()
+LC_OCR_ONLINE_KEY = os.environ.get("LC_OCR_ONLINE_KEY", "").strip()
+LC_STAMPER_RETENTION_HOURS = max(1, int(os.environ.get("LC_STAMPER_RETENTION_HOURS", "24")))
+
 # Multi-process runtime. API processes stay responsive while dedicated job
 # workers execute the memory/CPU/Oracle-heavy report pipelines.
 def _env_count(name: str, default: int) -> int:

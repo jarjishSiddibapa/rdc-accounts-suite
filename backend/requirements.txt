@@ -19,3 +19,6 @@ oracledb
 email-validator
 dnspython>=2.9.2
 playwright==1.62.0
+pymupdf==1.28.0
+rapidocr==3.10.0
+onnxruntime==1.32.0

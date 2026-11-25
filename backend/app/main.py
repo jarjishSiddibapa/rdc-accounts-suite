@@ -23,6 +23,7 @@ from app.routers import (
     iocl_balance,
     invoice_booking_tracker,
     gstr2b,
+    lc_stamper,
     job_control,
     rdc_payables,
     rdc_sales_register,
@@ -166,6 +167,7 @@ app.include_router(untagged_invoices_report.router)
 app.include_router(debtors_mailer.router)
 app.include_router(rdc_sales_register.router)
 app.include_router(unidentified_entries.router)
+app.include_router(lc_stamper.router)
 
 # Serve the built React app's JS/CSS bundles directly.
 app.mount("/assets", StaticFiles(directory=str(config.STATIC_DIR / "assets")), name="static-assets")

@@ -26,6 +26,7 @@ LAN-hosted FastAPI and React application. The current suite contains:
 12. Ultrafine Creditors Ageing Report Generator
 13. Ultrafine Trial Balance Formatter
 14. Ultrafine Invoice Booking Tracker
+15. RDC LC Stamper Application (stable key: `lc-stamper`)
 
 It also contains authentication, user and application-access administration,
 central email settings/default recipients, mapping administration, audit logs,
@@ -651,6 +652,45 @@ now-unused `users.po_lookup_role` column were deliberately left in the live
 database rather than dropped — see
 `deployment/mysql/20260918_remove_it_po_lookup.sql` for the optional,
 not-yet-applied migration that actually drops them.
+
+### RDC LC Stamper Application (`lc-stamper`)
+
+Web port of the desktop `stamper-v2` project: finds the pages of the invoices in a list inside one or many PDFs,
+checks their date and amount, stamps only those pages (or, in *Filter only* mode, just picks them out) and writes a
+verification report. Page `frontend/src/pages/tools/LcStamper.tsx` (+ `components/lc-stamper/`, `lib/lcStamper.ts`),
+router `app/routers/lc_stamper.py` (prefix `/api/tools/lc-stamper`), engine `app/services/lc_stamper/`.
+
+- **Engine modules.** `targets` (invoice list: Excel/CSV/pasted, templates, stamp text placeholders), `dates`,
+  `amounts`, `ocr` (page reading tiers), `analysis` (worker-side page scan), `decide` (batch-wide decisions),
+  `stamping` (the single `_draw_lines` used for both the live preview sprite and the real stamp), `report`
+  (xlsx with real Excel dates), `engine.run_batch` (orchestration).
+- **Reading tiers, cheapest first.** (1) the PDF's own text layer, no OCR; (2) only when `ocr.page_needs_ocr` says the page
+  is a scan / garbled / outlined text **and** the number was not found: the online OCR service (OCR.space-style, used
+  only when `LC_OCR_ONLINE_KEY` is set; per-process circuit breaker); (3) offline RapidOCR on the models shipped in
+  `app/services/lc_stamper/models/` (free, unlimited, nothing leaves the network). The top 46% of the page is OCR-ed
+  first; the whole page only if needed or when amount matching is on. Modes: Smart (default) / Always OCR / Never OCR.
+  Truly unlimited free online OCR does not exist: the online tier needs the operator's own key and has quotas.
+- **`.env` keys.** `LC_OCR_ONLINE_ENABLED` (default true), `LC_OCR_ONLINE_URL` (default
+  `https://api.ocr.space/parse/image`), `LC_OCR_ONLINE_KEY` (empty = online tier off; never log or commit it),
+  `LC_STAMPER_RETENTION_HOURS` (24). The parent process builds `OcrConfig`; worker processes never read `.env`.
+- **Rules.** The invoice number is always matched as a whole number (`1001` is not found inside `10012`). Date and
+  amount are compared with the list; `match_dates` / `match_amounts` leave mismatching pages OUT, otherwise they are
+  kept and flagged (`amount_tolerance` default Rs 1). Duplicates are skipped unless `keep_duplicates`. **Deliberate
+  change from the desktop tool:** a rejected page no longer blocks a later good page of the same invoice. Decisions are
+  batch-wide in upload order; invoices never found are reported "Not Found".
+- **Parallelism.** `run_batch` scans chunks of ALL documents side by side in the job worker's private CPU pool
+  (`jobs.cpu_pool()`; also `jobs.cancel_requested()` and `jobs.abort_cpu_pool()` for cancel), then one stamp task per
+  document. Output is one PDF per document or one combined PDF. Several batches are simply several queued jobs
+  (`app.routers.lc_stamper:_run_job` is in the `jobs._ALLOWED_TASKS` allow-list).
+- **Staging.** Uploads live in `SCRATCH_DIR/lc-stamper/<user id>/` for `LC_STAMPER_RETENTION_HOURS`, outputs in
+  `SCRATCH_DIR/lc-out-<uuid>/`; downloads are served only from inside that folder; document ids must match
+  `^[0-9a-f]{32}$`. The `/stamp-preview` request is exempt from the global loading indicator in `lib/api.ts`.
+- **Libraries (new).** `pymupdf==1.28.0` (do NOT move to 2.x: it pulls pymupdf-layout/4llm), `rapidocr==3.10.0`,
+  `onnxruntime==1.32.0` (and their dependencies: opencv-python-headless, shapely, pyclipper, omegaconf, ...). The three
+  ONNX models (31 MB) are committed. Run `pip install -r requirements.txt` after pulling.
+- **Tests.** `tests/test_lc_stamper.py` (+ `tests/lc_stamper_helpers.py`): engine, rules, parallel batches, stamp position
+  on every rotation/cropbox, offline OCR on a scanned page, fake online-OCR server and the fallback to offline, router.
+  Measured speeds: `docs/lc_stamper_perf.md`.
 
 ### Ultrafine Cashflow Generator (`ultrafine-cashflow`)
 

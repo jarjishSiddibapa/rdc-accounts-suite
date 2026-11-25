@@ -101,7 +101,8 @@ async function request<T>(path: string, init?: RequestInit, timeoutMs = REQUEST_
   // ProgressPanel already renders the shared loading notice for job polls;
   // excluding those frequent GETs prevents the fixed indicator from
   // flickering every 800 ms while a report is running.
-  const finishLoading = /\/jobs\/[^/]+\/?(?:\?|$)/.test(path) && isRetryableRead
+  // The stamp preview of the LC Stamper redraws on every keystroke; it must not flash the shared indicator either.
+  const finishLoading = (/\/jobs\/[^/]+\/?(?:\?|$)/.test(path) && isRetryableRead) || path.endsWith('/stamp-preview')
     ? () => undefined
     : beginGlobalLoading()
   let res: Response

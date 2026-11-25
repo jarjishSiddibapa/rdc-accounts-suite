@@ -19,6 +19,7 @@ import {
   MailCheck,
   ReceiptText,
   UserRoundSearch,
+  Stamp,
 } from 'lucide-react'
 
 export type Company = 'RDC' | 'Ultrafine'
@@ -218,6 +219,15 @@ export const TOOLS_CATALOG: ToolCatalogEntry[] = [
     icon: UserRoundSearch,
     appKey: 'unidentified-entries',
     category: 'AR reporting',
+    company: 'RDC',
+  },
+  {
+    to: '/tools/lc-stamper',
+    title: 'RDC LC Stamper Application',
+    description: 'Find the invoices of your list in one or many PDFs, check their date and amount, and stamp those pages or just pick them out. Scanned pages are read by OCR only when needed.',
+    icon: Stamp,
+    appKey: 'lc-stamper',
+    category: 'Invoice documents',
     company: 'RDC',
   },
 ]
