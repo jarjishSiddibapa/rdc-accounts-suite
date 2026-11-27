@@ -1,11 +1,12 @@
 """Each customer's region, straight from the Oracle ERP.
 
 The ERP holds a region against every customer (``hz_parties.attribute5``,
-named in ``xxrdc_region_details``). The Untagged Invoices Report and the
-Unapplied Receipts Report use it as the row's Location: it is the customer's
-own, so it needs no mapping. The "Location Name -> Location" mappings kept in
-this suite stay as the fallback, for the older customers the ERP has no region
-for.
+named in ``xxrdc_region_details``). In the debtors reports (AR Ageing, Untagged
+Invoices, Unapplied Receipts) a row's Location - and so its Accounts Incharge -
+is that of its PLANT: the "Location Name -> Location" mappings kept in this
+suite. The customer's ERP region is the fallback, for a row whose plant is not
+mapped or names no place (``NOT_A_PLACE``). A customer buys from plants in other
+regions than its own, so its region cannot say who looks after a plant's dues.
 
 The Location values are the ERP's own region names (``ERP_REGIONS``).
 ``migrate_mappings_to_erp_regions`` brings the mapping tables already in the
@@ -212,13 +213,26 @@ def regions_for(accounts: pd.Series, region_by_account: dict[str, str] | None) -
     return accounts.map(lookup)
 
 
-def location_with_regions(accounts: pd.Series, fallback: pd.Series,
-                          region_by_account: dict[str, str] | None) -> tuple[pd.Series, pd.Series]:
+# Locations a plant can be mapped to that name no place at all: for those rows the customer's own region says more.
+NOT_A_PLACE: frozenset[str] = frozenset({"CLOSED", "UNIDENTIFIED COLL"})
+
+
+def location_with_regions(accounts: pd.Series, plant_location: pd.Series,
+                          region_by_account: dict[str, str] | None,
+                          known_locations=None) -> tuple[pd.Series, pd.Series]:
     """(Location per row, mask of the rows whose Location came from the ERP).
-    The ERP region wins; the mapped `fallback` is used where there is none."""
+
+    The plant's Location wins. The customer's ERP region is used only where the
+    plant gives no place: blank, one of ``NOT_A_PLACE``, or - when
+    ``known_locations`` is given - not one of them (a raw plant name that no
+    mapping covers). A row with neither keeps its ``plant_location``."""
     region = regions_for(accounts, region_by_account)
-    from_erp = region.notna()
-    return region.where(from_erp, fallback), from_erp
+    plant = plant_location.fillna("").astype(str).str.strip()
+    no_place = plant.eq("") | plant.str.upper().isin(NOT_A_PLACE)
+    if known_locations is not None:
+        no_place |= ~plant.isin({str(name).strip() for name in known_locations})
+    from_erp = no_place & region.notna()
+    return region.where(from_erp, plant_location), from_erp
 
 
 # ── one-time move of the stored mappings to the ERP's names ──────────────────

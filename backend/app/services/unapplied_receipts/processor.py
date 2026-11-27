@@ -438,8 +438,9 @@ def process_report(input_path: str, log_q, as_on_date: _dt.date = None, *,
 
     ``region_lookup`` (optional) is a callable returning {customer number ->
     ERP region} - waited for only once the receipts' own locations are in. A
-    customer's ERP region is its Location; the receipt's location (mapped by
-    ``supplier_site_map``) is the fallback for a customer the ERP has no region for.
+    receipt's location (mapped by ``supplier_site_map``) is its Location; the
+    customer's ERP region is the fallback where that gives no place (no location,
+    one that is not mapped, or one such as CLOSED).
 
     ``erp_ok`` is False when the Oracle ERP lookup itself failed (as
     opposed to succeeding but returning no match for a given receipt) - in
@@ -533,9 +534,11 @@ def process_report(input_path: str, log_q, as_on_date: _dt.date = None, *,
     region_by_account = region_lookup() if region_lookup is not None else None
     if region_by_account:
         df["Location"], from_erp = customer_region.location_with_regions(
-            df["Customer Number"], df["Location"], region_by_account)
-        log_q.put(("info", f"Location from the customer's ERP region for {int(from_erp.sum()):,} of "
-                           f"{len(df):,} receipts; the rest from the receipt's own location"))
+            df["Customer Number"], df["Location"], region_by_account,
+            known_locations=(supplier_site_map or {}).values())
+        log_q.put(("info", f"Location from the receipt's own location for {len(df) - int(from_erp.sum()):,} of "
+                           f"{len(df):,} receipts; the customer's ERP region for the {int(from_erp.sum()):,} whose "
+                           "location is not mapped or names no place"))
     cols = list(df.columns)
     cols.remove("Location")
     if pay_date_col in cols:

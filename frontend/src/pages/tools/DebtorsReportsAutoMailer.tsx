@@ -143,8 +143,8 @@ export default function DebtorsReportsAutoMailer() {
                 you need &mdash; for example a daily mail for the team and a month-end pack for the meeting. Each
                 schedule has its own reports, as-on date, timing, recipients, wording and send history, and can
                 also be sent by hand with a preview first. The ageing is fetched from the ERP once per mail, and
-                each customer&rsquo;s Location comes from its ERP region, with the mapping tables at the bottom as
-                the fallback.
+                each row&rsquo;s Location and Accounts Incharge follow its plant (the mapping tables at the bottom); the
+                customer&rsquo;s ERP region is used only when the plant is not mapped or names no place.
               </p>
             </div>
           </div>
@@ -162,7 +162,7 @@ export default function DebtorsReportsAutoMailer() {
           <div>
             <h2 className="font-display text-lg font-semibold text-ink">Mapping tables (shared by every schedule)</h2>
             <p className="text-sm text-ink-dim">
-              Used for a customer the ERP holds no region for, and for the Accounts Incharge of every Location. If a
+              Give each plant its Location, and each Location its Accounts Incharge. If a
               value is missing, a mail is held back (or sent with it shown as -, as set in that schedule&rsquo;s
               automatic mail settings).
             </p>

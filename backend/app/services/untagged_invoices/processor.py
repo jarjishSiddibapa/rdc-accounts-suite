@@ -243,6 +243,20 @@ def read_ageing_file(path: str, log_q=None) -> pd.DataFrame:
     return df
 
 
+def _location_of_each_row(df: pd.DataFrame, location_map: dict[str, str],
+                          region_by_account: dict[str, str] | None) -> tuple[pd.Series, pd.Series]:
+    """(Location per row, mask of the rows that took it from the customer's ERP region). The plant decides - its
+    'Location Name' through the mapping - and the ERP region only where the plant gives no place (see
+    customer_region.location_with_regions)."""
+    loc_name_col = _find_col(df.columns, _LOCATION_NAME_TOKENS)
+    raw_upper = df[loc_name_col].fillna("").astype(str).str.strip().str.upper()
+    mapped = raw_upper.map(location_map).fillna("")
+    account_col = _find_col(df.columns, _CUSTOMER_ACCOUNT_TOKENS)
+    if not region_by_account or not account_col:
+        return mapped, pd.Series(False, index=df.index)
+    return customer_region.location_with_regions(df[account_col], mapped, region_by_account)
+
+
 def _region_of_each_row(df: pd.DataFrame, region_by_account: dict[str, str] | None) -> pd.Series | None:
     """The ERP region of every row's customer (NaN where the ERP has none), or
     None when there are no regions or no Customer Account column."""
@@ -252,16 +266,17 @@ def _region_of_each_row(df: pd.DataFrame, region_by_account: dict[str, str] | No
     return customer_region.regions_for(df[account_col], region_by_account)
 
 
-def count_rows_from_erp_region(df: pd.DataFrame, region_by_account: dict[str, str] | None) -> int:
-    region = _region_of_each_row(df, region_by_account)
-    return 0 if region is None else int(region.notna().sum())
+def count_rows_from_erp_region(df: pd.DataFrame, location_map: dict[str, str],
+                               region_by_account: dict[str, str] | None) -> int:
+    """How many rows took their Location from the customer's ERP region (their plant gave no place)."""
+    return int(_location_of_each_row(df, location_map, region_by_account)[1].sum())
 
 
 def missing_location_mappings(df: pd.DataFrame, location_map: dict[str, str],
                               region_by_account: dict[str, str] | None = None) -> list[str]:
     """Distinct raw 'Location Name' values (uppercased) with no entry in
-    location_map, for the rows whose Location is not already known from the
-    ERP (a customer with an ERP region needs no mapping)."""
+    location_map, for the rows that have no Location at all (a customer with an
+    ERP region falls back to it, so such a row holds nothing up)."""
     loc_name_col = _find_col(df.columns, _LOCATION_NAME_TOKENS)
     if not loc_name_col:
         return []
@@ -296,17 +311,14 @@ def add_location_column(df: pd.DataFrame, location_map: dict[str, str],
                         region_by_account: dict[str, str] | None = None) -> pd.DataFrame:
     """Insert the 'Location' column immediately after 'Location Name'.
 
-    A customer's Location is the region the ERP holds for it; where the ERP has
-    none, the 'Location Name' -> Location mapping gives it."""
+    A row's Location is that of its plant (the 'Location Name' -> Location
+    mapping); where the plant gives no place, the customer's ERP region."""
     df = df.copy()
     loc_name_col = _find_col(df.columns, _LOCATION_NAME_TOKENS)
     if not loc_name_col:
         raise JobUserError("Could not find a 'Location Name' column in the uploaded file.")
 
-    raw_upper = df[loc_name_col].fillna("").astype(str).str.strip().str.upper()
-    mapped = raw_upper.map(location_map).fillna("")
-    region = _region_of_each_row(df, region_by_account)
-    df[LOCATION_COL] = mapped if region is None else region.where(region.notna(), mapped)
+    df[LOCATION_COL] = _location_of_each_row(df, location_map, region_by_account)[0]
 
     cols = list(df.columns)
     cols.remove(LOCATION_COL)
@@ -335,14 +347,11 @@ def add_incharge_after_location_name(df: pd.DataFrame, location_map: dict[str, s
                                      region_by_account: dict[str, str] | None = None) -> pd.DataFrame:
     """For an ageing frame that has no 'Location' column (the GST-numbered ageing): insert 'Accounts Incharge'
     right after 'Location Name'. The incharge is that of the row's Location, worked out exactly as
-    add_location_column does (the customer's ERP region, else the mapped Location Name)."""
+    add_location_column does (the plant's Location, else the customer's ERP region)."""
     loc_name_col = _find_col(df.columns, _LOCATION_NAME_TOKENS)
     if not loc_name_col:
         raise JobUserError("Could not find a 'Location Name' column in the ageing.")
-    raw_upper = df[loc_name_col].fillna("").astype(str).str.strip().str.upper()
-    mapped = raw_upper.map(location_map).fillna("")
-    region = _region_of_each_row(df, region_by_account)
-    location = mapped if region is None else region.where(region.notna(), mapped)
+    location = _location_of_each_row(df, location_map, region_by_account)[0]
     df = df.copy()
     df.insert(list(df.columns).index(loc_name_col) + 1, INCHARGE_COL,
               location.map(lambda loc: incharge_map.get(loc, "")).fillna(""))

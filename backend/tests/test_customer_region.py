@@ -1,4 +1,4 @@
-"""The customer's ERP region as the Location, the mappings as the fallback, the
+"""The plant's Location first and the customer's ERP region as the fallback, the
 one-time move of stored mappings to the ERP's region names, and the ageing
 query fetched in slices."""
 
@@ -38,12 +38,20 @@ class NamesAndAccountsTests(unittest.TestCase):
 
 
 class LocationFromRegionTests(unittest.TestCase):
-    def test_erp_region_wins_and_the_mapping_is_the_fallback(self):
-        accounts = pd.Series(["24455", "9", "", "31"])
-        fallback = pd.Series(["NCR", "KERALA", "", ""])
-        location, from_erp = cr.location_with_regions(accounts, fallback, {"24455": "Mumbai", "31": "Goa"})
-        self.assertEqual(location.tolist(), ["Mumbai", "KERALA", "", "Goa"])
-        self.assertEqual(from_erp.tolist(), [True, False, False, True])
+    def test_the_plant_wins_and_the_erp_region_fills_the_gaps(self):
+        accounts = pd.Series(["146734", "9", "", "31", "31", "31", "7"])
+        plant = pd.Series(["Hyderabad", "Kerala", "", "", "CLOSED", "UNIDENTIFIED COLL", "CLOSED"])
+        regions = {"146734": "Bangalore", "31": "Goa"}
+        location, from_erp = cr.location_with_regions(accounts, plant, regions)
+        self.assertEqual(location.tolist(), ["Hyderabad", "Kerala", "", "Goa", "Goa", "Goa", "CLOSED"])
+        self.assertEqual(from_erp.tolist(), [False, False, False, True, True, True, False])
+
+    def test_a_plant_name_no_mapping_covers_gives_way_to_the_region(self):
+        accounts = pd.Series(["31", "31", "9"])
+        plant = pd.Series(["Kerala", "SOME RAW SITE", "SOME RAW SITE"])
+        location, from_erp = cr.location_with_regions(accounts, plant, {"31": "Goa"}, known_locations=["Kerala"])
+        self.assertEqual(location.tolist(), ["Kerala", "Goa", "SOME RAW SITE"])
+        self.assertEqual(from_erp.tolist(), [False, True, False])
 
     def test_without_regions_the_fallback_is_untouched(self):
         fallback = pd.Series(["NCR", ""])
@@ -57,15 +65,25 @@ def _ageing(rows):
 
 
 class UntaggedUsesRegionsTests(unittest.TestCase):
-    def test_location_comes_from_the_customer_and_needs_no_mapping(self):
-        df = _ageing([("24455", "SOME NEW SITE"), ("9", "OLD SITE"), ("10", "UNMAPPED SITE")])
-        location_map = {"OLD SITE": "KERALA"}
-        regions = {"24455": "Mumbai"}
+    def test_location_comes_from_the_plant_and_the_region_only_fills_gaps(self):
+        df = _ageing([("24455", "SOME NEW SITE"), ("9", "OLD SITE"), ("24455", "OLD SITE"),
+                      ("10", "UNMAPPED SITE")])
+        location_map = {"OLD SITE": "Kerala"}
+        regions = {"24455": "Mumbai", "9": "Goa"}
         out = processor.add_location_column(df, location_map, regions)
-        self.assertEqual(out[processor.LOCATION_COL].tolist(), ["Mumbai", "KERALA", ""])
-        # only the customer with neither an ERP region nor a mapping is a gap
+        self.assertEqual(out[processor.LOCATION_COL].tolist(), ["Mumbai", "Kerala", "Kerala", ""])
+        # only the row with neither a mapped plant nor an ERP region is a gap
         self.assertEqual(processor.missing_location_mappings(df, location_map, regions), ["UNMAPPED SITE"])
-        self.assertEqual(processor.count_rows_from_erp_region(df, regions), 1)
+        self.assertEqual(processor.count_rows_from_erp_region(df, location_map, regions), 1)
+
+    def test_the_incharge_follows_the_plant_not_the_customer(self):
+        df = _ageing([("146734", "Hyderabad-Rajendra Nagar (Trading)"), ("150018", "Kochi-Edayar RMC Plant")])
+        location_map = {"HYDERABAD-RAJENDRA NAGAR (TRADING)": "Hyderabad", "KOCHI-EDAYAR RMC PLANT": "Kerala"}
+        incharge_map = {"Hyderabad": "Rajesh", "Kerala": "Aswathy", "Bangalore": "Chetan/Shrikant",
+                        "Mangalore": "Chetan/Shrikant"}
+        out = processor.add_incharge_after_location_name(
+            df, location_map, incharge_map, {"146734": "Bangalore", "150018": "Mangalore"})
+        self.assertEqual(out[processor.INCHARGE_COL].tolist(), ["Rajesh", "Aswathy"])
 
     def test_without_regions_it_behaves_as_before(self):
         df = _ageing([("24455", "OLD SITE"), ("10", "UNMAPPED SITE")])

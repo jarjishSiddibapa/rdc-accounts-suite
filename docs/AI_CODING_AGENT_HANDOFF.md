@@ -1006,12 +1006,18 @@ schedule's mail now (there is no separate "Send now" run): "Preview mail" builds
 shows it with a download of the report, and only "Confirm & send" sends - from the signed-in person's own email
 identity (Settings), logged as a manual run of that schedule.
 
-**Location comes from the customer's ERP region** (Untagged, Unapplied Receipts
-and the mailer below): `app/services/customer_region.py` reads each customer's
-region from the ERP (`hz_cust_accounts` / `hz_parties.attribute5` /
-`xxrdc_region_details`) and that region IS the row's Location; the stored
-"Location Name -> Location" mapping is only the fallback for customers the ERP
-has no region for (about 57 % of ageing rows today). The Location values are
+**Debtors Location (and so Accounts Incharge) follows the PLANT** (Untagged,
+Unapplied Receipts and the mailer below; changed 27 Nov 2026): the row's plant
+("Location Name", or the receipt's location) mapped through the stored
+"Location Name -> Location" mapping decides. `app/services/customer_region.py`
+reads each customer's region from the ERP (`hz_cust_accounts` /
+`hz_parties.attribute5` / `xxrdc_region_details`) and that is only the FALLBACK,
+for a row whose plant is blank, not mapped, or mapped to a Location that names
+no place (`NOT_A_PLACE`: `CLOSED`, `UNIDENTIFIED COLL`)
+(`location_with_regions`). The earlier rule (customer region first, Oct 2026) was
+wrong for customers that buy from a plant outside their own region (a Hyderabad
+plant's dues went to the Bangalore incharge). A mapping popup / held mail happens
+only for a row with neither a mapped plant nor a region. The Location values are
 the ERP's own 28 region names (`ERP_REGIONS`), so the stored mappings were moved
 to them once (`migrate_mappings_to_erp_regions`, run from each `mapping_store.load_all`;
 idempotent, keyed on an incharge row spelt exactly like a region; old rows spelt

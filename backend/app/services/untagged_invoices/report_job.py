@@ -112,9 +112,9 @@ def build_report(output_path: str, allow_unmapped: bool = False, progress_cb=Non
     missing_locations = processor.missing_location_mappings(df, location_map, region_by_account)
     df = processor.add_location_column(df, location_map, region_by_account)
     if region_by_account:
-        from_erp = processor.count_rows_from_erp_region(df, region_by_account)
-        log_q.put(("info", f"Location from the ERP region for {from_erp:,} of {len(df):,} rows; "
-                           "the rest from the Location mappings"))
+        from_erp = processor.count_rows_from_erp_region(df, location_map, region_by_account)
+        log_q.put(("info", f"Location from the plant for {len(df) - from_erp:,} of {len(df):,} rows; the customer's "
+                           f"ERP region for {from_erp:,} whose plant is not mapped or names no place"))
 
     resolved_locations = df[processor.LOCATION_COL].astype(str).str.strip()
     missing_incharges = processor.missing_incharge_mappings(
