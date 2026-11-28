@@ -701,7 +701,8 @@ router `app/routers/lc_stamper.py` (prefix `/api/tools/lc-stamper`), engine `app
 
 ### RDC HSBC Tradepay CSV Generation (`hsbc-tradepay`)
 
-Vendor code + invoice number + amount (typed or pasted from Excel) become the bank's HSBC TradePay upload CSV. Page
+Vendor code + invoice number + amount (typed, pasted, or uploaded in the app's Excel template) become the bank's HSBC
+TradePay upload CSV. Page
 `frontend/src/pages/tools/HsbcTradepay.tsx` (+ `lib/hsbcTradepay.ts`), router `app/routers/hsbc_tradepay.py` (prefix
 `/api/tools/hsbc-tradepay`), engine `app/services/hsbc_tradepay/` (`file_format` layout and value rules, `erp`
 read-only queries, `service` review and final check, `models`).
@@ -725,6 +726,10 @@ read-only queries, `service` review and final check, `models`).
   preselected. File codes are unique (DB unique `active_code`); removing a file soft-deletes it and frees the code.
   Download and removal are limited to the maker and administrators. The page clears its rows after a download so the
   same invoices are not put into two files by a second click.
+- **Input Excel** (`input_sheet.py`): `/template` is generated (text cells for vendor code and invoice number);
+  `/upload` finds the three columns by heading (sheet `Payments`, else the first), never by position, replaces the rows
+  on the page, and leaves a cell blank with a note when Excel turned it into a date or an inexact number. Excel files
+  only (no CSV, which loses leading zeros), 5 MB.
 - No job queue: lookups take a few seconds (set `arraysize`/`prefetchrows`, the default fetch size made 500 rows take
   20 s). Up to 500 payments per file. No new libraries.
 - Tests: `tests/test_hsbc_tradepay.py`.

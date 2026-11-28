@@ -110,8 +110,9 @@ hand.
 
 1. **File code.** Enter the location (2 or 3 letters, for example `HYD`). The series number moves on by itself, giving
    a code such as `RDCCHYD01`. Each code can be used once.
-2. **Payments.** Type vendor code, invoice number and amount (net of TDS), or copy those three columns in Excel and
-   paste them into the first box. Then choose **Fetch details from ERP**.
+2. **Payments.** Choose **Download Excel template**, fill vendor code, invoice number and amount (net of TDS), and
+   **Upload filled Excel** (it replaces the rows on the page). You can also type the rows, or copy those three columns
+   in Excel and paste them into the first box. Then choose **Fetch details from ERP**.
 3. **Check and download.** Check the party name, city, description and bank account of each payment. If a vendor has
    more than one approved account, you must choose one. An account can be typed only when the ERP holds none for the
    vendor. Read the warnings, tick that you have checked them, and download the CSV.

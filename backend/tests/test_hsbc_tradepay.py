@@ -2,13 +2,15 @@
 
 Every name, account number and ID here is made up."""
 
+import io
 import unittest
 from datetime import date, datetime
 from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from fastapi import HTTPException
+import openpyxl
+from fastapi import HTTPException, UploadFile
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -277,6 +279,84 @@ class RouteTests(unittest.TestCase):
             with self.assertRaises(HTTPException) as caught:
                 routes.lookup(routes.LookupIn(rows=[{"vendor_code": "1", "invoice_no": "1", "amount": "1"}]), db=self.db)
         self.assertEqual(caught.exception.status_code, 503)
+
+
+def workbook(*rows, title="Payments", extra_first=False) -> bytes:
+    book = openpyxl.Workbook()
+    sheet = book.active
+    if extra_first:
+        sheet.title = "Cover"
+        sheet.append(["Read me"])
+        sheet = book.create_sheet()
+    sheet.title = title
+    for row in rows:
+        sheet.append(list(row))
+    buffer = io.BytesIO()
+    book.save(buffer)
+    return buffer.getvalue()
+
+
+def send(data: bytes, name="payments.xlsx"):
+    return routes.upload(UploadFile(io.BytesIO(data), filename=name))
+
+
+class InputSheetTests(unittest.TestCase):
+    def refused(self, data, text, name="payments.xlsx", status=400):
+        with self.assertRaises(HTTPException) as caught:
+            send(data, name)
+        self.assertEqual(caught.exception.status_code, status)
+        self.assertIn(text, caught.exception.detail)
+
+    def test_the_template_keeps_what_is_typed_and_is_read_back(self):
+        reply = routes.template()
+        self.assertIn("HSBC_Tradepay_Input_Template.xlsx", reply.headers["content-disposition"])
+        book = openpyxl.load_workbook(io.BytesIO(reply.body))
+        sheet = book["Payments"]
+        self.assertEqual([c.value for c in sheet[1]], ["Vendor Code", "Invoice No.", "Amount (net of TDS)"])
+        for cell in ("A2", "B2", "A501", "B501"):
+            self.assertEqual(sheet[cell].number_format, "@", cell)
+        self.refused(reply.body, "No payments were found")
+        for row, values in ((2, ("00100", "007/1-2", 125000)), (4, ("200", "INV 2", 10.5))):
+            for column, value in enumerate(values, 1):
+                sheet.cell(row=row, column=column, value=value)
+        buffer = io.BytesIO()
+        book.save(buffer)
+        self.assertEqual(send(buffer.getvalue()), {"rows": [
+            {"vendor_code": "00100", "invoice_no": "007/1-2", "amount": "125000"},
+            {"vendor_code": "200", "invoice_no": "INV 2", "amount": "10.5"},
+        ], "notes": []})
+
+    def test_columns_are_found_by_heading_wherever_they_are(self):
+        data = workbook(["Payments of the week"], [], ["Amt", "Remarks", "Invoice Number", "Supplier Code"],
+                        ["1,25,000.00", "x", " A-1 ", 100], [None, "only a remark", None, None],
+                        [125000.00000000001, None, 4512, 200.0], title="Sheet1", extra_first=False)
+        reply = send(data)
+        self.assertEqual(reply["rows"], [
+            {"vendor_code": "100", "invoice_no": "A-1", "amount": "1,25,000.00"},
+            {"vendor_code": "200", "invoice_no": "4512", "amount": "125000"},
+        ])
+        self.assertEqual(reply["notes"], [])
+
+    def test_the_payments_sheet_is_preferred_over_the_first_sheet(self):
+        data = workbook(["Vendor Code", "Invoice No.", "Amount"], ["100", "A", 5], extra_first=True)
+        self.assertEqual(len(send(data)["rows"]), 1)
+
+    def test_cells_excel_changed_are_left_blank_and_reported(self):
+        reply = send(workbook(["Vendor Code", "Invoice No.", "Amount"], ["100", datetime(2026, 1, 2), 5],
+                              ["100", 12.5, datetime(2026, 1, 2)], ["100", "B", 10.125]))
+        self.assertEqual([(r["invoice_no"], r["amount"]) for r in reply["rows"]],
+                         [("", "5"), ("", ""), ("B", "10.125")])          # extra decimals reach the check, which refuses
+        self.assertEqual(len(reply["notes"]), 3)
+        self.assertIn("Row 2 of the sheet: Excel holds the invoice number as a date", reply["notes"][0])
+
+    def test_files_that_could_be_read_wrongly_are_refused(self):
+        self.refused(workbook(["Vendor Code", "Invoice No."], ["1", "2"]), "needs the headings")
+        self.refused(workbook(["Vendor Code", "Invoice No.", "Amount", "Net Amount"], ["1", "2", 3, 4]),
+                     "more than one amount column")
+        self.refused(b"Vendor Code,Invoice No.,Amount\n1,2,3\n", "Upload an Excel file", name="payments.csv")
+        many = [["1", str(n), 1] for n in range(service.MAX_ROWS + 1)]
+        self.refused(workbook(["Vendor Code", "Invoice No.", "Amount"], *many), "more than 500 payments")
+        self.refused(b"0" * (5 * 1024 * 1024 + 1), "over 5 MB", status=413)
 
 
 class ErpQueryTests(unittest.TestCase):

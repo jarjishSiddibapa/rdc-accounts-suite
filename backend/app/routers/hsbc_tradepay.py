@@ -2,6 +2,8 @@
 
   GET  /status                  today's date, whether the HSBC ID (cell E1) is set, the next file code of a location
   PUT  /settings                set the HSBC ID (administrators)
+  GET  /template                the blank Excel the payments can be typed into
+  POST /upload                  a filled Excel -> the vendor code, invoice no and amount of each row
   POST /lookup                  vendor code + invoice no + amount -> every value of the file, read from the ERP
   POST /generate                check the reviewed rows against the ERP again, record and return the CSV
   GET  /files                   the files made so far (search, pages)
@@ -11,10 +13,14 @@
 
 from __future__ import annotations
 
+import re
+import tempfile
+import uuid
 from datetime import date, datetime
 from decimal import Decimal
+from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy import or_
@@ -22,10 +28,12 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.auth import get_current_user, require_admin
+from app.config import SCRATCH_DIR
 from app.database import get_db
+from app.jobs import JobUserError
 from app.models import User
 from app.permissions import require_app_access
-from app.services.hsbc_tradepay import erp, file_format as fmt, service
+from app.services.hsbc_tradepay import erp, file_format as fmt, input_sheet, service
 from app.services.hsbc_tradepay.models import HsbcTradepayFile, HsbcTradepayLine, HsbcTradepaySettings
 
 router = APIRouter(
@@ -33,6 +41,8 @@ router = APIRouter(
     dependencies=[Depends(require_app_access("hsbc-tradepay"))],
 )
 
+_XLSX = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+_UPLOAD_LIMIT_MB = 5                                      # a filled template of 500 rows is a few tens of KB
 _LOCATION_SUGGESTIONS = ("HO", "MUM", "PUN", "HYD", "BLR", "CHN", "GOA")
 _NO_HSBC_ID = "The HSBC ID (cell E1 of the template) is not set yet. An administrator sets it once on this page."
 
@@ -166,6 +176,31 @@ def save_settings(body: SettingsIn, admin: User = Depends(require_admin), db: Se
     row.hsbc_id, row.updated_by_id, row.updated_at, row.is_deleted = value, admin.id, datetime.utcnow(), False
     db.commit()
     return {"hsbc_id": value}
+
+
+@router.get("/template")
+def template():
+    return Response(
+        content=input_sheet.template(service.MAX_ROWS), media_type=_XLSX,
+        headers={"Content-Disposition": f'attachment; filename="{input_sheet.FILE_NAME}"', "Cache-Control": "no-store"},
+    )
+
+
+@router.post("/upload")
+def upload(file: UploadFile = File(...)):
+    data = file.file.read(_UPLOAD_LIMIT_MB * 1024 * 1024 + 1)
+    if len(data) > _UPLOAD_LIMIT_MB * 1024 * 1024:
+        raise HTTPException(status_code=413, detail=f"The file is over {_UPLOAD_LIMIT_MB} MB. Upload the filled template.")
+    name = re.sub(r"[^\w .()-]", "_", Path(file.filename or "payments.xlsx").name)[-80:]
+    SCRATCH_DIR.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=SCRATCH_DIR, ignore_cleanup_errors=True) as folder:
+        path = Path(folder) / f"{uuid.uuid4()}_{name}"          # messages show the name without the prefix
+        path.write_bytes(data)
+        try:
+            rows, notes = input_sheet.read(str(path), service.MAX_ROWS)
+        except JobUserError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"rows": rows, "notes": notes}
 
 
 @router.post("/lookup")

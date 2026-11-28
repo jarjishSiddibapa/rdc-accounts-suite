@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ClipboardEvent, type ReactNode } from 'react'
 import {
-  AlertTriangle, CheckCircle2, Download, FileSpreadsheet, IndianRupee, Plus, RotateCcw, Search, Trash2, X, XCircle,
+  AlertTriangle, CheckCircle2, Download, FileSpreadsheet, IndianRupee, Plus, RotateCcw, Search, Trash2, Upload, X,
+  XCircle,
 } from 'lucide-react'
 import { AppShell } from '@/components/AppShell'
 import { GlassCard } from '@/components/GlassCard'
@@ -10,7 +11,7 @@ import { Modal } from '@/components/Modal'
 import { SearchBox } from '@/components/SearchBox'
 import { Pagination } from '@/components/Pagination'
 import { CreatableCombobox } from '@/components/CreatableCombobox'
-import { ApiError, apiUrl, del, get, post, postBlob, put } from '@/lib/api'
+import { ApiError, apiUrl, del, get, post, postBlob, postForm, put } from '@/lib/api'
 import { useAuth } from '@/lib/auth-context'
 import { formatIndianCurrency, formatIndianDate, formatIndianDateTime } from '@/lib/regional'
 import {
@@ -293,7 +294,10 @@ export default function HsbcTradepay() {
   const [idInput, setIdInput] = useState('')
   const [editId, setEditId] = useState(false)
   const [savingId, setSavingId] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const [uploaded, setUploaded] = useState<{ name: string; count: number; notes: string[] } | null>(null)
   const reviewRef = useRef<HTMLDivElement>(null)
+  const fileInput = useRef<HTMLInputElement>(null)
 
   // The next series number of the location (also after a file is made or removed).
   useEffect(() => {
@@ -332,6 +336,24 @@ export default function HsbcTradepay() {
       next[at + offset] = target
     })
     changeEntries(next)
+  }
+
+  /** The rows of a filled template take the place of the rows on the page. */
+  async function upload(file: File | undefined) {
+    if (!file) return
+    setUploading(true)
+    setError(null)
+    try {
+      const form = new FormData()
+      form.append('file', file)
+      const reply = await postForm<{ rows: Omit<Entry, 'id'>[]; notes: string[] }>(`${BASE}/upload`, form)
+      changeEntries(reply.rows.map((r) => blankEntry(r)))
+      setUploaded({ name: file.name, count: reply.rows.length, notes: reply.notes })
+    } catch (err) {
+      setError(message(err, 'The file could not be read.'))
+    } finally {
+      setUploading(false)
+    }
   }
 
   async function fetchDetails() {
@@ -404,6 +426,7 @@ export default function HsbcTradepay() {
       // cleared on purpose: pressing the button twice must not put the same invoices into two files
       setEntries([blankEntry()])
       setRows(null)
+      setUploaded(null)
       setVersion((v) => v + 1)
     } catch (err) {
       setError(message(err, 'The file could not be made.'))
@@ -505,7 +528,44 @@ export default function HsbcTradepay() {
           </div>
         </Step>
 
-        <Step n={2} title="Payments" hint="Type the rows, or copy the three columns in Excel and paste into the first box.">
+        <Step n={2} title="Payments"
+          hint="Upload the filled Excel template, type the rows, or copy the three columns in Excel and paste into the first box.">
+          <div className="flex flex-col gap-3 rounded-xl border border-border bg-surface/50 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-ink">Fill the payments in Excel</p>
+              <p className="text-xs leading-5 text-ink-dim">Uploading a filled template replaces the rows below.</p>
+            </div>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-4">
+              <a href={apiUrl(`${BASE}/template`)} download
+                className="inline-flex min-h-10 items-center gap-2 text-sm font-semibold text-accent hover:underline">
+                <Download className="h-4 w-4" />Download Excel template
+              </a>
+              <Button variant="secondary" icon={<Upload className="h-4 w-4" />} loading={uploading}
+                disabled={checking || making} onClick={() => fileInput.current?.click()}>Upload filled Excel</Button>
+              <input ref={fileInput} type="file" accept=".xlsx,.xlsm,.xlsb,.xls" hidden aria-label="Filled Excel template"
+                onChange={(e) => { void upload(e.target.files?.[0]); e.target.value = '' }} />
+            </div>
+          </div>
+          {uploaded && (
+            <div role="status" className="flex flex-col gap-1 text-sm">
+              <p className="flex items-start gap-2 text-emerald-600 dark:text-emerald-400">
+                <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>
+                  {uploaded.count} payment{uploaded.count > 1 ? 's' : ''} read from <strong className="[overflow-wrap:anywhere]">{uploaded.name}</strong>.
+                  Choose Fetch details from ERP.
+                </span>
+              </p>
+              {uploaded.notes.length > 0 && (
+                <ul className="flex max-h-32 flex-col gap-1 overflow-y-auto">
+                  {uploaded.notes.map((note) => (
+                    <li key={note} className="flex items-start gap-2 text-xs text-amber-600 dark:text-amber-400">
+                      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />{note}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
           <div className="flex flex-col gap-2">
             <div className="hidden grid-cols-[2.5rem_1fr_1.4fr_1fr_2.75rem] gap-2 px-1 text-xs font-semibold text-ink-dim sm:grid">
               <span>#</span>{FIELDS.map((f) => <span key={f}>{FIELD_LABELS[f]}</span>)}<span />
@@ -535,7 +595,8 @@ export default function HsbcTradepay() {
             <Button onClick={() => void fetchDetails()} loading={checking} disabled={!filled.length}
               icon={<Search className="h-4 w-4" />}>Fetch details from ERP</Button>
             <Button variant="secondary" icon={<Plus className="h-4 w-4" />} onClick={() => setEntries([...entries, blankEntry()])}>Add row</Button>
-            <Button variant="ghost" icon={<RotateCcw className="h-4 w-4" />} disabled={!filled.length} onClick={() => changeEntries([blankEntry()])}>Clear</Button>
+            <Button variant="ghost" icon={<RotateCcw className="h-4 w-4" />} disabled={!filled.length}
+              onClick={() => { changeEntries([blankEntry()]); setUploaded(null) }}>Clear</Button>
             {filled.length > 0 && <span className="text-sm text-ink-dim sm:ml-auto">{filled.length} payment{filled.length > 1 ? 's' : ''} entered</span>}
           </div>
         </Step>
