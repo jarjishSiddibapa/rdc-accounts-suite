@@ -1,8 +1,11 @@
 """From the typed rows (vendor code, invoice number, amount) and the ERP to checked payment lines.
 
-``review`` fills in everything the file needs and says what a person should look at before paying. ``prepare``
-checks the reviewed rows again, against freshly read ERP data, just before the file is written: a bank account can
-only be one the ERP holds as approved for that vendor, and can be typed by hand only when the ERP holds none.
+``review`` fills in everything the file needs and says what a person should look at before paying: ``errors`` stop the
+row, ``warnings`` have to be ticked as checked, ``notes`` only explain how a value was filled. What concerns one bank
+account travels with that account (``problem`` stops it being used, ``caution`` is a warning once it is chosen).
+``prepare`` checks the reviewed rows again, against freshly read ERP data, just before the file is written: a bank
+account can only be one the ERP holds as approved for that vendor, with a valid number and IFSC, and can be typed by
+hand only when the ERP holds none.
 """
 
 from __future__ import annotations
@@ -12,6 +15,7 @@ from collections import Counter
 from datetime import date, datetime
 from decimal import Decimal
 
+from app.regional import today_ist
 from app.services.hsbc_tradepay import file_format as fmt
 from app.services.hsbc_tradepay.erp import ErpData, invoice_key
 
@@ -47,7 +51,20 @@ def _approved(row: dict) -> bool:
     return str(row.get("status") or "").strip().lower() == "approved" and deleted in {"0", "0.0"}
 
 
-def account_options(rows: list[dict]) -> list[dict]:
+def _account_problem(account: str, ifsc: str) -> str:
+    """Why the bank would reject this ERP account ("" when it can be used)."""
+    if not fmt.account_ok(account):
+        wrong = f"The account number {account} is wrongly entered in the ERP."
+    elif not ifsc:
+        wrong = "The ERP has no IFSC for this account."
+    elif not fmt.ifsc_ok(ifsc):
+        wrong = f"The IFSC {ifsc} is wrongly entered in the ERP."
+    else:
+        return ""
+    return f"{wrong} Correct it in the ERP and fetch again, or leave this payment out."
+
+
+def account_options(rows: list[dict], vendor_name: str = "") -> list[dict]:
     """The distinct approved (account, IFSC) pairs of one vendor, each with where it is used."""
     options: dict[str, dict] = {}
     for row in rows:
@@ -57,11 +74,13 @@ def account_options(rows: list[dict]) -> list[dict]:
         if not account:
             continue
         key = f"{account}|{ifsc}"
+        beneficiary = str(row.get("beneficiary") or "").strip()
+        other = beneficiary and not same_party(beneficiary, vendor_name)
         option = options.setdefault(key, {
             "key": key, "account": account, "ifsc": ifsc, "bank": str(row.get("bank") or "").strip(),
-            "branch": str(row.get("branch") or "").strip(), "locations": [],
-            "beneficiary": str(row.get("beneficiary") or "").strip(),
-            "account_ok": fmt.account_ok(account), "ifsc_ok": fmt.ifsc_ok(ifsc),
+            "branch": str(row.get("branch") or "").strip(), "locations": [], "beneficiary": beneficiary,
+            "problem": _account_problem(account, ifsc),
+            "caution": f"The bank account is in another name: {beneficiary}." if other else "",
         })
         location = str(row.get("location_code") or "").strip().upper()
         if location and location not in option["locations"]:
@@ -74,7 +93,7 @@ def account_options(rows: list[dict]) -> list[dict]:
 def description_for(supplier_type) -> tuple[str, str | None]:
     kind = str(supplier_type or "").strip().upper()
     if not kind:
-        return "Expense", "The ERP has no supplier type for this vendor: check the description."
+        return "Expense", "Description set to Expense: the ERP has no supplier type for this vendor."
     return _DESCRIPTION_BY_TYPE.get(kind, "Expense"), None
 
 
@@ -90,7 +109,7 @@ def pick_invoice(candidates: list[dict]) -> dict | None:
 
 def choose_city(sites: list[dict], invoice_site_id=None, today: date | None = None) -> tuple[str, str | None]:
     """The city of the invoice's own site; otherwise that of the vendor's active pay sites."""
-    today = today or date.today()
+    today = today or today_ist()
     if invoice_site_id is not None:
         for site in sites:
             if site.get("vendor_site_id") == invoice_site_id:
@@ -163,18 +182,17 @@ def _supplier_warnings(supplier: dict, today: date) -> list[str]:
 def review(entries: list[dict], erp: ErpData, earlier: dict[tuple[str, str], list[str]] | None = None,
            today: date | None = None) -> list[dict]:
     """``entries`` [{vendor_code, invoice_no, amount}]; ``earlier`` {(vendor code, NUMBER): [files it is in]}."""
-    today = today or date.today()
+    today = today or today_ist()
     earlier = earlier or {}
-    repeats = Counter((vendor_code(e.get("vendor_code")), invoice_key(e.get("invoice_no"))) for e in entries)
     rows = []
     for number, entry in enumerate(entries, 1):
         code = vendor_code(entry.get("vendor_code"))
-        errors, warnings = [], []
+        errors, warnings, notes = [], [], []
         row = {
             "line": number, "vendor_code": code, "invoice_no": str(entry.get("invoice_no") or "").strip(),
             "amount": str(entry.get("amount") or "").strip(), "vendor_name": "", "party_name": "", "city": "",
             "description": "", "accounts": [], "account_key": "", "manual_account": False, "invoice": None,
-            "errors": errors, "warnings": warnings,
+            "earlier_files": [], "errors": errors, "warnings": warnings, "notes": notes,
         }
         rows.append(row)
         paying = None
@@ -198,9 +216,9 @@ def review(entries: list[dict], erp: ErpData, earlier: dict[tuple[str, str], lis
         row["vendor_name"] = str(supplier.get("vendor_name") or "").strip()
         row["party_name"], how = fmt.clean_party_name(row["vendor_name"])
         if how == "shortened":
-            warnings.append(f"The name was shortened to fit {fmt.PARTY_LIMIT} characters: check it.")
+            notes.append(f"The party name was shortened to fit {fmt.PARTY_LIMIT} characters.")
         elif how == "cut":
-            warnings.append(f"The name was cut at {fmt.PARTY_LIMIT} characters: check it.")
+            notes.append(f"The party name was cut at {fmt.PARTY_LIMIT} characters.")
         warnings.extend(_supplier_warnings(supplier, today))
 
         invoice = pick_invoice(erp.invoices.get((supplier["vendor_id"], invoice_key(row["invoice_no"])), []))
@@ -210,13 +228,13 @@ def review(entries: list[dict], erp: ErpData, earlier: dict[tuple[str, str], lis
         row["city"], note = choose_city(
             erp.sites.get(supplier["vendor_id"], []), invoice and invoice.get("vendor_site_id"), today)
         if note:
-            warnings.append(note)
+            notes.append(note)
         row["description"], note = description_for(supplier.get("vendor_type"))
         if note:
-            warnings.append(note)
+            notes.append(note)
 
         bank_rows = erp.bank_rows.get(code, [])
-        row["accounts"] = account_options(bank_rows)
+        row["accounts"] = account_options(bank_rows, row["vendor_name"])
         if not row["accounts"]:
             row["manual_account"] = True
             warnings.append(
@@ -225,21 +243,10 @@ def review(entries: list[dict], erp: ErpData, earlier: dict[tuple[str, str], lis
                 + " Type the account only after checking it against the vendor's own proof.")
         elif len(row["accounts"]) == 1:
             row["account_key"] = row["accounts"][0]["key"]
-        else:
-            warnings.append(f"The vendor has {len(row['accounts'])} approved bank accounts: choose one.")
-        for option in row["accounts"]:
-            if not (option["account_ok"] and option["ifsc_ok"]):
-                warnings.append(f"The ERP account {option['account']} / IFSC {option['ifsc']} looks wrongly entered.")
-        others = {o["beneficiary"] for o in row["accounts"]
-                  if o["beneficiary"] and not same_party(o["beneficiary"], row["vendor_name"])}
-        if others:
-            warnings.append(f"The bank account is in another name: {', '.join(sorted(others))}.")
 
-        key = (code, invoice_key(row["invoice_no"]))
-        if repeats[key] > 1:
-            warnings.append("This vendor and invoice number are listed more than once.")
-        if earlier.get(key):
-            warnings.append(f"This invoice is already in file {', '.join(earlier[key][:3])}.")
+        row["earlier_files"] = earlier.get((code, invoice_key(row["invoice_no"])), [])
+        if row["earlier_files"]:
+            warnings.append(f"This invoice is already in file {', '.join(row['earlier_files'][:3])}.")
     return rows
 
 
@@ -288,10 +295,8 @@ def prepare(entries: list[dict], erp: ErpData) -> tuple[list[tuple[str, str, fmt
                              "fetch the details again).")
             else:
                 account, ifsc = chosen["account"], chosen["ifsc"]
-                if not fmt.account_ok(account):
-                    found.append(f"The ERP account number {account} is not valid: correct it in the ERP.")
-                if not ifsc:
-                    found.append("The ERP has no IFSC for this account: add it in the ERP.")
+                if chosen["problem"]:
+                    found.append(chosen["problem"])
         else:
             source = "typed"
             account = fmt.clean_account(entry.get("manual_account"))

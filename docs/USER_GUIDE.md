@@ -108,14 +108,20 @@ hand.
 
 ### RDC HSBC Tradepay CSV Generation
 
-1. **File code.** Enter the location (2 or 3 letters, for example `HYD`). The series number moves on by itself, giving
-   a code such as `RDCCHYD01`. Each code can be used once.
+1. **File code.** Pick or type the location (2 or 3 letters, for example `HYD`). The next free series number is filled
+   in, giving a code such as `RDCCHYD01`. Each code can be used once.
 2. **Payments.** Choose **Download Excel template**, fill vendor code, invoice number and amount (net of TDS), and
    **Upload filled Excel** (it replaces the rows on the page). You can also type the rows, or copy those three columns
    in Excel and paste them into the first box. Then choose **Fetch details from ERP**.
-3. **Check and download.** Check the party name, city, description and bank account of each payment. If a vendor has
-   more than one approved account, you must choose one. An account can be typed only when the ERP holds none for the
-   vendor. Read the warnings, tick that you have checked them, and download the CSV.
+3. **Check and download.** Check the party name, city, description and bank account of each payment.
+   - Red lines need your action, for example choosing one of a vendor's bank accounts. If the ERP holds a wrongly
+     typed account number or IFSC, correct it in the ERP and fetch again, or leave that payment out.
+   - Amber lines are warnings: read them and tick that you have checked them. Grey lines only explain how a value was
+     filled.
+   - Use **Need your action** and **With warnings** to see just those payments.
+   - An account can be typed only when the ERP holds none for the vendor.
+
+If you correct a row in step 2 and fetch again, the bank accounts you chose and the names you edited are kept.
 
 Upload the file to the bank exactly as downloaded: opening and saving it in Excel can damage long account numbers. If a
 file was not uploaded, remove it under **Files made**; its file code becomes free again. An administrator sets the HSBC

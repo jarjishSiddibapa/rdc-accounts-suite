@@ -16,7 +16,7 @@ from __future__ import annotations
 import re
 import tempfile
 import uuid
-from datetime import date, datetime
+from datetime import datetime
 from decimal import Decimal
 from pathlib import Path
 
@@ -33,6 +33,7 @@ from app.database import get_db
 from app.jobs import JobUserError
 from app.models import User
 from app.permissions import require_app_access
+from app.regional import today_ist
 from app.services.hsbc_tradepay import erp, file_format as fmt, input_sheet, service
 from app.services.hsbc_tradepay.models import HsbcTradepayFile, HsbcTradepayLine, HsbcTradepaySettings
 
@@ -64,6 +65,7 @@ class PaymentIn(EntryIn):
     account_key: str = Field("", max_length=80)
     manual_account: str = Field("", max_length=60)
     manual_ifsc: str = Field("", max_length=30)
+    earlier_files: list[str] = Field(default_factory=list, max_length=1000)   # files the check had already named
 
 
 class GenerateIn(BaseModel):
@@ -152,7 +154,7 @@ def status(location: str = Query("", max_length=5), user: User = Depends(get_cur
               .order_by(HsbcTradepayFile.id.desc()).first())
     chosen = location.strip().upper() or (latest[0] if latest else "")
     return {
-        "today": date.today().isoformat(),
+        "today": today_ist().isoformat(),
         "ready": bool(bank_id),
         "hsbc_id": bank_id if user.role == "admin" else "",
         "locations": sorted(set(used) | set(_LOCATION_SUGGESTIONS)),
@@ -231,6 +233,16 @@ def generate(body: GenerateIn, user: User = Depends(get_current_user), db: Sessi
     if db.query(HsbcTradepayFile.id).filter(HsbcTradepayFile.active_code == code).first():
         raise code_taken()
 
+    # an invoice that went into another file after this one was checked must be looked at again, not paid twice
+    earlier = _earlier_files(db, body.rows)
+    for row in body.rows:
+        vendor = service.vendor_code(row.vendor_code)
+        unseen = [f for f in earlier.get((vendor, erp.invoice_key(row.invoice_no)), []) if f not in row.earlier_files]
+        if unseen:
+            raise HTTPException(status_code=409, detail=(
+                f"Invoice {row.invoice_no} of vendor {vendor} has meanwhile gone into file {unseen[0]}. "
+                "Fetch the details from the ERP again and check before paying."))
+
     entries = [row.model_dump() for row in body.rows]
     data = _read_erp([service.vendor_code(e["vendor_code"]) for e in entries])
     lines, problems = service.prepare(entries, data)
@@ -238,7 +250,7 @@ def generate(body: GenerateIn, user: User = Depends(get_current_user), db: Sessi
         more = f" (and {len(problems) - 8} more)" if len(problems) > 8 else ""
         raise HTTPException(status_code=422, detail=" ".join(problems[:8]) + more)
 
-    today = date.today()
+    today = today_ist()
     text = fmt.build_csv(code, bank_id, today, [payment for _, _, payment in lines])
     record = HsbcTradepayFile(
         file_code=code, active_code=code, location=location, series=body.series, file_date=today,
@@ -265,12 +277,13 @@ def files(q: str = Query("", max_length=60), page: int = Query(1, ge=1), page_si
     query = db.query(HsbcTradepayFile).filter(HsbcTradepayFile.is_deleted.is_(False))
     text = q.strip()
     if text:
-        like = f"%{text.upper()}%"
+        wanted = text.upper()                                  # "%" and "_" typed in the box are ordinary characters
         matching = db.query(HsbcTradepayLine.file_id).filter(
             HsbcTradepayLine.is_deleted.is_(False),
-            or_(HsbcTradepayLine.invoice_key.like(like), HsbcTradepayLine.vendor_code == text),
+            or_(HsbcTradepayLine.invoice_key.contains(wanted, autoescape=True), HsbcTradepayLine.vendor_code == text),
         )
-        query = query.filter(or_(HsbcTradepayFile.file_code.like(like), HsbcTradepayFile.id.in_(matching)))
+        query = query.filter(or_(HsbcTradepayFile.file_code.contains(wanted, autoescape=True),
+                                 HsbcTradepayFile.id.in_(matching)))
     total = query.count()
     rows = query.order_by(HsbcTradepayFile.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
     people = {u.id: u for u in db.query(User).filter(User.id.in_({r.created_by_id for r in rows})).all()} if rows else {}

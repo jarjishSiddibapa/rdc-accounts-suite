@@ -370,6 +370,12 @@
     isolation: isolate;
   }
 
+  /* Each card is its own stacking layer, so an open dropdown list would be painted under the next card: lift the
+     card that holds it (still below the top bar). */
+  .premium-card:has([role='combobox'][aria-expanded='true']) {
+    z-index: 10;
+  }
+
   .premium-card::before {
     position: absolute;
     top: -1px;

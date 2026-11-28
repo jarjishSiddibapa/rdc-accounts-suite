@@ -703,7 +703,8 @@ router `app/routers/lc_stamper.py` (prefix `/api/tools/lc-stamper`), engine `app
 
 Vendor code + invoice number + amount (typed, pasted, or uploaded in the app's Excel template) become the bank's HSBC
 TradePay upload CSV. Page
-`frontend/src/pages/tools/HsbcTradepay.tsx` (+ `lib/hsbcTradepay.ts`), router `app/routers/hsbc_tradepay.py` (prefix
+`frontend/src/pages/tools/HsbcTradepay.tsx` (parts in `pages/tools/hsbc/`, helpers in `lib/hsbcTradepay.ts`), router
+`app/routers/hsbc_tradepay.py` (prefix
 `/api/tools/hsbc-tradepay`), engine `app/services/hsbc_tradepay/` (`file_format` layout and value rules, `erp`
 read-only queries, `service` review and final check, `models`).
 
@@ -719,13 +720,22 @@ read-only queries, `service` review and final check, `models`).
   by vendor code; only `flddisable = approved` and `flddel = 0`). The standard IBY payee bank tables are practically
   empty at RDC. Name and supplier type: `ap_suppliers`. City: the invoice's own supplier site, else the commonest
   active pay-site city. Description: Cement / Aggregates / Raw Material from the supplier type, otherwise Expense
-  (editable; warned when the type is blank). Invoices are looked up in `ap_invoices_all` only to warn (not found,
-  paid, cancelled, amount above the unpaid balance, non-INR).
+  (editable; a note when the type is blank, which it is for most vendors). Invoices are looked up in
+  `ap_invoices_all` only to warn (not found, paid, cancelled, amount above the unpaid balance, non-INR).
+- **Review shape.** `errors` stop a row; `warnings` must be ticked; `notes` only explain a filled value, so that real
+  warnings stand out. Anything about one bank account travels with the account (`problem` blocks it, `caution` warns
+  once it is chosen). Repeats within the list are worked out on the page, so they follow rows being left out.
 - **Payment safety, keep it.** `/generate` re-reads the ERP and accepts only an approved account of that vendor; an
   account can be typed only when the ERP has none (stored as `account_source = typed`). Several accounts are never
-  preselected. File codes are unique (DB unique `active_code`); removing a file soft-deletes it and frees the code.
+  preselected. An ERP account whose number or IFSC is malformed (there are about a hundred) is refused. `/generate`
+  also refuses (409) an invoice that went into another file after it was checked (`earlier_files` sent back by the
+  page). File codes are unique (DB unique `active_code`); removing a file soft-deletes it and frees the code.
   Download and removal are limited to the maker and administrators. The page clears its rows after a download so the
-  same invoices are not put into two files by a second click.
+  same invoices are not put into two files by a second click, and is locked while the ERP is read or the file is made
+  (an edit made during that time once left the old amount in the check).
+- **Page behaviour to keep:** messages appear beside the button that caused them; choices survive "fetch again"; the
+  check shows 25 payments to a page (500 cards at once made typing slow). `CreatableCombobox` has `showAllOnOpen` for
+  fields that always hold a value, and `index.css` lifts a card whose list is open above the next card.
 - **Input Excel** (`input_sheet.py`): `/template` is generated (text cells for vendor code and invoice number);
   `/upload` finds the three columns by heading (sheet `Payments`, else the first), never by position, replaces the rows
   on the page, and leaves a cell blank with a note when Excel turned it into a date or an inexact number. Excel files

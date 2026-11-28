@@ -142,11 +142,20 @@ class ReviewTests(unittest.TestCase):
 
     def test_two_accounts_need_a_choice_and_everything_odd_is_said(self):
         row, = self.review(("200", "B-9", "10"))
-        self.assertEqual(row["account_key"], "")
+        self.assertEqual(row["account_key"], "")                                   # never picked for the person
         text = " ".join(row["warnings"])
-        for part in ("holds all payments", "not in the ERP for this vendor", "no supplier type",
-                     "2 approved bank accounts", "another name: Someone Else Holdings"):
+        for part in ("holds all payments", "not in the ERP for this vendor"):
             self.assertIn(part, text)
+        self.assertIn("no supplier type", " ".join(row["notes"]))                  # explained, nothing to tick
+        own, other = row["accounts"]
+        self.assertEqual((own["problem"], own["caution"], other["problem"]), ("", "", ""))
+        self.assertIn("another name: Someone Else Holdings", other["caution"])    # travels with that account
+
+    def test_an_account_the_bank_would_reject_is_marked(self):
+        for account, ifsc, part in (("123456", "TEST000001", "The IFSC TEST000001 is wrongly entered"),
+                                    ("123456", "", "no IFSC"), ("12-45-6789", "TEST0000001", "account number")):
+            option, = service.account_options([bank(account, ifsc)])
+            self.assertIn(part, option["problem"], (account, ifsc))
 
     def test_no_approved_account_means_it_has_to_be_typed(self):
         row, = self.review(("300", "C1", "10"))
@@ -154,13 +163,14 @@ class ReviewTests(unittest.TestCase):
         self.assertEqual(row["accounts"], [])
         self.assertIn("disabled or deleted", " ".join(row["warnings"]))
 
-    def test_paid_too_much_repeated_and_already_used_invoices_are_warned(self):
+    def test_paid_too_much_and_already_used_invoices_are_warned(self):
         data = erp_data()
         first, second = service.review(
             [{"vendor_code": "100", "invoice_no": "INV/1", "amount": "2000"}] * 2, data,
             {("100", "INV/1"): ["RDCCHO01 of 20-11-2026"]}, TODAY)
-        for part in ("more than the 1180", "more than once", "already in file RDCCHO01"):
+        for part in ("more than the 1180", "already in file RDCCHO01"):
             self.assertIn(part, " ".join(first["warnings"]))
+        self.assertEqual(second["earlier_files"], ["RDCCHO01 of 20-11-2026"])
         data.invoices[(1, "INV/1")][0].update(amount_paid=1180, payment_status_flag="Y")
         row, = service.review([{"vendor_code": "100", "invoice_no": "INV/1", "amount": "5"}], data, today=TODAY)
         self.assertIn("already paid in full", " ".join(row["warnings"]))
@@ -187,6 +197,13 @@ class PrepareTests(unittest.TestCase):
         self.assertEqual((lines[0][1], lines[0][2].account, lines[0][2].ifsc), ("typed", "1234567890", "TEST0000003"))
         _, problems = service.prepare([{**row, "manual_ifsc": "TEST1000003"}], erp_data())
         self.assertIn("IFSC", problems[0])
+
+    def test_a_wrongly_entered_erp_ifsc_never_reaches_the_bank_file(self):
+        data = erp_data()
+        data.bank_rows["100"] = [bank("000111222333", "TEST000000012")]
+        lines, problems = service.prepare([payment(account_key="000111222333|TEST000000012")], data)
+        self.assertEqual(lines, [])
+        self.assertIn("wrongly entered in the ERP", problems[0])
 
     def test_values_the_file_may_not_hold_are_reported(self):
         _, problems = service.prepare([payment(party_name="A & B", city="", description=""),
@@ -248,6 +265,24 @@ class RouteTests(unittest.TestCase):
         found = routes.lookup(routes.LookupIn(rows=[{"vendor_code": "100", "invoice_no": "inv/1", "amount": "5"}]),
                               db=self.db)
         self.assertIn("already in file RDCCHYD01", " ".join(found["rows"][0]["warnings"]))
+
+    def test_an_invoice_that_went_into_a_file_after_the_check_is_not_paid_twice(self):
+        self.set_id()
+        made = self.make()
+        with self.assertRaises(HTTPException) as caught:
+            self.make(series=2)                                        # checked before the first file existed
+        self.assertEqual(caught.exception.status_code, 409)
+        self.assertIn("meanwhile gone into file RDCCHYD01", caught.exception.detail)
+        checked = routes.lookup(routes.LookupIn(rows=[{"vendor_code": "100", "invoice_no": "INV/1", "amount": "5"}]),
+                                db=self.db)["rows"][0]["earlier_files"]
+        second = self.make(series=2, earlier_files=checked)            # checked again and accepted
+        self.assertNotEqual(second.body, made.body)
+
+    def test_search_treats_percent_and_underscore_as_ordinary_characters(self):
+        self.set_id()
+        self.make()
+        for text in ("%", "_", "R%1"):
+            self.assertEqual(self.listing(self.maker, text)["total"], 0, text)
 
     def test_a_row_with_a_problem_makes_no_file(self):
         self.set_id()

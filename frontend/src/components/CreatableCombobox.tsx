@@ -14,6 +14,9 @@ interface CreatableComboboxProps {
   ariaLabel?: string
   ariaDescribedBy?: string
   suggestionLabel?: string
+  /** Show every option when the list is opened, and filter only once something is typed: for a field that always
+   *  holds a value, so another one can be picked without erasing it first. */
+  showAllOnOpen?: boolean
 }
 
 interface MenuItem {
@@ -38,12 +41,15 @@ export function CreatableCombobox({
   ariaLabel,
   ariaDescribedBy,
   suggestionLabel = 'Existing values',
+  showAllOnOpen = false,
 }: CreatableComboboxProps) {
   const rootRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const listboxId = useId()
   const [open, setOpen] = useState(false)
   const [highlightedIndex, setHighlightedIndex] = useState(0)
+  const [typed, setTyped] = useState(false)
+  const filterText = showAllOnOpen && !typed ? '' : value.trim()
   const reduceMotion = useReducedMotion()
 
   const normalizedOptions = useMemo(() => {
@@ -60,7 +66,7 @@ export function CreatableCombobox({
   }, [options])
 
   const menuItems = useMemo<MenuItem[]>(() => {
-    const query = value.trim().toLocaleLowerCase()
+    const query = filterText.toLocaleLowerCase()
     const matching = normalizedOptions
       .filter((option) => !query || option.toLocaleLowerCase().includes(query))
       .sort((a, b) => {
@@ -75,9 +81,9 @@ export function CreatableCombobox({
     const hasExactMatch = normalizedOptions.some(
       (option) => option.toLocaleLowerCase() === query,
     )
-    if (value.trim() && !hasExactMatch) matching.push({ value: value.trim(), isNew: true })
+    if (filterText && !hasExactMatch) matching.push({ value: filterText, isNew: true })
     return matching
-  }, [normalizedOptions, value])
+  }, [normalizedOptions, filterText])
 
   useEffect(() => {
     const closeWhenClickingOutside = (event: PointerEvent) => {
@@ -88,7 +94,13 @@ export function CreatableCombobox({
   }, [])
 
   useEffect(() => {
-    setHighlightedIndex(0)
+    if (!open) setTyped(false)
+  }, [open])
+
+  useEffect(() => {
+    // with every option shown, start on the one already chosen, so that Enter keeps it
+    const chosen = showAllOnOpen && !typed ? menuItems.findIndex((item) => item.value === value) : -1
+    setHighlightedIndex(Math.max(0, chosen))
   }, [value, open])
 
   function selectItem(item: MenuItem) {
@@ -118,6 +130,7 @@ export function CreatableCombobox({
         onClick={() => setOpen(true)}
         onChange={(event) => {
           onChange(event.target.value)
+          setTyped(true)
           setOpen(true)
         }}
         onKeyDown={(event) => {
@@ -134,6 +147,8 @@ export function CreatableCombobox({
             selectItem(menuItems[highlightedIndex])
           } else if (event.key === 'Escape') {
             event.preventDefault()
+            setOpen(false)
+          } else if (event.key === 'Tab') {
             setOpen(false)
           }
         }}
@@ -162,10 +177,10 @@ export function CreatableCombobox({
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={reduceMotion ? undefined : { opacity: 0, y: -4, scale: 0.99 }}
             transition={reduceMotion ? { duration: 0 } : { duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-            className="glass absolute z-30 mt-2 max-h-64 w-full overflow-y-auto rounded-xl border-border p-1.5 shadow-[0_24px_55px_-22px_rgba(var(--shadow-rgb),0.65)]"
+            className="absolute z-30 mt-2 max-h-64 w-full overflow-y-auto rounded-xl border border-border bg-surface p-1.5 shadow-[0_24px_55px_-22px_rgba(var(--shadow-rgb),0.65)]"
           >
             <div className="flex items-center justify-between px-2.5 py-2 text-[10px] font-bold tracking-[0.12em] text-ink-faint uppercase">
-              <span>{value.trim() ? `Matching ${suggestionLabel.toLocaleLowerCase()}` : suggestionLabel}</span>
+              <span>{filterText ? `Matching ${suggestionLabel.toLocaleLowerCase()}` : suggestionLabel}</span>
               <span>{Math.min(menuItems.filter((item) => !item.isNew).length, MAX_VISIBLE_OPTIONS)}</span>
             </div>
 
