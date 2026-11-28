@@ -34,6 +34,7 @@ const DebtorsReportsAutoMailer = lazy(() => import('@/pages/tools/DebtorsReports
 const RdcSalesRegisterReport = lazy(() => import('@/pages/tools/RdcSalesRegisterReport'))
 const UnidentifiedEntries = lazy(() => import('@/pages/tools/UnidentifiedEntries'))
 const LcStamper = lazy(() => import('@/pages/tools/LcStamper'))
+const HsbcTradepay = lazy(() => import('@/pages/tools/HsbcTradepay'))
 
 function ScrollToTop() {
   const { pathname } = useLocation()
@@ -267,6 +268,12 @@ export default function App() {
             path="/tools/lc-stamper"
             element={
               protectedPage(<AppGuard appKey="lc-stamper"><LcStamper /></AppGuard>)
+            }
+          />
+          <Route
+            path="/tools/hsbc-tradepay"
+            element={
+              protectedPage(<AppGuard appKey="hsbc-tradepay"><HsbcTradepay /></AppGuard>)
             }
           />
 

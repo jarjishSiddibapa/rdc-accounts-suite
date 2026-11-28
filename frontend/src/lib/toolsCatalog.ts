@@ -20,6 +20,7 @@ import {
   ReceiptText,
   UserRoundSearch,
   Stamp,
+  IndianRupee,
 } from 'lucide-react'
 
 export type Company = 'RDC' | 'Ultrafine'
@@ -228,6 +229,15 @@ export const TOOLS_CATALOG: ToolCatalogEntry[] = [
     icon: Stamp,
     appKey: 'lc-stamper',
     category: 'Invoice documents',
+    company: 'RDC',
+  },
+  {
+    to: '/tools/hsbc-tradepay',
+    title: 'RDC HSBC Tradepay CSV Generation',
+    description: 'Enter the vendor code, invoice number and amount; the name, city and bank account come from the ERP and you get the HSBC upload file.',
+    icon: IndianRupee,
+    appKey: 'hsbc-tradepay',
+    category: 'Vendor payments',
     company: 'RDC',
   },
 ]

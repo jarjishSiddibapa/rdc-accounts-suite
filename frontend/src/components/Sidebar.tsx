@@ -24,6 +24,7 @@ import {
   ReceiptText,
   UserRoundSearch,
   Stamp,
+  IndianRupee,
   PanelLeftClose,
   PanelLeftOpen,
   X,
@@ -93,6 +94,7 @@ const mainNav: NavItem[] = [
   { to: '/tools/rdc-sales-register-report', label: 'RDC Sales Register Report', icon: ReceiptText, appKey: 'rdc-sales-register-report' },
   { to: '/tools/unidentified-entries', label: 'Unidentified Receipt Entries Report', icon: UserRoundSearch, appKey: 'unidentified-entries' },
   { to: '/tools/lc-stamper', label: 'RDC LC Stamper Application', icon: Stamp, appKey: 'lc-stamper' },
+  { to: '/tools/hsbc-tradepay', label: 'RDC HSBC Tradepay CSV Generation', icon: IndianRupee, appKey: 'hsbc-tradepay' },
 ]
 
 interface SidebarProps {

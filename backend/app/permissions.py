@@ -22,7 +22,7 @@ APP_KEYS = [
     "gst-invoice-adder", "closing-period-report",
     "iocl-balance-monitor", "invoice-booking-tracker", "creditors-ageing-report", "trial-balance-formatter",
     "untagged-invoices-report", "debtors-reports-auto-mailer", "rdc-sales-register-report",
-    "unidentified-entries", "lc-stamper",
+    "unidentified-entries", "lc-stamper", "hsbc-tradepay",
 ]
 # "meeting-debtors-reports-auto-mailer" was folded into the Debtors Reports Auto Mailer (a mail plan with its own
 # as-on date does what it did)
@@ -50,6 +50,7 @@ APP_LABELS = {
     "rdc-sales-register-report": "RDC Sales Register Report",
     "unidentified-entries": "Unidentified Receipt Entries Report",
     "lc-stamper": "RDC LC Stamper Application",
+    "hsbc-tradepay": "RDC HSBC Tradepay CSV Generation",
 }
 
 APP_COMPANIES = ("RDC", "Ultrafine")

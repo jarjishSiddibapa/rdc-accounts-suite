@@ -106,6 +106,20 @@ yet is held the same way. **Send now** on a schedule previews its mail and sends
 another month for that one mail; **Regenerate & mail** on a month under Upload and months still mails that one month by
 hand.
 
+### RDC HSBC Tradepay CSV Generation
+
+1. **File code.** Enter the location (2 or 3 letters, for example `HYD`). The series number moves on by itself, giving
+   a code such as `RDCCHYD01`. Each code can be used once.
+2. **Payments.** Type vendor code, invoice number and amount (net of TDS), or copy those three columns in Excel and
+   paste them into the first box. Then choose **Fetch details from ERP**.
+3. **Check and download.** Check the party name, city, description and bank account of each payment. If a vendor has
+   more than one approved account, you must choose one. An account can be typed only when the ERP holds none for the
+   vendor. Read the warnings, tick that you have checked them, and download the CSV.
+
+Upload the file to the bank exactly as downloaded: opening and saving it in Excel can damage long account numbers. If a
+file was not uploaded, remove it under **Files made**; its file code becomes free again. An administrator sets the HSBC
+ID (cell E1 of the template) on this page once.
+
 ## IOCL monitor
 
 Assigned users can select **Ultrafine IOCL Balance Monitor**, choose **Check

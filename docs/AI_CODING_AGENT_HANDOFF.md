@@ -27,6 +27,7 @@ LAN-hosted FastAPI and React application. The current suite contains:
 13. Ultrafine Trial Balance Formatter
 14. Ultrafine Invoice Booking Tracker
 15. RDC LC Stamper Application (stable key: `lc-stamper`)
+16. RDC HSBC Tradepay CSV Generation (stable key: `hsbc-tradepay`)
 
 It also contains authentication, user and application-access administration,
 central email settings/default recipients, mapping administration, audit logs,
@@ -697,6 +698,36 @@ router `app/routers/lc_stamper.py` (prefix `/api/tools/lc-stamper`), engine `app
 - **Tests.** `tests/test_lc_stamper.py` (+ `tests/lc_stamper_helpers.py`): engine, rules, parallel batches, stamp position
   on every rotation/cropbox, offline OCR on a scanned page, fake online-OCR server and the fallback to offline, router.
   Measured speeds: `docs/lc_stamper_perf.md`.
+
+### RDC HSBC Tradepay CSV Generation (`hsbc-tradepay`)
+
+Vendor code + invoice number + amount (typed or pasted from Excel) become the bank's HSBC TradePay upload CSV. Page
+`frontend/src/pages/tools/HsbcTradepay.tsx` (+ `lib/hsbcTradepay.ts`), router `app/routers/hsbc_tradepay.py` (prefix
+`/api/tools/hsbc-tradepay`), engine `app/services/hsbc_tradepay/` (`file_format` layout and value rules, `erp`
+read-only queries, `service` review and final check, `models`).
+
+- **This repository is public.** The template's HSBC ID, real account numbers and real vendor data must never be
+  committed (tests use made-up values). The HSBC ID (cell E1, "do not change") is set once by an administrator on the
+  page and kept in `hsbc_tradepay_settings`; no file can be made until it is set.
+- **Layout.** 19 columns (A-S) on every line, CRLF, ASCII, no quoting; see the module docstring of `file_format.py`.
+  Verified equal to Excel's own CSV export of the user's sample, except cell G1 (the guideline says blank; the sample
+  held a number) and stray trailing spaces after account and IFSC. The guideline's "account number preceded by an
+  apostrophe" is Excel's text-entry mark: Excel does not write it to a CSV, so neither does the app. Cell C3 style
+  date is the creation day as `yyyymmdd`. File code: `RDCC` + 2 or 3 letter location + series (at least 2 digits).
+- **Where values come from.** Bank account and IFSC: `apps.xx_vendor_bank_details` (RDC's vendor bank master, keyed
+  by vendor code; only `flddisable = approved` and `flddel = 0`). The standard IBY payee bank tables are practically
+  empty at RDC. Name and supplier type: `ap_suppliers`. City: the invoice's own supplier site, else the commonest
+  active pay-site city. Description: Cement / Aggregates / Raw Material from the supplier type, otherwise Expense
+  (editable; warned when the type is blank). Invoices are looked up in `ap_invoices_all` only to warn (not found,
+  paid, cancelled, amount above the unpaid balance, non-INR).
+- **Payment safety, keep it.** `/generate` re-reads the ERP and accepts only an approved account of that vendor; an
+  account can be typed only when the ERP has none (stored as `account_source = typed`). Several accounts are never
+  preselected. File codes are unique (DB unique `active_code`); removing a file soft-deletes it and frees the code.
+  Download and removal are limited to the maker and administrators. The page clears its rows after a download so the
+  same invoices are not put into two files by a second click.
+- No job queue: lookups take a few seconds (set `arraysize`/`prefetchrows`, the default fetch size made 500 rows take
+  20 s). Up to 500 payments per file. No new libraries.
+- Tests: `tests/test_hsbc_tradepay.py`.
 
 ### Ultrafine Cashflow Generator (`ultrafine-cashflow`)
 

@@ -436,6 +436,7 @@ def _init_db_unlocked():
     from app.services.debtors_mailer import models as _debtors_mailer_models  # noqa: F401
     from app.services.ultrafine_fse_reminder import models as _ultrafine_fse_reminder_models  # noqa: F401
     from app.services.ultrafine_cashflow import models as _ultrafine_cashflow_models  # noqa: F401
+    from app.services.hsbc_tradepay import models as _hsbc_tradepay_models  # noqa: F401
 
     _rename_debtors_mail_plan_table()
     Base.metadata.create_all(bind=engine)

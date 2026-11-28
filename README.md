@@ -43,6 +43,7 @@ control access, mappings, email defaults, automation, audit history, and recover
 | Ultrafine Invoice Booking Tracker | Scans every page of every configured DMS work queue, keeps the latest complete tracker visible, and sends the daily tracker | Playwright + SMTP |
 | Ultrafine Creditors Ageing Report Generator | Builds classified creditors, advances, and intercompany ageing schedules from Tally | Excel files |
 | Ultrafine Trial Balance Formatter | Reproduces the approved Ultrafine trial-balance layout from a raw Tally export | Excel files |
+| RDC HSBC Tradepay CSV Generation | Turns vendor code, invoice number, and amount into the bank's HSBC TradePay upload file | Oracle ERP + CSV |
 
 The DMS Downloader and IT POs Lookup are retired and intentionally excluded
 from the catalogue.
